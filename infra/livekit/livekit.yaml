@@ -1,0 +1,42 @@
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: true
+  enable_loopback_candidate: false
+
+redis:
+  address: "redis:6379"
+
+keys:
+  b42b0b2d600eabbf248b87d14d4b10bf84e782aea95fd55bfd625daade8d5c5234s: 9e307b16bb360aad800a87426c428a3f6546453cd6addc5fd73360b899e475e5
+
+room:
+  auto_create: true
+  empty_timeout: 300
+  departure_timeout: 20
+  max_participants: 500
+
+webhook:
+  api_key: b42b0b2d600eabbf248b87d14d4b10bf84e782aea95fd55bfd625daade8d5c5234s
+  urls:
+    - https://api.windoweropu.store/api/v1/livekit/webhook
+
+logging:
+  level: info
+  pion_level: warn
+  json: true
+
+turn:
+  enabled: true
+  domain: turn.windoweropu.store
+  tls_port: 443
+  udp_port: 3478
+  cert_file: /etc/letsencrypt/live/turn.windoweropu.store/fullchain.pem
+  key_file: /etc/letsencrypt/live/turn.windoweropu.store/privkey.pem
+
+prometheus_port: 6789

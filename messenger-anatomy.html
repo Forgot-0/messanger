@@ -1,0 +1,3577 @@
+<title>Анатомия мессенджера</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+:root{
+  --ground:#F2F5F3;
+  --surface:#FFFFFF;
+  --surface-2:#E7EDEA;
+  --ink:#121D1B;
+  --ink-soft:#3E504C;
+  --muted:#6B7C77;
+  --line:#D4DEDA;
+  --line-soft:#E4EBE8;
+  --accent:#0B6E63;
+  --accent-ink:#075049;
+  --accent-soft:#DBEFEA;
+  --signal:#8F5410;
+  --signal-soft:#F7EBD9;
+  --code-bg:#0D1A19;
+  --code-bar:#132524;
+  --code-line:#20302E;
+  --code-ink:#D6E4E0;
+  --shadow:0 1px 2px rgba(18,29,27,.05), 0 8px 24px -16px rgba(18,29,27,.25);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0A1211;
+    --surface:#0F1817;
+    --surface-2:#15201E;
+    --ink:#E5EFEB;
+    --ink-soft:#B2C4BF;
+    --muted:#83958F;
+    --line:#21302D;
+    --line:#22302D;
+    --line-soft:#1A2523;
+    --accent:#5ED3C1;
+    --accent-ink:#8FE6D8;
+    --accent-soft:#11302B;
+    --signal:#DFA45E;
+    --signal-soft:#261D11;
+    --code-bg:#070F0E;
+    --code-bar:#0E1B1A;
+    --code-line:#1B2827;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -20px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0A1211;
+  --surface:#0F1817;
+  --surface-2:#15201E;
+  --ink:#E5EFEB;
+  --ink-soft:#B2C4BF;
+  --muted:#83958F;
+  --line:#22302D;
+  --line-soft:#1A2523;
+  --accent:#5ED3C1;
+  --accent-ink:#8FE6D8;
+  --accent-soft:#11302B;
+  --signal:#DFA45E;
+  --signal-soft:#261D11;
+  --code-bg:#070F0E;
+  --code-bar:#0E1B1A;
+  --code-line:#1B2827;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -20px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:"Source Serif 4",Georgia,"Times New Roman",serif;
+  font-size:17.5px;
+  line-height:1.72;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;text-wrap:balance;margin:0}
+code,kbd,pre,.mono{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace}
+
+/* ---------- shell ---------- */
+.shell{
+  max-width:1240px;
+  margin:0 auto;
+  padding:0 24px 96px;
+  display:grid;
+  grid-template-columns:1fr;
+  gap:0;
+}
+@media (min-width:1060px){
+  .shell{grid-template-columns:236px minmax(0,1fr);column-gap:56px;align-items:start}
+}
+
+/* ---------- masthead ---------- */
+.masthead{
+  grid-column:1/-1;
+  border-bottom:1px solid var(--line);
+  padding:64px 0 40px;
+  margin-bottom:48px;
+}
+.eyebrow{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin:0 0 18px;
+}
+.masthead h1{
+  font-size:clamp(34px,5.4vw,58px);
+  font-weight:700;
+  letter-spacing:-.022em;
+  line-height:1.05;
+  max-width:16ch;
+}
+.masthead .lede{
+  margin:22px 0 0;
+  max-width:62ch;
+  font-size:20px;
+  color:var(--ink-soft);
+}
+.facts{
+  margin-top:36px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px 12px;
+}
+.fact{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:12px;
+  letter-spacing:.02em;
+  color:var(--ink-soft);
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:2px;
+  padding:6px 10px;
+}
+.fact b{color:var(--accent-ink);font-weight:600}
+
+/* ---------- nav ---------- */
+.rail{display:none}
+@media (min-width:1060px){
+  .rail{
+    display:block;
+    position:sticky;
+    top:24px;
+    max-height:calc(100vh - 48px);
+    overflow-y:auto;
+    padding-right:8px;
+  }
+}
+.rail h2{
+  font-size:11.5px;
+  font-family:"IBM Plex Mono",monospace;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--muted);
+  font-weight:500;
+  margin-bottom:14px;
+}
+.rail ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.rail a{
+  display:grid;
+  grid-template-columns:26px 1fr;
+  gap:8px;
+  text-decoration:none;
+  color:var(--ink-soft);
+  font-family:"IBM Plex Sans",sans-serif;
+  font-size:13.5px;
+  line-height:1.35;
+  padding:5px 6px;
+  border-radius:3px;
+  border-left:2px solid transparent;
+}
+.rail a span{color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:11.5px;padding-top:1px}
+.rail a:hover{background:var(--surface);color:var(--ink)}
+.rail a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.toc-mobile{margin-bottom:40px}
+@media (min-width:1060px){.toc-mobile{display:none}}
+.toc-mobile summary{
+  cursor:pointer;
+  font-family:"IBM Plex Sans",sans-serif;
+  font-size:14px;
+  font-weight:600;
+  padding:12px 14px;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:3px;
+}
+.toc-mobile ol{
+  list-style:none;margin:12px 0 0;padding:0;
+  display:flex;flex-direction:column;gap:1px;
+}
+.toc-mobile a{
+  display:block;padding:8px 14px;text-decoration:none;
+  color:var(--ink-soft);font-family:"IBM Plex Sans",sans-serif;font-size:14px;
+  background:var(--surface);border:1px solid var(--line-soft);border-radius:3px;
+}
+
+/* ---------- article ---------- */
+article{min-width:0}
+section{
+  scroll-margin-top:24px;
+  padding-bottom:56px;
+  margin-bottom:56px;
+  border-bottom:1px solid var(--line-soft);
+}
+section:last-child{border-bottom:0}
+.chapter-no{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:12px;
+  letter-spacing:.14em;
+  color:var(--accent);
+  display:block;
+  margin-bottom:10px;
+}
+section > h2{
+  font-size:clamp(25px,3.4vw,33px);
+  font-weight:700;
+  letter-spacing:-.018em;
+  line-height:1.15;
+  max-width:22ch;
+  margin-bottom:20px;
+}
+h3{
+  font-size:19px;
+  font-weight:600;
+  letter-spacing:-.008em;
+  margin:38px 0 12px;
+  max-width:34ch;
+}
+h4{
+  font-size:14px;
+  font-family:"IBM Plex Mono",monospace;
+  font-weight:500;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--muted);
+  margin:30px 0 10px;
+}
+p{margin:0 0 18px;max-width:68ch}
+article ul,article ol{max-width:66ch;margin:0 0 20px;padding-left:22px}
+article li{margin-bottom:9px}
+article li::marker{color:var(--accent)}
+strong{font-weight:600;color:var(--ink)}
+a{color:var(--accent-ink)}
+p code,li code,td code{
+  font-size:.86em;
+  background:var(--surface-2);
+  border-radius:2px;
+  padding:1px 5px;
+  color:var(--ink);
+  word-break:break-word;
+}
+
+/* ---------- code ---------- */
+figure.code{
+  margin:24px 0 26px;
+  border:1px solid var(--code-line);
+  border-radius:4px;
+  overflow:hidden;
+  background:var(--code-bg);
+  box-shadow:var(--shadow);
+}
+figure.code figcaption{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px;
+  letter-spacing:.03em;
+  color:#7FA79F;
+  background:var(--code-bar);
+  border-bottom:1px solid var(--code-line);
+  padding:8px 14px;
+  display:flex;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+}
+figure.code figcaption em{font-style:normal;color:#4E6E68}
+figure.code pre{
+  margin:0;
+  padding:16px 14px;
+  overflow-x:auto;
+  font-size:13px;
+  line-height:1.62;
+  color:var(--code-ink);
+  tab-size:4;
+}
+.note{
+  font-size:15px;
+  color:var(--muted);
+  max-width:66ch;
+  margin:-8px 0 22px;
+}
+
+/* hljs tokens (dark code surface in both themes) */
+.hljs-keyword,.hljs-literal,.hljs-selector-tag{color:#8FB8FF}
+.hljs-string,.hljs-meta .hljs-string{color:#8FD8A8}
+.hljs-title,.hljs-title.class_,.hljs-title.function_,.hljs-section{color:#FFD79A}
+.hljs-number{color:#F2A8C4}
+.hljs-comment{color:#5A736E;font-style:italic}
+.hljs-attr,.hljs-attribute,.hljs-property{color:#7FD8CB}
+.hljs-built_in,.hljs-type{color:#9FD9E8}
+.hljs-params{color:var(--code-ink)}
+.hljs-meta{color:#B49BE0}
+.hljs-variable,.hljs-template-variable{color:#E8C48F}
+.hljs-punctuation{color:#8FA6A1}
+
+/* ---------- callouts ---------- */
+.box{
+  margin:24px 0;
+  padding:16px 18px;
+  border-radius:3px;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-left:3px solid var(--accent);
+  max-width:70ch;
+}
+.box p:last-child{margin-bottom:0}
+.box .tag{
+  display:block;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:8px;
+}
+.box.trap{border-left-color:var(--signal);background:var(--signal-soft)}
+.box.trap .tag{color:var(--signal)}
+.box.diy{border-style:dashed;border-left-style:solid;border-left-color:var(--muted);background:transparent}
+.box.diy .tag{color:var(--muted)}
+
+/* ---------- tables ---------- */
+.table-wrap{overflow-x:auto;margin:24px 0 26px;border:1px solid var(--line);border-radius:4px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;font-family:"IBM Plex Sans",sans-serif}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--muted);
+  font-weight:500;
+  background:var(--surface-2);
+  white-space:nowrap;
+}
+tr:last-child td{border-bottom:0}
+td code{font-size:12.5px}
+
+/* ---------- pipeline diagram ---------- */
+.flow{
+  margin:28px 0;
+  padding:22px 18px;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:4px;
+  overflow-x:auto;
+}
+.flow-row{display:flex;align-items:stretch;gap:0;min-width:min-content}
+.node{
+  flex:0 0 auto;
+  min-width:118px;
+  max-width:160px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:3px;
+  background:var(--ground);
+  font-family:"IBM Plex Sans",sans-serif;
+  font-size:12.5px;
+  line-height:1.35;
+}
+.node b{display:block;font-size:13px;font-weight:600;margin-bottom:3px}
+.node em{font-style:normal;color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.04em}
+.node.hot{border-color:var(--accent);background:var(--accent-soft)}
+.arrow{
+  flex:0 0 auto;
+  align-self:center;
+  padding:0 9px;
+  color:var(--accent);
+  font-family:"IBM Plex Mono",monospace;
+  font-size:14px;
+}
+.flow-caption{
+  margin:14px 0 0;
+  font-size:13.5px;
+  color:var(--muted);
+  font-family:"IBM Plex Sans",sans-serif;
+  max-width:none;
+}
+
+/* ---------- misc ---------- */
+.lead-in{
+  font-size:19px;
+  color:var(--ink-soft);
+  max-width:64ch;
+  margin-bottom:26px;
+}
+.steps{counter-reset:step;list-style:none;padding-left:0;max-width:68ch}
+.steps > li{
+  counter-increment:step;
+  position:relative;
+  padding-left:38px;
+  margin-bottom:16px;
+}
+.steps > li::before{
+  content:counter(step);
+  position:absolute;
+  left:0;top:2px;
+  width:26px;height:26px;
+  display:grid;place-items:center;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:12px;
+  color:var(--accent);
+  border:1px solid var(--accent);
+  border-radius:50%;
+}
+footer.end{
+  padding-top:36px;
+  border-top:1px solid var(--line);
+  color:var(--muted);
+  font-family:"IBM Plex Sans",sans-serif;
+  font-size:14px;
+  max-width:68ch;
+}
+::selection{background:var(--accent-soft);color:var(--ink)}
+@media (prefers-reduced-motion:no-preference){
+  html{scroll-behavior:smooth}
+}
+</style>
+
+<div class="shell">
+
+<header class="masthead">
+  <p class="eyebrow">Разбор кода · FastAPI · Kafka · Redis · WebSocket</p>
+  <h1>Как устроен мессенджер: разбор по слоям</h1>
+  <p class="lede">Это не обзор «сверху», а построчный разбор рабочего кода: как сообщение проходит путь от HTTP-запроса до чужого экрана, почему на этом пути стоят outbox, Kafka и Redis Streams, и что сломается, если какой-то из них убрать. Читается сверху вниз — как учебник.</p>
+  <div class="facts">
+    <span class="fact"><b>~21 000</b> строк Python</span>
+    <span class="fact"><b>4</b> процесса из одного кода</span>
+    <span class="fact"><b>3</b> стратегии fan-out</span>
+    <span class="fact"><b>119</b> файлов тестов</span>
+    <span class="fact">Python <b>3.14</b> · SQLAlchemy <b>2.0</b> async</span>
+  </div>
+</header>
+
+<nav class="rail" aria-label="Содержание">
+  <h2>Содержание</h2>
+  <ol>
+    <li><a href="#ch01"><span>01</span> Что мы строим</a></li>
+    <li><a href="#ch02"><span>02</span> Каркас: слои, медиатор, DI</a></li>
+    <li><a href="#ch03"><span>03</span> Схема данных</a></li>
+    <li><a href="#ch04"><span>04</span> Роли и права в чате</a></li>
+    <li><a href="#ch05"><span>05</span> Отправка сообщения</a></li>
+    <li><a href="#ch06"><span>06</span> Outbox и CDC</a></li>
+    <li><a href="#ch07"><span>07</span> Консьюмер и идемпотентность</a></li>
+    <li><a href="#ch08"><span>08</span> Три стратегии fan-out</a></li>
+    <li><a href="#ch09"><span>09</span> WebSocket-соединение</a></li>
+    <li><a href="#ch10"><span>10</span> Маршрутизация в гейтвеи</a></li>
+    <li><a href="#ch11"><span>11</span> Протокол клиента</a></li>
+    <li><a href="#ch12"><span>12</span> Реакции и коалесинг</a></li>
+    <li><a href="#ch13"><span>13</span> Вложения</a></li>
+    <li><a href="#ch14"><span>14</span> Офлайн и push</a></li>
+    <li><a href="#ch15"><span>15</span> Звонки</a></li>
+    <li><a href="#ch16"><span>16</span> Профили как проекция</a></li>
+    <li><a href="#ch17"><span>17</span> Защита от дублей и спама</a></li>
+    <li><a href="#ch18"><span>18</span> Метрики и тесты</a></li>
+    <li><a href="#ch19"><span>19</span> План: построить с нуля</a></li>
+  </ol>
+</nav>
+
+<article>
+
+<details class="toc-mobile">
+  <summary>Содержание · 19 глав</summary>
+  <ol>
+    <li><a href="#ch01">01 · Что мы строим</a></li>
+    <li><a href="#ch02">02 · Каркас: слои, медиатор, DI</a></li>
+    <li><a href="#ch03">03 · Схема данных</a></li>
+    <li><a href="#ch04">04 · Роли и права в чате</a></li>
+    <li><a href="#ch05">05 · Отправка сообщения</a></li>
+    <li><a href="#ch06">06 · Outbox и CDC</a></li>
+    <li><a href="#ch07">07 · Консьюмер и идемпотентность</a></li>
+    <li><a href="#ch08">08 · Три стратегии fan-out</a></li>
+    <li><a href="#ch09">09 · WebSocket-соединение</a></li>
+    <li><a href="#ch10">10 · Маршрутизация в гейтвеи</a></li>
+    <li><a href="#ch11">11 · Протокол клиента</a></li>
+    <li><a href="#ch12">12 · Реакции и коалесинг</a></li>
+    <li><a href="#ch13">13 · Вложения</a></li>
+    <li><a href="#ch14">14 · Офлайн и push</a></li>
+    <li><a href="#ch15">15 · Звонки</a></li>
+    <li><a href="#ch16">16 · Профили как проекция</a></li>
+    <li><a href="#ch17">17 · Защита от дублей и спама</a></li>
+    <li><a href="#ch18">18 · Метрики и тесты</a></li>
+    <li><a href="#ch19">19 · План: построить с нуля</a></li>
+  </ol>
+</details>
+
+<!-- ============================================ 01 -->
+<section id="ch01">
+  <span class="chapter-no">Глава 01</span>
+  <h2>Что мы строим</h2>
+
+  <p class="lead-in">Мессенджер — это не «CRUD с чатиками». CRUD-часть (создать чат, записать сообщение) занимает процентов пятнадцать кода. Остальное — доставка: как сделать так, чтобы сообщение за десятки миллисекунд оказалось на всех устройствах всех участников, при этом ничего не потерялось при переподключении, не задублировалось при сбое и не положило базу, когда в канале миллион подписчиков.</p>
+
+  <p>Разбираемый проект — модульный монолит на FastAPI. Модули: <code>auth</code> (пользователи, JWT, сессии, OAuth, RBAC), <code>profiles</code> (профили и аватары), <code>chats</code> (всё про мессенджер), <code>notifications</code> (устройства и push), <code>core</code> (инфраструктура, общая для всех). Главный герой этого отчёта — <code>app/chats</code> и его подпорки в <code>app/core</code>.</p>
+
+  <h3>Что умеет система</h3>
+  <ul>
+    <li><strong>Четыре типа чатов</strong>: <code>direct</code> (ровно двое), <code>group</code>, <code>supergroup</code>, <code>channel</code> — у каждого свои лимиты участников и свой способ доставки.</li>
+    <li><strong>Сообщения</strong>: текст, ответы, пересылка, редактирование, удаление, вложения (фото, видео, файлы, голосовые, кружки), реакции эмодзи, отметки о прочтении.</li>
+    <li><strong>Realtime</strong>: WebSocket-гейтвей с подписками на чаты, heartbeat, докачкой пропущенного после разрыва связи.</li>
+    <li><strong>Офлайн</strong>: если получателя нет онлайн — push через Firebase.</li>
+    <li><strong>Звонки</strong>: комнаты LiveKit, токены доступа, mute участника.</li>
+    <li><strong>Модерация</strong>: роли, права, баны, муты, slow mode, admin-only режим.</li>
+  </ul>
+
+  <h3>Четыре процесса из одного кода</h3>
+  <p>Один и тот же пакет <code>app</code> запускается четырьмя разными способами. Это важное архитектурное решение: код общий, зависимости общие, DI-контейнер общий — различается только точка входа.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Процесс</th><th>Entrypoint</th><th>За что отвечает</th></tr></thead>
+    <tbody>
+      <tr><td><code>app</code></td><td><code>app.main:init_app()</code><br>gunicorn + uvicorn worker</td><td>HTTP API и WebSocket-гейтвей</td></tr>
+      <tr><td><code>consumers</code></td><td><code>app.consumers:app</code><br>FastStream</td><td>Читает доменные события из Kafka и превращает их в доставку</td></tr>
+      <tr><td><code>queue_worker</code></td><td><code>app.tasks:broker</code><br>Taskiq</td><td>Фоновые задачи: обработка вложений, push, рассылки</td></tr>
+      <tr><td><code>scheduler</code></td><td><code>app.tasks:scheduler</code><br>Taskiq</td><td>Периодика: чистка outbox, регулярные задачи</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Разделение по процессам, а не по репозиториям, даёт масштабирование там, где узко: под нагрузкой поднимаете десять инстансов <code>app</code> и два <code>consumers</code>, а не переписываете деплой. При этом нет «микросервисного налога» — общие модели, общие DTO, один <code>alembic upgrade head</code>.</p>
+  </div>
+
+  <h3>Путь сообщения целиком</h3>
+  <p>Прежде чем нырять в код, зафиксируйте эту схему. Всё остальное — её детализация.</p>
+
+  <div class="flow">
+    <div class="flow-row">
+      <div class="node hot"><b>Клиент</b><em>POST /messages/</em></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>Handler</b><em>права, seq</em></div>
+      <div class="arrow">→</div>
+      <div class="node hot"><b>Postgres</b><em>messages + outbox<br>одна транзакция</em></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>Debezium</b><em>читает WAL</em></div>
+      <div class="arrow">→</div>
+      <div class="node hot"><b>Kafka</b><em>топик chats</em></div>
+    </div>
+    <div class="flow-row" style="margin-top:14px">
+      <div class="node"><b>Consumer</b><em>идемпотентность</em></div>
+      <div class="arrow">→</div>
+      <div class="node hot"><b>DeliveryRouter</b><em>кому слать</em></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>Redis Stream</b><em>на каждый гейтвей</em></div>
+      <div class="arrow">→</div>
+      <div class="node hot"><b>Гейтвей</b><em>очередь сокета</em></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>Клиенты</b><em>ws-фрейм</em></div>
+    </div>
+    <p class="flow-caption">Ровно один синхронный участок — от клиента до <code>COMMIT</code>. Всё, что справа от Postgres, происходит асинхронно и переживает падение любого звена: события лежат в таблице, Kafka хранит оффсеты, Redis Stream — pending-список.</p>
+  </div>
+
+  <h3>Как читать дальше</h3>
+  <p>Главы 02–04 — фундамент (слои, данные, права). Главы 05–11 — главный тракт доставки, ядро мессенджера; если времени мало, читайте только их. Главы 12–17 — отдельные фичи, каждая самодостаточна. Глава 19 — план, как построить такое же с нуля, если вы начинаете с пустого репозитория.</p>
+  <p>В блоках кода указан реальный путь файла в проекте. Код местами сокращён (убраны логи и повторяющиеся ветки) — это отмечено комментарием <code># ...</code>.</p>
+</section>
+
+<!-- ============================================ 02 -->
+<section id="ch02">
+  <span class="chapter-no">Глава 02</span>
+  <h2>Каркас: слои, медиатор, внедрение зависимостей</h2>
+
+  <p class="lead-in">Первое, что стоит выбрать в новом проекте, — не базу и не брокер, а правило, куда класть код. Здесь правило одно и жёсткое: <code>Router → Command/Query → Handler → Repository → Model</code>. Роутер ничего не решает, хендлер ничего не знает про HTTP, модель ничего не знает про базу вызовов.</p>
+
+  <h3>Команды и запросы</h3>
+  <p>CQRS здесь в самом простом виде: <strong>команда меняет состояние</strong>, <strong>запрос только читает</strong>. Никакой отдельной базы для чтения — просто разные классы и разные хендлеры, чтобы нельзя было случайно записать что-то в «получить список».</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/commands.py</span><em>~15 строк — это весь «фреймворк»</em></figcaption>
+    <pre><code class="language-python">from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True)
+class BaseCommand:
+    ...
+
+
+@dataclass(frozen=True)
+class BaseCommandHandler[CT: BaseCommand, CR: Any](ABC):
+
+    @abstractmethod
+    async def handle(self, command: CT) -&gt; CR: ...</code></pre>
+  </figure>
+
+  <p>Команда — это <code>frozen</code> dataclass с данными запроса: что сделать и от чьего имени. Хендлер — dataclass, поля которого суть его зависимости (сессия, репозитории, сервисы). Это ключевой приём: зависимости объявляются полями, а собирает их DI-контейнер.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/commands/messages/send.py</span><em>форма любого хендлера</em></figcaption>
+    <pre><code class="language-python">@dataclass(frozen=True, kw_only=True)
+class SendMessageCommand(BaseCommand):
+    chat_id: UUID
+    content: str | None
+    reply_to_id: UUID | None = None
+    message_type: MessageType = MessageType.TEXT
+    upload_tokens: list[UUID] = field(default_factory=list)
+    user_jwt_data: UserJWTData          # кто отправляет
+
+
+@dataclass(frozen=True)
+class SendMessageCommandHandler(BaseCommandHandler[SendMessageCommand, MessageDTO]):
+    session: AsyncSession               # ← всё это придёт из DI
+    chat_repository: ChatRepository
+    access_service: ChatAccessService
+    message_repository: MessageRepository
+    attachment_repository: AttachmentRepository
+    message_service: MessageService
+    event_bus: BaseEventBus
+
+    async def handle(self, command: SendMessageCommand) -&gt; MessageDTO:
+        ...</code></pre>
+  </figure>
+
+  <h3>Медиатор: реестр «команда → хендлер»</h3>
+  <p>Роутер не знает класс хендлера. Он создаёт команду и отдаёт её медиатору; медиатор смотрит в реестр, просит у контейнера нужный хендлер и вызывает <code>handle</code>.</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/mediators/base.py + imediator.py</span><em>реестр и диспетчеризация</em></figcaption>
+    <pre><code class="language-python">@dataclass
+class CommandRegistry:
+    commands_map: dict[type[BaseCommand], type[BaseCommandHandler]] = field(
+        default_factory=dict, kw_only=True,
+    )
+
+    def register_command(self, command, type_handler) -&gt; None:
+        self.commands_map[command] = type_handler
+
+    def get_handler_types(self, command: BaseCommand):
+        return self.commands_map.get(command.__class__)
+
+
+@dataclass(eq=False)
+class DishkaMediator(BaseMediator):
+    container: AsyncContainer
+
+    async def handle_command(self, command: BaseCommand) -&gt; Any:
+        handler_type = self.command_registry.get_handler_types(command)
+        if not handler_type:
+            raise NotHandlerRegisterError(classes=[command.__class__.__name__])
+
+        # новый request-скоуп: своя сессия БД, свои репозитории
+        async with self.container() as requests_container:
+            handler = await requests_container.get(handler_type)
+            return await handler.handle(command)</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Обратите внимание на <code>async with self.container()</code>. Каждая команда исполняется в собственном request-скоупе DI, то есть со <strong>своей</strong> сессией SQLAlchemy. Благодаря этому один и тот же хендлер работает и в HTTP-запросе, и в фоновой задаче Taskiq, и в консьюмере Kafka — ему всё равно, кто его вызвал. Именно поэтому <code>ProccessAttachmentsCommand</code> можно дёрнуть из воркера, а <code>SendMessageCommand</code> — из HTTP.</p>
+  </div>
+
+  <h3>DI на Dishka</h3>
+  <p>Зависимости регистрируются в <code>providers.py</code> каждого модуля. Скоупы: <code>APP</code> — живёт всё время процесса (Redis-клиент, движок БД, менеджер соединений), <code>REQUEST</code> — на один запрос/команду (сессия, репозитории, хендлеры).</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/providers.py</span><em>сокращено</em></figcaption>
+    <pre><code class="language-python">class ChatModuleProvider(Provider):
+
+    delivery_router = provide(ChatDeliveryRouter, scope=Scope.REQUEST)
+    reaction_coalesce_queue = provide(ReactionCoalesceQueue, scope=Scope.APP)
+
+    commands = provide_all(
+        SendMessageCommandHandler,
+        ForwardMessageCommandHandler,
+        MarkAsReadCommandHandler,
+        # ... ещё ~25 хендлеров
+        scope=Scope.REQUEST,
+    )
+
+    repositories = provide_all(
+        ChatRepository, MessageRepository, MessageReactionRepository,
+        AttachmentRepository, ReadReceiptRepository, ChatUserProfileRepository,
+        scope=Scope.REQUEST,
+    )
+
+    service = provide_all(
+        MessageService, ChatAccessService, AttachmentMediaValidator, ReactionPolicy,
+        scope=Scope.APP,
+    )
+
+    @decorate
+    def register_auth_command_handlers(self, command_registry: CommandRegistry) -&gt; CommandRegistry:
+        command_registry.register_command(SendMessageCommand, SendMessageCommandHandler)
+        command_registry.register_command(MarkAsReadCommand, MarkAsReadCommandHandler)
+        # ... регистрация всех пар «команда → хендлер»
+        return command_registry</code></pre>
+  </figure>
+
+  <figure class="code">
+    <figcaption><span>app/core/di/db.py</span><em>сессия БД как ресурс request-скоупа</em></figcaption>
+    <pre><code class="language-python">class DBProvider(Provider):
+    scope = Scope.APP
+
+    @provide(scope=Scope.APP)
+    async def get_engine(self) -&gt; AsyncIterable[AsyncEngine]:
+        engine = create_engine()
+        yield engine
+        await engine.dispose(close=True)      # ← корректное закрытие на shutdown
+
+    @provide(scope=Scope.REQUEST)
+    async def get_session(self, maker) -&gt; AsyncIterable[AsyncSession]:
+        async with maker() as session:
+            yield session
+
+    @provide(scope=Scope.APP)
+    async def get_redis(self) -&gt; Redis:
+        return Redis.from_url(app_config.redis_url, max_connections=200,
+                              decode_responses=True)</code></pre>
+  </figure>
+
+  <h3>Как это выглядит в роутере</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/routes/v1/messages.py</span><em>роутер — тонкий слой без логики</em></figcaption>
+    <pre><code class="language-python">router = APIRouter(route_class=DishkaRoute)
+
+@router.post("/", status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(message_write_limiter)])
+async def send_message(
+    chat_id: UUID,
+    payload: SendMessageRequest,
+    user_jwt_data: CurrentUserJWTData,          # ← JWT уже распакован
+    mediator: FromDishka[BaseMediator],
+    idempotency: FromDishka[IdempotencyStore],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -&gt; MessageDTO:
+    return await idempotency.run(
+        scope=ChatIdempotencyScope.SEND_MESSAGE,
+        key=idempotency_key,
+        owner=(user_jwt_data.id, chat_id),
+        model=MessageDTO,
+        operation=lambda: mediator.handle_command(
+            SendMessageCommand(
+                chat_id=chat_id,
+                content=payload.content,
+                reply_to_id=payload.reply_to_id,
+                message_type=MessageType(payload.message_type),
+                upload_tokens=payload.upload_tokens,
+                user_jwt_data=user_jwt_data,
+            )
+        ),
+    )</code></pre>
+  </figure>
+
+  <p class="note">Пять строк осмысленного кода: провалидировать вход (это делает Pydantic-схема), собрать команду, отдать медиатору. Никаких <code>if</code>, никаких запросов к базе. Тестировать такой роутер почти нечего — и это хорошо.</p>
+
+  <div class="box diy">
+    <span class="tag">Сделай сам</span>
+    <p>Начните проект именно с этих четырёх файлов: <code>commands.py</code>, <code>queries.py</code>, <code>mediators/</code>, <code>di/</code>. Пятьдесят строк кода, которые вы напишете за час, зададут форму всему остальному проекту. Если начать с «просто напишу логику во вьюхе» — через три месяца распутать это будет стоить недели.</p>
+  </div>
+</section>
+
+<!-- ============================================ 03 -->
+<section id="ch03">
+  <span class="chapter-no">Глава 03</span>
+  <h2>Схема данных: девять таблиц, на которых стоит мессенджер</h2>
+
+  <p class="lead-in">Модель данных в мессенджере важнее, чем кажется: неудачное решение здесь нельзя «отрефакторить» — оно застывает в миллиардах строк. Разберём ключевые решения этого проекта и цену каждого.</p>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Таблица</th><th>Зачем</th><th>Ключ</th></tr></thead>
+    <tbody>
+      <tr><td><code>chats</code></td><td>Чат, его тип, настройки, счётчик <code>seq_counter</code></td><td>UUIDv7</td></tr>
+      <tr><td><code>chat_members</code></td><td>Участник: роль, бан, мут, персональные права</td><td>bigint, уникальность <code>(chat_id, user_id)</code></td></tr>
+      <tr><td><code>chat_roles</code></td><td>Шесть предзаполненных ролей с наборами прав</td><td>int (enum)</td></tr>
+      <tr><td><code>messages</code></td><td>Сообщение, его <code>seq</code> в чате, ответы и пересылки</td><td>UUIDv7</td></tr>
+      <tr><td><code>message_attachments</code></td><td>Вложение: ключ в S3, MIME, статус загрузки</td><td>UUIDv7</td></tr>
+      <tr><td><code>message_reactions</code></td><td>Реакция: <code>(message_id, user_id, emoji)</code></td><td>составной PK</td></tr>
+      <tr><td><code>read_receipts</code></td><td>До какого <code>seq</code> пользователь дочитал чат</td><td>уникальность <code>(chat_id, user_id)</code></td></tr>
+      <tr><td><code>chat_user_profiles</code></td><td>Локальная копия профиля (имя, аватар) — проекция</td><td><code>user_id</code></td></tr>
+      <tr><td><code>outbox_messages</code></td><td>Очередь доменных событий внутри БД</td><td>UUIDv7</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Решение 1: <code>seq</code> — позиция сообщения в чате</h3>
+  <p>У сообщения есть <code>id</code> (UUIDv7, глобально уникальный) и <code>seq</code> (bigint, монотонный <em>внутри чата</em>). Клиент никогда не синхронизируется «по времени» — только по <code>seq</code>: «у меня есть всё до 4172, дай остальное». Это делает докачку после разрыва тривиальной и точной.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/repositories/chat.py</span><em>выдача номера — один UPDATE ... RETURNING</em></figcaption>
+    <pre><code class="language-python">async def allocate_message_seq(self, chat_id: UUID, message_date: datetime) -&gt; int | None:
+    stmt = (
+        update(Chat)
+        .where(Chat.id == chat_id, Chat.deleted_at.is_(None))
+        .values(
+            seq_counter=Chat.seq_counter + 1,
+            last_activity_at=message_date,
+        )
+        .returning(Chat.seq_counter)
+        .execution_options(synchronize_session=False)
+    )
+    result = await self.session.execute(stmt)
+    return result.scalar_one_or_none()</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Инкремент выполняет <strong>Postgres</strong>, а не Python. Строка чата блокируется на время транзакции, поэтому два одновременных сообщения гарантированно получат 41 и 42, а не два раза 41. Тем же запросом обновляется <code>last_activity_at</code> — поле, по которому потом сортируется список чатов. Один round-trip вместо трёх.</p>
+  </div>
+
+  <div class="box trap">
+    <span class="tag">Грабли</span>
+    <p>Такой счётчик сериализует запись в чат: все сообщения одного чата пишутся строго по очереди. Для чата на 500 человек это не проблема (люди не пишут по 1000 сообщений в секунду), но для «канала на миллион с автопостингом» узкое место будет здесь. Альтернативы: отдельная таблица счётчиков с меньшей строкой, sequence на чат, либо гибрид <code>(timestamp, node_id)</code>. Не усложняйте раньше времени — но знайте, где потолок.</p>
+  </div>
+
+  <h3>Решение 2: денормализованные счётчики</h3>
+  <p>В <code>chats</code> лежат <code>member_count</code> и <code>seq_counter</code> — данные, которые можно было бы посчитать запросом. Так делать <em>нельзя</em> в отчётности, но <em>нужно</em> в мессенджере: <code>member_count</code> читается на каждом сообщении (по нему выбирается стратегия доставки), а <code>COUNT(*)</code> по таблице участников супергруппы — это гарантированный seq-scan.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/repositories/chat.py</span><em>изменение счётчика с проверкой лимита в одном запросе</em></figcaption>
+    <pre><code class="language-python">async def shift_member_count(self, chat_id: UUID, delta: int,
+                             limit: int | None = None) -&gt; int | None:
+    stmt = (
+        update(Chat)
+        .where(Chat.id == chat_id, Chat.deleted_at.is_(None))
+        .values(member_count=Chat.member_count + delta)
+        .returning(Chat.member_count)
+        .execution_options(synchronize_session="fetch")
+    )
+    if limit is not None:
+        # лимит участников проверяет БД: гонки «двое последних вошли» не будет
+        stmt = stmt.where(Chat.member_count + delta &lt;= limit)
+
+    result = await self.session.execute(stmt)
+    return result.scalar_one_or_none()   # None ⇒ лимит превышен</code></pre>
+  </figure>
+
+  <p class="note">Классическая ошибка новичка: <code>if chat.member_count &lt; limit: chat.member_count += 1</code>. Между чтением и записью пролезут двое, и в «группе на 500» окажется 502 человека. Здесь проверка и инкремент — одна атомарная операция БД.</p>
+
+  <h3>Решение 3: модель знает бизнес-правила</h3>
+  <p>Валидация живёт не в схемах Pydantic и не в хендлерах, а в самой модели. Хендлер оркестрирует, модель решает, что допустимо.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/models/chat.py</span><em>фабрика чата: правила типов чатов в одном месте</em></figcaption>
+    <pre><code class="language-python">@classmethod
+def create(cls, created_by: int, members_ids: list[int],
+           chat_type: ChatType = ChatType.DIRECT, ...) -&gt; Self:
+    if created_by in members_ids:
+        members_ids.remove(created_by)
+
+    # в личке ровно двое и не сам с собой
+    if chat_type == ChatType.DIRECT and (len(members_ids) != 1 or created_by == members_ids[0]):
+        raise MemberLimitExceededError(limit=2)
+
+    participant_count = len(members_ids) + 1
+    limit = cls.member_limit(chat_type)
+    if participant_count &gt; limit:
+        raise MemberLimitExceededError(limit=limit)
+
+    instance = cls(id=uuid7(), created_by=created_by, type=chat_type, ...)
+
+    # у каждого типа чата — своя раскладка ролей
+    if chat_type == ChatType.DIRECT:
+        instance.add_member(created_by, ChatRoleId.DIRECT_MEMBER)
+        instance.add_member(members_ids[0], ChatRoleId.DIRECT_MEMBER)
+    elif chat_type in (ChatType.GROUP, ChatType.SUPERGROUP):
+        instance.add_member(created_by, ChatRoleId.OWNER)
+        for m_id in members_ids:
+            instance.add_member(m_id, ChatRoleId.MEMBER)
+    elif chat_type == ChatType.CHANNEL:
+        instance.add_member(created_by, ChatRoleId.OWNER)
+        for m_id in members_ids:
+            instance.add_member(m_id, ChatRoleId.VIEWER)
+
+    instance.member_count = len(instance.members)
+    instance.register_event(CreatedChatEvent(...))   # ← событие копится в модели
+    return instance</code></pre>
+  </figure>
+
+  <h3>Решение 4: события копятся в модели</h3>
+  <p>Обратите внимание на <code>register_event</code>. Базовая модель — обычный SQLAlchemy <code>DeclarativeBase</code> плюс список событий:</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/db/base_model.py</span></figcaption>
+    <pre><code class="language-python">class BaseModel(DeclarativeBase):
+    def __init__(self, **kw: Any) -&gt; None:
+        for key, value in kw.items():
+            setattr(self, key, value)
+        self.events: list[BaseEvent] = []
+
+    @reconstructor                 # вызывается при загрузке из БД
+    def init_on_load(self) -&gt; None:
+        self.events = []
+
+    def register_event(self, event: BaseEvent) -&gt; None:
+        self.events.append(event)
+
+    def pull_events(self) -&gt; list[BaseEvent]:
+        registered_events = copy.copy(self.events)
+        self.events.clear()
+        return registered_events</code></pre>
+  </figure>
+
+  <p>Модель <em>объявляет</em>, что произошло («чат создан», «участник добавлен»), но никуда ничего не отправляет. Хендлер потом делает <code>event_bus.publish(chat.pull_events())</code> — до коммита, в той же транзакции. Зачем именно так — целиком глава 06.</p>
+
+  <h3>Индексы, которые действительно нужны</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/models/message.py, chat_members.py</span></figcaption>
+    <pre><code class="language-python"># сообщения читаются лентой по чату, удалённые не нужны никогда
+__table_args__ = (
+    Index("ix_messages_chat_not_deleted", "chat_id", "seq",
+          postgresql_where="is_deleted = false"),
+)
+
+# участники: три сценария доступа — «мои чаты», «участник чата», «staff чата»
+__table_args__ = (
+    UniqueConstraint("chat_id", "user_id", name="uq_chat_member"),
+    Index("ix_chat_members_user_chat", "user_id", "chat_id"),
+    Index("ix_chat_members_chat_active_user", "chat_id", "user_id"),
+    Index("ix_chat_members_chat_role_user", "chat_id", "role_id", "user_id"),
+)</code></pre>
+  </figure>
+
+  <p class="note">Частичный индекс <code>WHERE is_deleted = false</code> — дешёвый приём: удалённые сообщения не занимают место в индексе и не тормозят ленту, хотя физически строки остаются в таблице.</p>
+</section>
+
+<!-- ============================================ 04 -->
+<section id="ch04">
+  <span class="chapter-no">Глава 04</span>
+  <h2>Роли и права: три уровня разрешений</h2>
+
+  <p class="lead-in">В мессенджере «может ли этот пользователь это сделать» спрашивается на каждый чих. Ответ здесь складывается из трёх слоёв, и порядок их проверки — не случайность.</p>
+
+  <h3>Слой 1: роль в чате</h3>
+  <p>Шесть ролей с числовым «уровнем» — уровень нужен, чтобы админ не мог забанить владельца. Права — плоский словарь строковых ключей.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/models/chat_roles.py + permission.py</span></figcaption>
+    <pre><code class="language-python">class ChatRoleId(IntEnum):
+    OWNER = 1; ADMIN = 2; EDITOR = 3
+    DIRECT_MEMBER = 4; MEMBER = 5; VIEWER = 6
+
+CHAT_ROLE_LEVELS = {
+    ChatRoleId.OWNER: 100, ChatRoleId.ADMIN: 90, ChatRoleId.EDITOR: 80,
+    ChatRoleId.DIRECT_MEMBER: 70, ChatRoleId.MEMBER: 10, ChatRoleId.VIEWER: 1,
+}
+
+MEMBER_PERMISSIONS = {
+    "chat:get": True, "message:read": True, "message:send": True,
+    "message:delete": False, "message:pin": False,
+    "member:kick": False, "member:ban": False,
+    "slowmode:bypass": False, "call:join": True,
+    # ... всего ~20 ключей
+}</code></pre>
+  </figure>
+
+  <h3>Слой 2: персональные переопределения участника</h3>
+  <p>У участника есть <code>permissions_overrides</code> (JSONB) — точечные исключения поверх роли: «этому конкретному человеку можно пинить сообщения».</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/models/chat_members.py</span></figcaption>
+    <pre><code class="language-python">def effective_permissions(self) -&gt; dict[str, bool]:
+    perms = self.role.permissions.copy()
+    if self.permissions_overrides:
+        perms.update(self.permissions_overrides)
+    return perms
+
+def has_permission(self, permission_key: str) -&gt; bool:
+    if self.permissions_overrides and permission_key in self.permissions_overrides:
+        return bool(self.permissions_overrides[permission_key])
+    return self.role.has_permission(permission_key)</code></pre>
+  </figure>
+
+  <h3>Слой 3: настройки чата</h3>
+  <p>Чат может глобально запретить то, что роль разрешает: <code>admin_only=True</code> (пишут только админы), <code>permissions</code> (JSONB на самом чате), <code>slow_mode_seconds</code>, <code>reactions_mode</code>.</p>
+
+  <h3>Как это собирается</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/services/access.py</span><em>порядок проверок = порядок дешевизны</em></figcaption>
+    <pre><code class="language-python">@dataclass
+class ChatAccessService:
+    rbac_manager: RBACManagerInterface
+
+    def _has_global_chat_admin(self, user_jwt_data: UserJWTData) -&gt; bool:
+        # глобальный админ платформы — данные уже в JWT, поход в БД не нужен
+        return self.rbac_manager.check_permission(user_jwt_data, {"chat:update"})
+
+    async def can_send_message(self, user_jwt_data, chat: Chat,
+                               member: ChatMember | None) -&gt; bool:
+        if self._has_global_chat_admin(user_jwt_data):
+            return True
+
+        if member is None or member.is_banned or member.is_muted:
+            return False
+
+        member_permissions = member.effective_permissions()
+        if not member_permissions.get("message:send", False):
+            return False
+
+        if chat.admin_only and not (
+            member.is_staff or member_permissions.get("message:send_admin_only", False)
+        ):
+            return False
+
+        if (chat.permissions
+                and chat.permissions.get("message:send") is False
+                and not member.is_staff):
+            return False
+
+        return True</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Права платформы (роли пользователя) едут <strong>внутри JWT</strong> — проверка глобального админа не стоит ни одного запроса. Права в чате читаются одним запросом вместе с самим чатом (см. главу 05). Итог: полная проверка «можно ли отправить сообщение» — ноль дополнительных походов в базу.</p>
+  </div>
+
+  <p>Бан и мут — не булевы флаги, а даты. Это позволяет «забанить на час» без фоновой задачи разбана: проверка сравнивает дату с текущим временем, а вечный бан — это дата 9999 года.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/models/chat_members.py</span><em>hybrid_property работает и в Python, и в SQL</em></figcaption>
+    <pre><code class="language-python">PERMANENT_UNTIL = datetime(9999, 12, 31, tzinfo=UTC)
+
+@hybrid_property
+def is_banned(self) -&gt; bool:                       # в Python: member.is_banned
+    return self.banned_until is not None and self.banned_until &gt; now_utc()
+
+@is_banned.inplace.expression
+@classmethod
+def _is_banned_expression(cls) -&gt; ColumnElement[bool]:   # в SQL: WHERE ...
+    return and_(cls.banned_until.is_not(None), cls.banned_until &gt; now_utc())
+
+@classmethod
+def active_criteria(cls) -&gt; ColumnElement[bool]:
+    return ~cls.is_banned                          # используется во всех выборках</code></pre>
+  </figure>
+
+  <p class="note">Один и тот же предикат используется и в бизнес-логике, и в <code>WHERE</code>-условиях выборок участников. Не нужно дублировать «не забанен» в пятнадцати местах и потом искать, где забыли.</p>
+</section>
+
+<!-- ============================================ 05 -->
+<section id="ch05">
+  <span class="chapter-no">Глава 05</span>
+  <h2>Отправка сообщения: главный сценарий</h2>
+
+  <p class="lead-in">Это центр системы. Разберём хендлер целиком, строка за строкой — здесь собраны все решения предыдущих глав.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/commands/messages/send.py</span><em>SendMessageCommandHandler.handle</em></figcaption>
+    <pre><code class="language-python">async def handle(self, command: SendMessageCommand) -&gt; MessageDTO:
+    user_id = int(command.user_jwt_data.id)
+
+    # 1. чат и моё членство в нём — ОДНИМ запросом
+    chat, member = await self.chat_repository.get_chat_and_member(
+        chat_id=command.chat_id, member_id=user_id
+    )
+
+    # 2. права: роль + оверрайды + настройки чата
+    if not await self.access_service.can_send_message(
+        user_jwt_data=command.user_jwt_data, chat=chat, member=member,
+    ):
+        raise AccessDeniedChatError(chat_id=str(command.chat_id), requester_id=user_id)
+
+    # 3. slow mode — атомарный SET NX в Redis
+    await self.message_service.is_slow(chat=chat, user_id=user_id, member=member)
+
+    # 4. вложения: забираем заранее загруженные слоты по токенам
+    claimed = []
+    if command.upload_tokens:
+        claimed = await self.attachment_repository.get_by_ids(command.upload_tokens)
+    if claimed and len(command.upload_tokens) != len(claimed):
+        raise AttachmentNotFoundError(attachment_id="")
+
+    # 5. ответ на сообщение: цель должна существовать
+    if command.reply_to_id is not None:
+        reply_msg = await self.message_repository.get_by_id(command.reply_to_id)
+        if reply_msg is None:
+            raise NotFoundMessageError(message_id=str(command.reply_to_id))
+
+    # 6. номер в чате
+    message_date = now_utc()
+    next_seq = await self.chat_repository.allocate_message_seq(
+        chat_id=command.chat_id, message_date=message_date,
+    )
+    if next_seq is None:
+        raise NotFoundChatError(chat_id=str(command.chat_id))
+
+    # 7. модель сама валидирует контент и вложения, сама регистрирует событие
+    msg = Message.create(
+        sender_id=user_id, chat_id=command.chat_id, seq=next_seq,
+        content=command.content, reply_to_id=command.reply_to_id,
+        message_type=command.message_type, attachments=claimed,
+    )
+
+    # 8. запись + событие в outbox + КОММИТ — одна транзакция
+    await self.message_repository.create(msg)
+    await self.event_bus.publish(msg.pull_events())
+    await self.session.commit()
+
+    # 9. ответ клиенту: DTO + presigned-ссылки на вложения
+    dto = MessageDTO.model_validate(msg)
+    return await self.message_service.attach_download_urls(dto)</code></pre>
+  </figure>
+
+  <h3>Шаг 1: чат и участник одним запросом</h3>
+  <p>Наивная реализация — два запроса: «дай чат», «дай моё членство». Здесь — JOIN, который заодно проверяет, что чат не удалён, и подгружает роль.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/repositories/chat.py</span></figcaption>
+    <pre><code class="language-python">async def get_chat_and_member(self, chat_id: UUID, member_id: int) -&gt; tuple[Chat, ChatMember]:
+    stmt = select(Chat, ChatMember).join(
+        ChatMember,
+        and_(ChatMember.chat_id == Chat.id, ChatMember.user_id == member_id),
+    ).options(
+        selectinload(ChatMember.role)      # права понадобятся через строчку
+    ).where(
+        Chat.id == chat_id,
+        Chat.deleted_at.is_(None),
+    )
+
+    result = await self.session.execute(stmt)
+    row = result.tuples().first()
+    if row is None:
+        raise NotFoundChatError(chat_id=str(chat_id))   # нет чата ИЛИ я не участник
+    return row</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>INNER JOIN означает: «нет строки участника» неотличимо от «нет чата» — и то, и другое даёт 404. Это не лень, а безопасность: по коду ошибки нельзя выяснить, существует ли приватный чат, к которому у вас нет доступа. Плюс один round-trip вместо двух — на горячем пути это заметно.</p>
+  </div>
+
+  <h3>Шаг 3: slow mode на Lua-скрипте</h3>
+  <p>Slow mode («не чаще одного сообщения в N секунд») — классическая гонка: проверить и поставить отметку нужно атомарно.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/services/messages.py</span></figcaption>
+    <pre><code class="language-python">SCRIPT_SLOW_MODE = """
+local key = KEYS[1]
+local ttl = tonumber(ARGV[1])
+local result = redis.call('SET', key, '1', 'EX', ttl, 'NX')
+if result then
+    return {1, ttl}
+else
+    return {0, redis.call('TTL', key)}
+end
+"""
+
+async def is_slow(self, chat: Chat, user_id: int, member: ChatMember | None) -&gt; None:
+    if chat.slow_mode_seconds &lt;= 0 or self.access_service.can_bypass_slow_mode(member):
+        return
+
+    key = f"chat:slowmode:{chat.id}:{user_id}"
+    script = self.redis.register_script(SCRIPT_SLOW_MODE)
+    allowed, ttl = await script(keys=[key], args=[chat.slow_mode_seconds])
+
+    if allowed:
+        return
+    raise SlowModeLimitError(chat_id=str(chat.id), retry_after=max(1, int(ttl)))</code></pre>
+  </figure>
+
+  <p class="note">Скрипт возвращает не только «можно/нельзя», но и остаток TTL — клиент получает <code>retry_after</code> и знает, когда пробовать снова. Мелочь, которая отличает нормальный API от «попробуйте позже».</p>
+
+  <h3>Шаг 7: модель валидирует сама себя</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/models/message.py</span><em>фрагмент validate_attachments</em></figcaption>
+    <pre><code class="language-python">def validate_attachments(self) -&gt; None:
+    media_count = sum(1 for a in self.attachments
+                      if a.attachment_type in (AttachmentType.IMAGE, AttachmentType.VIDEO))
+    file_count = sum(1 for a in self.attachments if a.attachment_type == AttachmentType.FILE)
+    voice_count = sum(1 for a in self.attachments if a.attachment_type == AttachmentType.VOICE)
+    video_note_count = sum(1 for a in self.attachments
+                           if a.attachment_type == AttachmentType.VIDEO_NOTE)
+    exclusive_count = voice_count + video_note_count
+
+    success = all(a.attachment_status == AttachmentStatus.SUCCESS for a in self.attachments)
+
+    if media_count &gt; chat_config.MAX_MEDIA_PER_MESSAGE:      # не больше 10 медиа
+        raise AttachmentLimitExceededError(count=media_count)
+    if exclusive_count &gt; 1:                                   # голосовое — только одно
+        raise AttachmentLimitExceededError(count=exclusive_count)
+    if exclusive_count and (media_count or file_count):       # и ни с чем не смешивается
+        raise AttachmentLimitExceededError(...)
+
+    if success is False:      # нельзя приложить файл, который ещё не долетел в S3
+        raise AttachmentNotFoundError(attachment_id="")</code></pre>
+  </figure>
+
+  <h3>Шаг 8: одна транзакция на всё</h3>
+  <p>Это самая важная строчка главы:</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/commands/messages/send.py</span></figcaption>
+    <pre><code class="language-python">await self.message_repository.create(msg)      # INSERT в messages
+await self.event_bus.publish(msg.pull_events())  # INSERT в outbox_messages
+await self.session.commit()                      # ← один COMMIT на оба</code></pre>
+  </figure>
+
+  <p>Сообщение и факт «сообщение отправлено» записываются <strong>вместе</strong>. Либо и то, и другое, либо ничего. Никакого «записали в базу, а брокер отвалился, и никто не получил сообщение» — и никакого «отправили в брокер, а транзакция откатилась, и все получили сообщение-призрак». Как это превращается в реальную отправку — следующая глава.</p>
+
+  <div class="box trap">
+    <span class="tag">Грабли</span>
+    <p>Соблазн «отправлю в Kafka прямо здесь, это же одна строчка» — самая частая архитектурная ошибка в таких проектах. Она не проявляется на разработке и на тестах: сеть локальная, брокер рядом, ошибок нет. Она проявляется в проде раз в неделю в виде «у Пети сообщение есть, у Маши нет» — и не воспроизводится.</p>
+  </div>
+</section>
+
+<!-- ============================================ 06 -->
+<section id="ch06">
+  <span class="chapter-no">Глава 06</span>
+  <h2>Transactional outbox и CDC: как события покидают базу</h2>
+
+  <p class="lead-in">Задача: «записать в БД и отправить в брокер» атомарно. Двухфазный коммит между Postgres и Kafka в реальной жизни не применяют. Решение — паттерн transactional outbox: пишем событие в ту же базу, а доставку поручаем отдельному механизму.</p>
+
+  <h3>Событие как объект</h3>
+  <figure class="code">
+    <figcaption><span>app/core/events/event.py + app/chats/models/message.py</span></figcaption>
+    <pre><code class="language-python">@dataclass(frozen=True)
+class BaseEvent(ABC):
+    event_id: UUID = field(default_factory=uuid4, kw_only=True)
+    created_at: datetime = field(default_factory=now_utc, kw_only=True)
+
+    @classmethod
+    def get_name(cls) -&gt; str:
+        name = getattr(cls, "__event_name__", None)
+        if name is None:
+            raise FieldRequiredError
+        return name
+
+    @abstractmethod
+    def get_partition_key(self) -&gt; str:      # ← по нему Kafka выберет партицию
+        ...
+
+
+@dataclass(frozen=True)
+class SendedMessageEvent(BaseEvent):
+    message_id: str
+    chat_id: str
+    seq: int
+    sender_id: int | None
+    message_type: str
+
+    __event_name__ = "chats.message.sent"
+
+    def get_partition_key(self) -&gt; str:
+        return str(self.chat_id)             # все события чата — в одну партицию</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p><code>get_partition_key() == chat_id</code> — это гарантия порядка. Kafka сохраняет порядок только внутри партиции; раз все события одного чата летят в одну партицию, консьюмер увидит «отправлено → отредактировано → удалено» именно в этом порядке. Если бы ключом был <code>message_id</code>, редактирование могло бы обогнать отправку.</p>
+  </div>
+
+  <p>Имя события — трёхчастное: <code>{модуль}.{сущность}.{действие}</code>. Из него автоматически выводятся и топик Kafka, и тип агрегата:</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/outbox/model.py</span></figcaption>
+    <pre><code class="language-python">class OutboxMessage(BaseModel, DateMixin):
+    __tablename__ = "outbox_messages"
+
+    id: Mapped[UUID] = mapped_column(SAUUID(as_uuid=True), primary_key=True, default=uuid7)
+    aggregate_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    aggregate_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    topic: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    headers: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    @classmethod
+    def create(cls, *, aggregate_id: str, event_name: str, payload, headers=None) -&gt; Self:
+        return cls(
+            id=uuid7(),
+            aggregate_type=event_name.split(".")[1],            # "message"
+            aggregate_id=aggregate_id,                          # chat_id
+            event_name=event_name,                              # "chats.message.sent"
+            topic=event_name.split(".", maxsplit=1)[0],         # "chats"  ← топик Kafka
+            payload=payload,
+            headers=headers or {},
+        )</code></pre>
+  </figure>
+
+  <h3>Шина событий, которая пишет в таблицу</h3>
+  <figure class="code">
+    <figcaption><span>app/core/events/mediator/service.py</span><em>весь «продюсер»</em></figcaption>
+    <pre><code class="language-python">@dataclass(eq=False)
+class MediatorEventBus(BaseEventBus):
+    outbox_repository: OutboxRepository
+
+    async def publish(self, events: Iterable[BaseEvent]) -&gt; None:
+        for event in events:
+            outbox = OutboxMessage.create(
+                aggregate_id=event.get_partition_key(),
+                event_name=event.get_name(),
+                payload=event_to_payload(event),
+            )
+            await self.outbox_repository.create(outbox)   # session.add(), без commit!
+            OUTBOX_EVENTS_WRITTEN.labels(
+                topic=outbox.topic, event_name=outbox.event_name
+            ).inc()</code></pre>
+  </figure>
+
+  <p class="note"><code>outbox_repository.create</code> делает только <code>session.add(...)</code>. Коммитит хендлер — тот же самый, что коммитит сообщение. В этом весь фокус: шина событий физически не умеет отправить событие без транзакции.</p>
+
+  <h3>Из таблицы в Kafka: Debezium читает WAL</h3>
+  <p>Дальше событие должен кто-то забрать. Два варианта: <em>polling publisher</em> (фоновая задача читает <code>SELECT ... WHERE published = false</code>) или <em>CDC</em> — чтение журнала репликации Postgres. Здесь выбран второй: Debezium подключается к базе как реплика, читает WAL и публикует изменения таблицы <code>outbox_messages</code> в Kafka.</p>
+
+  <div class="flow">
+    <div class="flow-row">
+      <div class="node"><b>COMMIT</b><em>messages + outbox</em></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>WAL</b><em>wal_level=logical</em></div>
+      <div class="arrow">→</div>
+      <div class="node hot"><b>Debezium</b><em>слот репликации<br>outbox_slot</em></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>EventRouter</b><em>SMT-трансформация</em></div>
+      <div class="arrow">→</div>
+      <div class="node hot"><b>Kafka</b><em>топик из поля topic</em></div>
+    </div>
+    <p class="flow-caption">Задержка на этом участке — десятки миллисекунд (<code>poll.interval.ms = 100</code>). Приложение про Debezium ничего не знает: для него «отправить событие» — это <code>INSERT</code>.</p>
+  </div>
+
+  <figure class="code">
+    <figcaption><span>infra/debezium/outbox-connector.json</span><em>ключевые поля конфигурации</em></figcaption>
+    <pre><code class="language-json">{
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+  "slot.name": "outbox_slot",
+  "publication.name": "social_outbox",
+  "publication.autocreate.mode": "filtered",
+  "snapshot.mode": "no_data",
+  "plugin.name": "pgoutput",
+  "poll.interval.ms": 100,
+
+  "table.include.list": "public.outbox_messages",
+
+  "transforms": "outbox",
+  "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+  "transforms.outbox.table.field.event.id": "id",
+  "transforms.outbox.table.field.event.key": "aggregate_id",
+  "transforms.outbox.table.field.event.type": "event_name",
+  "transforms.outbox.table.field.event.payload": "payload",
+  "transforms.outbox.table.expand.json.payload": "true",
+
+  "transforms.outbox.route.by.field": "topic",
+  "transforms.outbox.route.topic.replacement": "${routedByValue}",
+
+  "transforms.outbox.table.fields.additional.placement":
+    "id:envelope:event_id,event_name:envelope:event_name,created_at:envelope:created_at,event_name:header:event_name"
+}</code></pre>
+  </figure>
+
+  <p>Что здесь важно построчно:</p>
+  <ul>
+    <li><code>table.include.list</code> — Debezium следит <strong>только</strong> за outbox, а не за всей базой. Изменения <code>messages</code> его не касаются.</li>
+    <li><code>EventRouter</code> — штатная трансформация Debezium под этот паттерн: она разворачивает строку таблицы в «нормальное» событие, где ключ Kafka — <code>aggregate_id</code>, а тело — JSON из <code>payload</code>.</li>
+    <li><code>route.by.field: topic</code> — топик берётся из колонки. Добавили модуль <code>profiles</code> — события поехали в топик <code>profiles</code> без изменения конфигурации.</li>
+    <li><code>additional.placement</code> — <code>event_id</code>, <code>event_name</code> и <code>created_at</code> кладутся в тело сообщения, а <code>event_name</code> ещё и в заголовок Kafka. Заголовок нужен, чтобы консьюмер мог фильтровать события, не разбирая тело.</li>
+  </ul>
+
+  <figure class="code">
+    <figcaption><span>infra/postgres/postgresql.conf</span><em>без этого CDC не заработает</em></figcaption>
+    <pre><code class="language-ini">wal_level = logical
+max_replication_slots = 10
+max_wal_senders = 10</code></pre>
+  </figure>
+
+  <div class="box trap">
+    <span class="tag">Грабли</span>
+    <p>Слот репликации — это не только «читалка», но и <strong>тормоз для чистки WAL</strong>. Если консьюмер слота (Debezium) умер, а вы этого не заметили, Postgres будет копить WAL до тех пор, пока не кончится диск. Обязательно мониторьте лаг слота и статус коннектора:</p>
+    <figure class="code" style="margin-bottom:0">
+      <figcaption><span>проверка живости конвейера</span></figcaption>
+      <pre><code class="language-bash">curl -s localhost:8083/connectors/outbox-connector/status</code></pre>
+    </figure>
+  </div>
+
+  <h3>Кто убирает за собой</h3>
+  <p>Outbox растёт вечно, если его не чистить. Этим занимается периодическая задача планировщика — батчами, чтобы не блокировать таблицу надолго.</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/outbox/repository.py + task.py</span></figcaption>
+    <pre><code class="language-python">async def cleanup_older_than(self, retention_days: int | None = None) -&gt; int:
+    threshold = now_utc() - timedelta(days=retention_days or app_config.OUTBOX_RETENTION_DAYS)
+    subquery = (
+        select(OutboxMessage.id)
+        .where(OutboxMessage.created_at &lt; threshold)
+        .order_by(OutboxMessage.id)
+        .limit(app_config.OUTBOX_CLEANUP_BATCH_SIZE)     # 5 000 за раз
+        .scalar_subquery()
+    )
+    stmt = delete(OutboxMessage).where(OutboxMessage.id.in_(subquery)).returning(OutboxMessage.id)
+    result = await self.session.execute(stmt)
+    deleted = len(result.scalars().all())
+    await self.session.commit()
+    return deleted
+
+
+# задача планировщика: до 50 батчей за запуск, раз в час
+def register_outbox_tasks(broker: AsyncBroker) -&gt; None:
+    broker.register_task(
+        OutboxCleanupTask.run, OutboxCleanupTask.get_name(),
+        schedule=[{"cron": f"*/{max(1, app_config.OUTBOX_CLEANUP_INTERVAL_SECONDS // 60)} * * * *"}],
+    )</code></pre>
+  </figure>
+
+  <div class="box diy">
+    <span class="tag">Сделай сам</span>
+    <p>Debezium — это отдельный Kafka Connect, ещё один сервис в проде. Если вы делаете первую версию, начните с <strong>polling publisher</strong>: фоновая задача раз в 200 мс читает <code>SELECT * FROM outbox_messages WHERE published_at IS NULL ORDER BY id LIMIT 500 FOR UPDATE SKIP LOCKED</code>, отправляет в брокер и помечает. Гарантии те же (at-least-once), кода — 40 строк, инфраструктуры — ноль. Переезжать на CDC имеет смысл, когда polling начнёт мешать основной нагрузке на БД.</p>
+  </div>
+</section>
+
+<!-- ============================================ 07 -->
+<section id="ch07">
+  <span class="chapter-no">Глава 07</span>
+  <h2>Консьюмер: подписчик, который обязан быть идемпотентным</h2>
+
+  <p class="lead-in">Событие доехало до Kafka. Его читает отдельный процесс — <code>consumers</code> на FastStream. Здесь начинается вторая половина системы, и первое, что нужно принять: <strong>любое событие может прийти дважды</strong>.</p>
+
+  <h3>Почему дважды</h3>
+  <p>At-least-once — не баг, а контракт. Консьюмер обработал сообщение, но не успел закоммитить оффсет и упал — при перезапуске он прочитает его снова. Debezium перечитал часть WAL после рестарта — то же самое. Строить систему на надежде «такого не случится» нельзя: дубликат сообщения в чате виден пользователю мгновенно.</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/consumers/idempotency.py</span><em>защита на SET NX</em></figcaption>
+    <pre><code class="language-python">_PROCESSED_KEY_TEMPLATE = "consumers:processed:{group}:{event_id}"
+
+
+@dataclass(slots=True)
+class EventIdempotencyGuard:
+    redis: Redis
+    ttl_seconds: int = 7 * 24 * 3600
+
+    async def try_acquire(self, group: str, event_id: UUID) -> bool:
+        key = _PROCESSED_KEY_TEMPLATE.format(group=group, event_id=event_id)
+        acquired = await self.redis.set(key, "1", ex=self.ttl_seconds, nx=True)
+        return bool(acquired)          # False ⇒ это событие уже обрабатывали
+
+    async def release(self, group: str, event_id: UUID) -> None:
+        key = _PROCESSED_KEY_TEMPLATE.format(group=group, event_id=event_id)
+        await self.redis.delete(key)</code></pre>
+  </figure>
+
+  <p>Ключ включает <code>group</code> — идентификатор группы консьюмеров. Одно и то же событие может обрабатываться несколькими независимыми подписчиками (доставка в WebSocket и отправка push — это два разных потребителя топика <code>chats</code>), и каждый ведёт свой учёт.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/consumers/delivery.py</span><em>канонический вид подписчика</em></figcaption>
+    <pre><code class="language-python">router = KafkaRouter()
+
+@router.subscriber(
+    chat_config.CHAT_TOPIC,                       # "chats"
+    group_id=chat_config.DELIVERY_ROUTER_GROUP_ID,  # "delivery-router"
+)
+@inject
+async def route_chat_delivery_event(
+    event: DictEventDTO,
+    delivery_router: FromDishka[ChatDeliveryRouter],
+    idempotency_guard: FromDishka[EventIdempotencyGuard],
+) -> None:
+    if not await idempotency_guard.try_acquire(
+        group=chat_config.DELIVERY_ROUTER_GROUP_ID, event_id=event.event_id
+    ):
+        return                                     # дубль — молча выходим
+
+    try:
+        await delivery_router.route_broker_message(event)
+    except Exception:
+        # обработка упала — снимаем отметку, чтобы ретрай не был проглочен
+        await idempotency_guard.release(
+            group=chat_config.DELIVERY_ROUTER_GROUP_ID, event_id=event.event_id
+        )
+        raise</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p><code>release</code> в <code>except</code> — принципиальная деталь. Без него сценарий такой: отметку поставили, обработка упала, Kafka повторит доставку, охрана скажет «уже обрабатывали» — и событие потеряется навсегда. Отметка должна означать «обработано успешно», а не «мы это видели».</p>
+  </div>
+
+  <h3>Форма события на входе</h3>
+  <figure class="code">
+    <figcaption><span>app/core/consumers/event.py</span></figcaption>
+    <pre><code class="language-python">class DictEventDTO(BaseModel):
+    event_name: str
+    event_id: UUID
+    payload: dict[str, Any]           # тело как есть
+    headers: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class TypedEventDTO[PayloadT: BaseModel](BaseModel):
+    event_name: str
+    event_id: UUID
+    payload: PayloadT                 # тело провалидировано схемой
+    headers: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime</code></pre>
+  </figure>
+
+  <p>Два варианта на выбор. Роутер доставки принимает <code>DictEventDTO</code>: он обрабатывает десяток разных типов событий и лезет в тело за парой полей. Проекция профилей принимает <code>TypedEventDTO[ProfileDataEvent]</code> — там нужна строгая схема, и события с чужой структурой лучше отвергать на входе.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/consumers/profiles.py</span><em>фильтрация по заголовку Kafka</em></figcaption>
+    <pre><code class="language-python">PROFILE_EVENT_NAMES = frozenset({
+    "profiles.profile.created",
+    "profiles.profile.updated",
+})
+
+@subscriber(filter=lambda msg: msg.headers.get("event_name") in PROFILE_EVENT_NAMES)
+@inject
+async def route_profile_delivery_event(
+    event: TypedEventDTO[ProfileDataEvent], ...
+) -> None:
+    ...</code></pre>
+  </figure>
+
+  <p class="note">Вот зачем в конфиге Debezium <code>event_name:header:event_name</code>: подписчик отсеивает чужие события по заголовку, не десериализуя тело. В топике <code>profiles</code> могут ехать события об удалении, о смене настроек приватности — они этому потребителю не нужны.</p>
+
+  <h3>Сборка процесса консьюмеров</h3>
+  <figure class="code">
+    <figcaption><span>app/consumers.py</span><em>сокращено</em></figcaption>
+    <pre><code class="language-python">def setup_router(broker: KafkaBroker) -> None:
+    broker.include_router(auth_user.router)              # auth: события пользователей
+    broker.include_router(delivery.router)               # chats: доставка в WS
+    broker.include_router(profiles.router)               # chats: проекция профилей
+    broker.include_router(user.router)                   # profiles: создание профиля
+    broker.include_router(chat_offline_delivery.router)  # notifications: push
+
+
+def init_app() -> AsgiFastStream:
+    configure_logging()
+    registry = CollectorRegistry()
+    broker = KafkaBroker(
+        app_config.BROKER_URL,
+        client_id=app_config.GROUP_ID,
+        middlewares=(KafkaPrometheusMiddleware(registry=registry),),
+    )
+    app = AsgiFastStream(broker, lifespan=lifespan,
+                         asgi_routes=[("/metrics", make_asgi_app(registry))])
+    setup_router(broker)
+    container = create_container(FastStreamProvider())
+    app.context.set_global("container__", container)
+    setup_dishka(container=container, broker=broker, auto_inject=True)
+    return app</code></pre>
+  </figure>
+
+  <p class="note">Тот же DI-контейнер, что и в HTTP-процессе, плюс интеграция FastStream. Поэтому в подписчике доступны те же репозитории и сервисы, и <code>mediator.handle_command(...)</code> работает точно так же, как в роутере.</p>
+</section>
+
+<!-- ============================================ 08 -->
+<section id="ch08">
+  <span class="chapter-no">Глава 08</span>
+  <h2>Fan-out: три стратегии доставки и почему их три</h2>
+
+  <p class="lead-in">Сообщение в личке нужно доставить одному человеку. Сообщение в канале с миллионом подписчиков — тоже «доставить всем», но перебирать миллион строк на каждое сообщение нельзя. Одна стратегия на все случаи не работает.</p>
+
+  <h3>Стратегия выбирается самим чатом</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/models/chat.py</span></figcaption>
+    <pre><code class="language-python">class ChatFanoutStrategy(StrEnum):
+    FANOUT_ON_WRITE = "fanout_on_write"          # перебрать всех участников
+    ACTIVE_SUBSCRIBERS = "active_subscribers"     # только тех, кто держит чат открытым
+    CHANNEL_SUBSCRIBERS = "channel_subscribers"
+
+
+@property
+def fanout_strategy(self) -> ChatFanoutStrategy:
+    if self.type == ChatType.CHANNEL:
+        return ChatFanoutStrategy.CHANNEL_SUBSCRIBERS
+    if self.type == ChatType.SUPERGROUP:
+        return ChatFanoutStrategy.ACTIVE_SUBSCRIBERS
+    if self.type == ChatType.GROUP and self.member_count > chat_config.FAN_OUT_WRITE_THRESHOLD:
+        return ChatFanoutStrategy.ACTIVE_SUBSCRIBERS      # порог: 500 участников
+    return ChatFanoutStrategy.FANOUT_ON_WRITE</code></pre>
+  </figure>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Стратегия</th><th>Кому шлём</th><th>Цена</th><th>Кто получает</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>FANOUT_ON_WRITE</code></td>
+        <td>Всем участникам, кто сейчас онлайн</td>
+        <td>Перебор участников в БД + запросы в Redis</td>
+        <td>Личка и группы до 500</td>
+      </tr>
+      <tr>
+        <td><code>ACTIVE_SUBSCRIBERS</code></td>
+        <td>Только тем, у кого чат открыт прямо сейчас</td>
+        <td>Один скан множества в Redis, БД не трогаем</td>
+        <td>Супергруппы и большие группы</td>
+      </tr>
+      <tr>
+        <td><code>CHANNEL_SUBSCRIBERS</code></td>
+        <td>То же, что active (канал — крайний случай)</td>
+        <td>Как выше</td>
+        <td>Каналы</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Разница в смысле, а не только в скорости. При <code>FANOUT_ON_WRITE</code> вы получите realtime-уведомление о сообщении в группе, даже если у вас открыт другой чат — потому что нужно обновить бейдж непрочитанного. В супергруппе на 200 000 человек так делать бессмысленно: 199 990 из них сейчас не смотрят в этот чат, и обновлять им счётчик по каждому сообщению — сжигать ресурсы. Им придёт push или они увидят счётчик при следующем открытии.</p>
+  </div>
+
+  <h3>Точка входа: роутер доставки</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/services/delivery_router.py</span></figcaption>
+    <pre><code class="language-python">async def route_broker_message(self, event: DictEventDTO) -> None:
+    ws_type = CHAT_EVENT_TO_WS_TYPE.get(event.event_name)
+    if ws_type is None:
+        return                                    # событие не для клиентов
+
+    if event.event_name == REACTION_EVENT_NAME:
+        await self.coalesce_queue.enqueue(event)  # реакции — отдельным потоком, гл. 12
+        return
+
+    chat = await self.chat_repository.get_by_id(
+        UUID(event.payload["chat_id"]),
+        include_deleted=event.event_name == CHAT_DELETED_EVENT_NAME,
+    )
+    if chat is None:
+        return
+
+    ws_event = WsEvent.build(event, ws_type=ws_type, fanout_strategy=chat.fanout_strategy)
+
+    # для «отправлено» и «изменено» подтягиваем полное сообщение с вложениями
+    message_dto: MessageDTO | None = None
+    if event.event_name in MESSAGE_HYDRATED_EVENTS:
+        message = await self.message_repository.get_by_id(
+            UUID(event.payload["message_id"]), with_attachment=True
+        )
+        if message is None:
+            return
+        message_dto = await self.message_service.attach_download_urls(
+            MessageDTO.model_validate(message)
+        )
+
+    await self._dispatch(ws_event, message=message_dto)</code></pre>
+  </figure>
+
+  <p>Ключевая идея: <strong>в событии едет минимум данных</strong> (<code>message_id</code>, <code>chat_id</code>, <code>seq</code>), а «жирное» тело сообщения консьюмер дочитывает из базы. Событие в Kafka остаётся компактным, а клиент получает актуальную версию — если сообщение успели отредактировать, поедет уже новая.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/dtos/delivery.py</span><em>карта «доменное событие → тип для клиента»</em></figcaption>
+    <pre><code class="language-python">CHAT_EVENT_TO_WS_TYPE: dict[str, str] = {
+    "chats.message.sent":     WSEventType.NEW_MESSAGE.value,
+    "chats.message.modified": WSEventType.MESSAGE_EDITED.value,
+    "chats.message.deleted":  WSEventType.MESSAGE_DELETED.value,
+    "chats.message.readed":   WSEventType.MESSAGES_READ.value,
+    "chats.member.added":     WSEventType.MEMBER_JOINED.value,
+    "chats.member.left":      WSEventType.MEMBER_LEFT.value,
+    "chats.member.kicked":    WSEventType.MEMBER_KICK.value,
+    "chats.member.banned":    WSEventType.MEMBER_BANNED.value,
+    "chats.chat.created":     WSEventType.CHAT_CREATED.value,
+    "chats.chat.updated":     WSEventType.CHAT_UPDATED.value,
+    CHAT_DELETED_EVENT_NAME:  WSEventType.CHAT_DELETED.value,
+    REACTION_EVENT_NAME:      WSEventType.REACTION_UPDATED.value,
+}</code></pre>
+  </figure>
+
+  <p class="note">Два словаря имён — внутренние (<code>chats.message.sent</code>) и клиентские (<code>new_message</code>). Это позволяет менять доменную модель, не ломая мобильные приложения, которые обновляются месяцами.</p>
+
+  <h3>Fan-out on write: перебор батчами</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/services/delivery_router.py</span></figcaption>
+    <pre><code class="language-python">async def _route_fanout_on_write(self, ws_event: WsEvent, payload: dict[str, Any]) -> None:
+    with_offline_signal = ws_event.event_name in OFFLINE_SIGNAL_EVENT_NAMES
+    offline_user_ids: list[int] = []
+
+    # участников читаем курсором по 2 000, а не одним SELECT на всех
+    async for member_ids in self.chat_repository.iter_member_ids(
+        chat_id=ws_event.chat_id,
+        batch_size=chat_config.DELIVERY_ROUTER_MEMBER_BATCH_SIZE,
+    ):
+        for lookup_batch in chunks(member_ids, chat_config.DELIVERY_ROUTER_ROUTE_LOOKUP_BATCH_SIZE):
+            routes = await self._lookup_online_routes(lookup_batch)   # кто онлайн
+
+            if with_offline_signal:
+                offline_user_ids.extend(
+                    self._offline_recipients(ws_event, lookup_batch, routes)
+                )
+
+            await self._enqueue_gateway_deliveries(
+                routes, ws_event, payload, require_subscription=False,
+            )
+
+    if offline_user_ids:
+        await self._publish_offline_signal(ws_event, offline_user_ids)   # → push, гл. 14</code></pre>
+  </figure>
+
+  <figure class="code">
+    <figcaption><span>app/chats/repositories/chat.py</span><em>keyset-пагинация вместо OFFSET</em></figcaption>
+    <pre><code class="language-python">async def iter_member_ids(self, chat_id: UUID, batch_size: int = 2_000,
+                          role_ids: set[int] | None = None) -> AsyncIterator[list[int]]:
+    last_user_id = -1
+    while True:
+        conditions = [
+            ChatMember.chat_id == chat_id,
+            ChatMember.active_criteria(),        # не забаненные
+            ChatMember.user_id > last_user_id,   # ← курсор, а не OFFSET
+        ]
+        if role_ids is not None:
+            conditions.append(ChatMember.role_id.in_(role_ids))
+
+        stmt = (select(ChatMember.user_id).where(*conditions)
+                .order_by(ChatMember.user_id.asc()).limit(batch_size))
+        result = await self.session.execute(stmt)
+        user_ids = list(result.scalars().all())
+        if not user_ids:
+            break
+        yield [int(uid) for uid in user_ids]
+        last_user_id = int(user_ids[-1])</code></pre>
+  </figure>
+
+  <div class="box trap">
+    <span class="tag">Грабли</span>
+    <p><code>OFFSET 100000 LIMIT 2000</code> заставляет Postgres пройти и выбросить сто тысяч строк — и так на каждом батче. Keyset-пагинация («where user_id > последнего») использует индекс и стоит одинаково на первом и на сотом батче. Правило: <strong>OFFSET допустим только для страничек в интерфейсе, и то до сотой страницы</strong>.</p>
+  </div>
+
+  <h3>Кто сейчас онлайн: поиск маршрутов</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/services/delivery_router.py</span></figcaption>
+    <pre><code class="language-python">async def _lookup_online_routes(self, user_ids: Iterable[int]) -> RouteMap:
+    ids = [int(user_id) for user_id in user_ids]
+    if not ids:
+        return {}
+
+    pipe = self.redis.pipeline(transaction=False)
+    for user_id in ids:
+        pipe.smembers(WebsocketKeys.user_route_key(user_id))   # ws:route:user:42
+    results = await pipe.execute()                              # 500 команд — один RTT
+
+    routes_by_gateway: RouteMap = {}
+    stale_routes_by_user: list[tuple[int, str]] = []
+
+    for user_id, route_set in zip(ids, results, strict=False):
+        for route in route_set or ():
+            gateway_id, sep, connection_id = route.partition(":")
+            if not sep or not gateway_id or not connection_id:
+                stale_routes_by_user.append((user_id, route))   # мусор — вычистим
+                continue
+            routes_by_gateway.setdefault(gateway_id, set()).add(user_id)
+
+    if stale_routes_by_user:
+        asyncio.create_task(self._cleanup_stale_user_routes(stale_routes_by_user),
+                            name="ws:route:cleanup:user")
+    return routes_by_gateway</code></pre>
+  </figure>
+
+  <p>Результат — не список пользователей, а <strong>карта «гейтвей → множество пользователей»</strong>. Дальше на каждый гейтвей уйдёт по одной записи в его поток, а не по записи на пользователя. Это ключевая экономия: тысяча онлайн-получателей на трёх серверах — это три операции, а не тысяча.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/services/delivery_router.py</span><em>запись в потоки гейтвеев</em></figcaption>
+    <pre><code class="language-python">async def _enqueue_gateway_deliveries(self, routes_by_gateway, ws_event, payload, *,
+                                      require_subscription: bool) -> None:
+    if not routes_by_gateway:
+        return
+
+    pipe = self.redis.pipeline(transaction=False)
+    enqueued = 0
+
+    for gateway_id, user_ids in routes_by_gateway.items():
+        stream_key = WebsocketKeys.gateway_stream_key(gateway_id)
+        # получателей режем по 1 000 на запись, чтобы не раздувать элемент потока
+        for user_chunk in chunks(sorted(user_ids), app_config.WS_GATEWAY_STREAM_USERS_PER_ENTRY):
+            stream_event = DeliveryDTO(
+                type=ws_event.type,
+                payload=payload,
+                delivery=DeliveryData(require_subscription=require_subscription,
+                                      recipients=user_chunk),
+                ts=ws_event.ts,
+                channel=str(ws_event.chat_id),
+            )
+            pipe.xadd(stream_key, fields={"event": stream_event.model_dump_json()},
+                      maxlen=app_config.WS_GATEWAY_STREAM_MAXLEN, approximate=True)
+            enqueued += 1
+
+    await pipe.execute()
+    DELIVERY_ROUTER_STREAM_ENTRIES.labels(strategy=ws_event.fanout_strategy.value).inc(enqueued)</code></pre>
+  </figure>
+
+  <h3>Active subscribers: доставка без похода в базу</h3>
+  <p>Для больших чатов список получателей берётся не из БД, а из Redis-множества «кто сейчас подписан на этот чат». Побочный эффект: множество может содержать записи мёртвых соединений, поэтому каждый батч проверяется на живость.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/services/delivery_router.py</span></figcaption>
+    <pre><code class="language-python">async def _validate_active_subscriber_batch(self, subscription_key: str,
+                                            routes: list[ActiveSubscriptionRoute]) -> RouteMap:
+    pipe = self.redis.pipeline(transaction=False)
+    for _user_id, _gateway_id, connection_id, _route in routes:
+        pipe.exists(WebsocketKeys.connection_key(connection_id))   # ws:conn:{id} с TTL
+    alive_flags = await pipe.execute()
+
+    stale: list[str] = []
+    routes_by_gateway: RouteMap = {}
+    for (user_id, gateway_id, _cid, route), alive in zip(routes, alive_flags, strict=False):
+        if alive:
+            routes_by_gateway.setdefault(gateway_id, set()).add(user_id)
+        else:
+            stale.append(route)
+
+    if stale:   # уборка в фоне — не тормозим доставку живым
+        asyncio.create_task(self.redis.srem(subscription_key, *stale),
+                            name="ws:sub:cleanup:stale")
+    return routes_by_gateway</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Приём называется «ленивая уборка» (lazy cleanup). Вместо фоновой задачи, которая ходит и чистит всё подряд, мусор удаляется тем, кто на него наткнулся, и не блокирует основной путь. Ключ соединения <code>ws:conn:{id}</code> живёт с TTL 90 секунд и продлевается живым гейтвеем — если процесс убит <code>SIGKILL</code>, ключи протухнут сами.</p>
+  </div>
+
+  <h3>Отдельный случай: тот, кого выгнали</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/services/delivery_router.py</span></figcaption>
+    <pre><code class="language-python">MEMBER_REMOVED_EVENT_FIELDS: dict[str, str] = {
+    "chats.member.kicked": "target_user_id",
+    "chats.member.banned": "target_user_id",
+    "chats.member.left":   "user_id",
+}
+
+async def _route_to_removed_member(self, ws_event, payload) -> None:
+    field = MEMBER_REMOVED_EVENT_FIELDS.get(ws_event.event_name)
+    if field is None:
+        return
+    if ws_event.event_name == "chats.member.banned" and not ws_event.delta.get("ban"):
+        return                                   # это разбан — уведомлять не о чем
+
+    target_user_id = ws_event.delta.get(field)
+    if target_user_id is None:
+        return
+
+    routes = await self._lookup_online_routes([int(target_user_id)])
+    await self._enqueue_gateway_deliveries(routes, ws_event, payload,
+                                           require_subscription=False)</code></pre>
+  </figure>
+
+  <p class="note">Изгнанного участника уже нет в списке участников — обычный fan-out его не найдёт. Но именно ему важно узнать, что произошло, чтобы клиент закрыл чат и убрал его из списка. Такие «краевые» получатели обрабатываются явно, до основного fan-out.</p>
+</section>
+
+<!-- ============================================ 09 -->
+<section id="ch09">
+  <span class="chapter-no">Глава 09</span>
+  <h2>WebSocket-соединение: очередь, писатель, heartbeat</h2>
+
+  <p class="lead-in">Наивная реализация — <code>await websocket.send_text(...)</code> из места, где родилось событие. Так делать нельзя: один медленный клиент на мобильном интернете подвесит всю доставку. Соединение здесь — объект с собственной очередью и собственной задачей-писателем.</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/websocket/websocket.py</span><em>структура соединения</em></figcaption>
+    <pre><code class="language-python">@dataclass(slots=True)
+class WSConnection:
+    websocket: WebSocket
+    user_id: int
+    device_id: str
+    gateway_id: str
+    connection_id: str = field(default_factory=lambda: str(uuid4()))
+    connected_at: datetime = field(default_factory=now_utc)
+    last_seen_at: datetime = field(default_factory=now_utc)
+    subscriptions: set[str] = field(default_factory=set)         # на какие чаты подписан
+    last_seq_by_chat: dict[str, int] = field(default_factory=dict)
+    send_queue: asyncio.Queue[bytes] = field(
+        default_factory=lambda: asyncio.Queue(maxsize=app_config.WS_SEND_QUEUE_SIZE)  # 256
+    )
+    writer_task: asyncio.Task[None] | None = field(default=None)
+    heartbeat_task: asyncio.Task[None] | None = field(default=None)
+    closed: bool = field(default=False)</code></pre>
+  </figure>
+
+  <h3>Отправка не блокирует отправителя</h3>
+  <figure class="code">
+    <figcaption><span>app/core/websocket/websocket.py</span></figcaption>
+    <pre><code class="language-python">def try_send(self, event: dict[str, Any]) -> bool:
+    if self.closed:
+        return False
+
+    event["enqueued_at"] = now_utc().isoformat()   # для метрики задержки
+
+    try:
+        self.send_queue.put_nowait(orjson.dumps(event))
+    except asyncio.QueueFull:
+        return False        # ← клиент не успевает читать
+    else:
+        return True</code></pre>
+  </figure>
+
+  <p><code>try_send</code> — синхронный метод, который никогда не ждёт. Он либо кладёт байты в очередь, либо честно говорит «не влезло». Отдельная задача-писатель разгребает очередь и пишет в сокет:</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/websocket/websocket.py</span></figcaption>
+    <pre><code class="language-python">async def _writer_loop(self) -> None:
+    try:
+        while (not self.closed
+               and self.websocket.application_state == WebSocketState.CONNECTED):
+            try:
+                payload = await asyncio.wait_for(self.send_queue.get(), timeout=5.0)
+            except TimeoutError:
+                continue          # просыпаемся раз в 5 с, чтобы проверить состояние
+            await self.websocket.send_text(payload.decode())
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        if not self.closed:
+            await self.close(code=1011, reason="writer error")</code></pre>
+  </figure>
+
+  <h3>Что делать с медленным клиентом</h3>
+  <p>Очередь заполнилась — значит, клиент не успевает читать быстрее, чем мы пишем. Держать такое соединение вечно — значит копить память на сервере. Здесь его закрывают:</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/websocket/manager.py</span></figcaption>
+    <pre><code class="language-python">async def _send_or_unregister(self, conn: WSConnection, event: DeliveryDTO) -> None:
+    if conn.try_send({
+        "type": event.type, "channel": event.channel,
+        "payload": event.payload, "ts": event.ts,
+    }):
+        self._observe_delivery_latency(event)
+        return
+
+    WS_CONNECTION_EVICTIONS.labels(
+        gateway_id=self.gateway_id, reason=EVICTION_REASON_SLOW_CONSUMER
+    ).inc()
+    logger.warning("Dropping slow WebSocket consumer",
+                   extra={"connection_id": conn.connection_id, "user_id": conn.user_id})
+    asyncio.create_task(
+        self.unregister(conn, close_code=1013, close_reason="slow consumer"),
+        name=f"ws:drop:{conn.connection_id}",
+    )</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Код закрытия 1013 («try again later») — сигнал клиенту переподключиться. И это не потеря данных: при переподключении клиент пришлёт <code>resume</code> со своими <code>seq</code>, и всё пропущенное дочитается из базы (глава 11). Backpressure-политика «рвать соединение» безопасна ровно потому, что есть докачка по <code>seq</code>. Без неё пришлось бы копить очередь и молиться.</p>
+  </div>
+
+  <h3>Heartbeat: как отличить живого клиента от мёртвого</h3>
+  <p>TCP-соединение может «висеть» часами после того, как телефон ушёл в туннель. WebSocket сам об этом не сообщит. Поэтому — свой пинг.</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/websocket/websocket.py</span></figcaption>
+    <pre><code class="language-python">async def _heartbeat_loop(self) -> None:
+    while (not self.closed
+           and self.websocket.application_state == WebSocketState.CONNECTED):
+        await asyncio.sleep(app_config.WS_HEARTBEAT_INTERVAL)      # 30 с
+        if self.closed:
+            return
+
+        idle = (now_utc() - self.last_seen_at).total_seconds()
+        if idle > app_config.WS_HEARTBEAT_TIMEOUT:                  # 75 с молчания
+            WS_CONNECTION_EVICTIONS.labels(
+                gateway_id=self.gateway_id, reason=EVICTION_REASON_HEARTBEAT_TIMEOUT,
+            ).inc()
+            await self.close(code=1001, reason="heartbeat timeout")
+            return
+
+        if not self.try_send({"type": "ws.ping", "connection_id": self.connection_id}):
+            return</code></pre>
+  </figure>
+
+  <p><code>last_seen_at</code> обновляется методом <code>touch()</code> при любом входящем фрейме — в том числе при клиентском <code>pong</code>. Таймаут (75 с) выбран чуть больше двух интервалов пинга (30 с): один потерянный пинг не убивает соединение, два подряд — убивают.</p>
+
+  <h3>Лимит соединений на пользователя</h3>
+  <figure class="code">
+    <figcaption><span>app/core/websocket/manager.py</span><em>фрагмент register()</em></figcaption>
+    <pre><code class="language-python">async with self._lock:
+    self.connections_by_id[conn.connection_id] = conn
+    user_conns = self.connections_by_user[conn.user_id]
+    user_conns.add(conn.connection_id)
+    is_first_local_connection = len(user_conns) == 1
+
+    overflow = len(user_conns) - app_config.WS_MAX_CONNECTIONS_PER_USER
+    if overflow > 0:
+        # выгоняем самые старые соединения этого пользователя
+        stale_to_close.extend(
+            sorted((self.connections_by_id[cid] for cid in user_conns
+                    if cid in self.connections_by_id),
+                   key=lambda c: c.connected_at)[:overflow]
+        )
+
+await self.set_route_users(conn)     # регистрируем маршрут в Redis
+await conn.start()                   # запускаем writer и heartbeat
+
+if is_first_local_connection:
+    await self.presence_service.set_online(conn.user_id)</code></pre>
+  </figure>
+
+  <p class="note">Обратите внимание на <code>is_first_local_connection</code>: статус «онлайн» ставится только при первом соединении пользователя на этом сервере, а снимается — только когда в Redis не осталось ни одного его маршрута. Открытые пять вкладок не должны означать пять «входов в сеть».</p>
+
+  <h3>Присутствие: один отсортированный набор</h3>
+  <figure class="code">
+    <figcaption><span>app/core/websocket/presence.py</span></figcaption>
+    <pre><code class="language-python">@dataclass
+class PresenceService:
+    redis: Redis
+
+    async def set_online(self, user_id: int) -> None:
+        ts = now_utc().timestamp()
+        await self.redis.zadd(WebsocketKeys.presence_last_seen_zset(), {str(user_id): ts})
+
+    async def refresh(self, user_ids: Iterable[int]) -> None:
+        mapping = {str(user_id): now_utc().timestamp() for user_id in user_ids}
+        if mapping:
+            await self.redis.zadd(WebsocketKeys.presence_last_seen_zset(), mapping)
+
+    async def cleanup_stale(self) -> int:
+        threshold = now_utc().timestamp() - app_config.WS_PRESENCE_TTL      # 90 с
+        removed = await self.redis.zremrangebyscore(
+            WebsocketKeys.presence_last_seen_zset(), min=0, max=threshold)
+        return int(removed or 0)
+
+    async def get_online_status(self, user_ids: list[int]) -> dict[int, bool]:
+        now_ts = now_utc().timestamp()
+        scores = await self.redis.zmscore(WebsocketKeys.presence_last_seen_zset(),
+                                          [str(uid) for uid in user_ids])
+        return {uid: self._is_fresh_score(score, now_ts)
+                for uid, score in zip(user_ids, scores, strict=False)}</code></pre>
+  </figure>
+
+  <p>Один Sorted Set на всё присутствие: member — <code>user_id</code>, score — момент последней активности. «Кто онлайн из этих ста человек» — одна команда <code>ZMSCORE</code>. Очистка протухших — одна <code>ZREMRANGEBYSCORE</code>. Никаких ключей-на-пользователя и никакого <code>KEYS *</code>.</p>
+</section>
+
+<!-- ============================================ 10 -->
+<section id="ch10">
+  <span class="chapter-no">Глава 10</span>
+  <h2>Маршрутизация между серверами: Redis Streams вместо Pub/Sub</h2>
+
+  <p class="lead-in">Серверов с WebSocket — несколько. Событие родилось в процессе консьюмеров, а нужное соединение живёт в памяти конкретного инстанса <code>app</code>. Задача: доставить событие ровно туда, и только туда.</p>
+
+  <h3>Три реестра в Redis</h3>
+  <figure class="code">
+    <figcaption><span>app/core/websocket/keys.py</span><em>вся схема ключей</em></figcaption>
+    <pre><code class="language-python">class WebsocketKeys:
+    @staticmethod
+    def user_route_key(user_id: int) -> str:          # SET: "gateway:connection"
+        return f"ws:route:user:{int(user_id)}"
+
+    @staticmethod
+    def gateway_route_key(gateway_id: str) -> str:    # SET соединений этого сервера
+        return f"ws:route:gateway:{gateway_id}"
+
+    @staticmethod
+    def connection_key(connection_id: str) -> str:    # STRING с TTL — «соединение живо»
+        return f"ws:conn:{connection_id}"
+
+    @staticmethod
+    def gateway_stream_key(gateway_id: str) -> str:   # STREAM — почтовый ящик сервера
+        return f"ws:gateway:{gateway_id}:stream"
+
+    @staticmethod
+    def active_subscription_key(channel: str) -> str: # SET подписчиков чата
+        return f"ws:sub:chat:{channel}"
+
+    @staticmethod
+    def active_subscription_route(user_id: int, gateway_id: str, connection_id: str) -> str:
+        return f"{int(user_id)}:{gateway_id}:{connection_id}"</code></pre>
+  </figure>
+
+  <p>Регистрация соединения записывает всё это одним конвейером, каждый ключ — с TTL:</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/websocket/manager.py</span></figcaption>
+    <pre><code class="language-python">async def set_route_users(self, conn: WSConnection) -> None:
+    route_value = f"{self.gateway_id}:{conn.connection_id}"
+    pipe = self.redis.pipeline(transaction=False)
+    pipe.sadd(WebsocketKeys.user_route_key(conn.user_id), route_value)
+    pipe.expire(WebsocketKeys.user_route_key(conn.user_id), app_config.WS_REDIS_CONNECTION_TTL)
+    pipe.sadd(WebsocketKeys.gateway_route_key(self.gateway_id), conn.connection_id)
+    pipe.expire(WebsocketKeys.gateway_route_key(self.gateway_id), app_config.WS_REDIS_CONNECTION_TTL)
+    pipe.set(
+        WebsocketKeys.connection_key(conn.connection_id),
+        orjson.dumps({
+            "user_id": conn.user_id, "gateway_id": self.gateway_id,
+            "device_id": conn.device_id, "connected_at": conn.connected_at.isoformat(),
+        }),
+        ex=app_config.WS_REDIS_CONNECTION_TTL,        # 90 секунд
+    )
+    await pipe.execute()</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>TTL на всём — это защита от «грязной смерти» процесса. Корректное завершение чистит ключи само (<code>shutdown()</code>), но <code>SIGKILL</code>, OOM или отключённая сеть корректного завершения не дают. Через 90 секунд Redis приберётся сам. Цена — фоновый цикл, который каждые ~30 секунд продлевает ключи живых соединений.</p>
+  </div>
+
+  <h3>Почему Stream, а не Pub/Sub</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>Pub/Sub</th><th>Stream (используется здесь)</th></tr></thead>
+    <tbody>
+      <tr><td>Если подписчик на секунду отвалился</td><td>Сообщения потеряны</td><td>Лежат в потоке, дочитает</td></tr>
+      <tr><td>Подтверждение обработки</td><td>Нет</td><td><code>XACK</code>, есть pending-список</td></tr>
+      <tr><td>Обработчик упал в середине</td><td>Сообщение исчезло</td><td>Заберёт другой через <code>XAUTOCLAIM</code></td></tr>
+      <tr><td>Рост при отставании</td><td>Не растёт</td><td>Растёт — нужен <code>MAXLEN</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>У каждого гейтвея — свой поток и своя consumer-группа. Читает он только свой ящик:</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/websocket/manager.py</span></figcaption>
+    <pre><code class="language-python">async def _consume_gateway_stream_loop(self) -> None:
+    consecutive_errors = 0
+    await self._ensure_stream_group()
+
+    with contextlib.suppress(Exception):
+        await self._claim_pending_entries()     # подобрать «зависшее» от прошлой жизни
+
+    while not self._shutdown_event.is_set():
+        try:
+            messages = await self.redis.xreadgroup(
+                groupname=self.stream_group,
+                consumername=self.stream_consumer,
+                streams={self.stream_key: ">"},
+                count=app_config.WS_GATEWAY_STREAM_READ_COUNT,     # 200
+                block=app_config.WS_GATEWAY_STREAM_BLOCK_MS,       # 5 000 мс
+            )
+            consecutive_errors = 0
+            if not messages:
+                continue
+
+            entries = [(message_id, fields)
+                       for _stream, stream_messages in messages
+                       for message_id, fields in stream_messages]
+            await self._process_entries(entries)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            consecutive_errors += 1
+            backoff = min(consecutive_errors * 0.5, 10.0)      # линейный backoff до 10 с
+            logger.exception("WebSocket gateway stream consumer error; retry in %.1fs", backoff)
+            await asyncio.sleep(backoff)</code></pre>
+  </figure>
+
+  <h3>Подтверждать только то, что действительно обработано</h3>
+  <figure class="code">
+    <figcaption><span>app/core/websocket/manager.py</span></figcaption>
+    <pre><code class="language-python">async def _process_entries(self, entries: list[Any]) -> None:
+    results = await asyncio.gather(
+        *(self._process_gateway_stream_entry(mid, fields) for mid, fields in entries),
+        return_exceptions=True,
+    )
+
+    ack_ids: list[Any] = []
+    for (message_id, _fields), result in zip(entries, results, strict=True):
+        if isinstance(result, BaseException):
+            logger.error("Failed to process websocket gateway stream message",
+                         exc_info=result, extra={"stream_id": message_id})
+            continue              # НЕ подтверждаем — останется в pending
+        ack_ids.append(message_id)
+
+    if ack_ids:
+        await self.redis.xack(self.stream_key, self.stream_group, *ack_ids)</code></pre>
+  </figure>
+
+  <p>Неудачные записи остаются в pending-списке. Их подберёт периодический цикл через <code>XAUTOCLAIM</code> — если запись «висит» без подтверждения дольше минуты, её можно забрать себе:</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/websocket/manager.py</span></figcaption>
+    <pre><code class="language-python">async def _claim_pending_entries(self) -> int:
+    await self._ensure_stream_group()
+    claimed_total = 0
+    cursor: Any = _CLAIM_START_ID          # "0-0"
+
+    while not self._shutdown_event.is_set():
+        result = await self.redis.xautoclaim(
+            name=self.stream_key,
+            groupname=self.stream_group,
+            consumername=self.stream_consumer,
+            min_idle_time=app_config.WS_GATEWAY_STREAM_CLAIM_MIN_IDLE_MS,   # 60 000
+            start_id=cursor,
+            count=app_config.WS_GATEWAY_STREAM_CLAIM_COUNT,
+        )
+        next_cursor, entries = result[0], result[1]
+        if entries:
+            claimed_total += len(entries)
+            WS_GATEWAY_STREAM_CLAIMED.labels(gateway_id=self.gateway_id).inc(len(entries))
+            await self._process_entries(list(entries))
+
+        cursor = _decode(next_cursor)
+        if not cursor or cursor == _CLAIM_START_ID or not entries:
+            break
+    return claimed_total</code></pre>
+  </figure>
+
+  <h3>Доставка внутри процесса</h3>
+  <figure class="code">
+    <figcaption><span>app/core/websocket/manager.py</span></figcaption>
+    <pre><code class="language-python">async def send_to_users_local(self, event: DeliveryDTO) -> None:
+    async with self._lock:
+        conns = [
+            conn
+            for uid in event.delivery.recipients
+            for conn_id in tuple(self.connections_by_user.get(uid, ()))
+            if (conn := self.connections_by_id.get(conn_id)) is not None
+            # если доставка «только подписчикам» — проверяем подписку соединения
+            and (not event.delivery.require_subscription or event.channel in conn.subscriptions)
+        ]
+    await self._send_to_connections(conns, event)
+
+
+async def _send_to_connections(self, conns: list[WSConnection], event: DeliveryDTO) -> None:
+    for start in range(0, len(conns), _LOCAL_SEND_BATCH_SIZE):    # по 1 024
+        batch = conns[start:start + _LOCAL_SEND_BATCH_SIZE]
+        await asyncio.gather(*(self._send_or_unregister(conn, event) for conn in batch),
+                             return_exceptions=False)</code></pre>
+  </figure>
+
+  <p class="note">Флаг <code>require_subscription</code> — тот самый, что роутер выставил по стратегии fan-out. Для личных сообщений он <code>False</code>: доставим на все соединения пользователя, даже если открыт другой чат. Для супергрупп <code>True</code>: только тем соединениям, которые явно подписаны на этот чат.</p>
+
+  <h3>Четыре фоновых цикла гейтвея</h3>
+  <figure class="code">
+    <figcaption><span>app/core/websocket/manager.py</span></figcaption>
+    <pre><code class="language-python">async def startup(self) -> None:
+    self._shutdown_event.clear()
+    tasks = [
+        asyncio.create_task(self._refresh_routes_loop(),         name=f"ws:routes:{self.gateway_id}"),
+        asyncio.create_task(self._consume_gateway_stream_loop(), name=f"ws:stream:{self.gateway_id}"),
+        asyncio.create_task(self._claim_pending_loop(),          name=f"ws:claim:{self.gateway_id}"),
+        asyncio.create_task(self._stream_metrics_loop(),         name=f"ws:metrics:{self.gateway_id}"),
+    ]
+    try:
+        await asyncio.gather(*tasks)
+    except asyncio.CancelledError:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+    finally:
+        await self.shutdown()</code></pre>
+  </figure>
+
+  <p>Запускается это из <code>lifespan</code> приложения через <code>aiojobs</code>:</p>
+
+  <figure class="code">
+    <figcaption><span>app/main.py</span></figcaption>
+    <pre><code class="language-python">@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    redis_client = await app.state.dishka_container.get(redis.Redis)
+    await FastAPILimiter.init(redis_client)
+
+    message_broker: BaseMessageBroker = await app.state.dishka_container.get(BaseMessageBroker)
+    await message_broker.start()
+
+    connection_manager = await app.state.dishka_container.get(ConnectionManager)
+    scheduler = Scheduler()
+    await scheduler.spawn(connection_manager.startup())    # ← фоновые циклы гейтвея
+
+    yield
+
+    await scheduler.close()
+    await redis_client.aclose()
+    await message_broker.close()
+    await app.state.dishka_container.close()</code></pre>
+  </figure>
+
+  <div class="box trap">
+    <span class="tag">Грабли</span>
+    <p>Идентификатор гейтвея по умолчанию — <code>f"{HOSTNAME}-{os.getpid()}"</code>. Это значит, что <strong>у каждого gunicorn-воркера свой поток в Redis</strong>: четыре воркера — четыре ящика. Так и задумано (соединения живут в памяти конкретного процесса), но при подсчёте нагрузки на Redis не забывайте умножать на число воркеров. И следите за <code>MAXLEN</code>: 200 000 записей × количество процессов — это память Redis.</p>
+  </div>
+</section>
+
+<!-- ============================================ 11 -->
+<section id="ch11">
+  <span class="chapter-no">Глава 11</span>
+  <h2>Протокол клиента: подписка, докачка, «ничего не потеряли»</h2>
+
+  <p class="lead-in">Реалтайм-канал бесполезен, если после десяти секунд в лифте у пользователя дырка в переписке. Здесь потеря невозможна по построению: клиент всегда знает свой <code>seq</code>, и сервер всегда может дослать разницу из базы.</p>
+
+  <h3>Хендшейк</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/routes/v1/ws.py</span><em>аутентификация до accept</em></figcaption>
+    <pre><code class="language-python">@router.websocket("/ws/")
+@inject
+async def websocket_gateway(
+    websocket: WebSocket,
+    container: FromDishka[AsyncContainer],
+    initial_chat_id: str | None = None,
+    initial_last_seq: int | None = None,
+) -> None:
+    token = get_ws_access_token(websocket)
+    if not token:
+        await websocket.close(code=1008, reason="missing token")
+        return
+
+    async with container() as request_container:
+        jwt_manager = await request_container.get(JWTManager)
+        user_jwt_data = UserJWTData.create_from_token(await jwt_manager.validate_token(token))
+        user_id = int(user_jwt_data.id)
+
+    await websocket.accept(subprotocol=_select_subprotocol(websocket))   # "chat.v1"
+
+    async with container() as request_container:
+        manager = await request_container.get(ConnectionManager)
+        conn = WSConnection(
+            websocket=websocket, user_id=user_id,
+            device_id=user_jwt_data.device_id or websocket.query_params.get("device_id") or "unknown",
+            gateway_id=manager.gateway_id,
+        )
+        await manager.register(conn)
+        conn.try_send({
+            "type": "ws.ready",
+            "payload": {
+                "connection_id": conn.connection_id,
+                "gateway_id": conn.gateway_id,
+                "heartbeat_interval": app_config.WS_HEARTBEAT_INTERVAL,
+                "heartbeat_timeout": app_config.WS_HEARTBEAT_TIMEOUT,
+                "reconnect": {"mode": "last_seq_per_chat", "op": "resume"},
+            },
+        })</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Токен проверяется <strong>до</strong> <code>accept()</code> — плохой токен получает отказ на уровне рукопожатия (код 1008), а не «принят и сразу отключён». И первое же сообщение <code>ws.ready</code> сообщает клиенту параметры протокола: интервал heartbeat и способ восстановления. Клиенту не нужно зашивать эти числа в код — сервер может их поменять.</p>
+  </div>
+
+  <p>Токен принимается тремя способами — это компромисс с реальностью браузеров, которые не умеют слать заголовки в WebSocket:</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/api/utils.py</span></figcaption>
+    <pre><code class="language-python">def get_ws_access_token(websocket: WebSocket) -> str | None:
+    token = websocket.query_params.get("token") or websocket.query_params.get("access_token")
+    if token:
+        return token
+
+    authorization = websocket.headers.get("authorization")
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization.split(" ", 1)[1].strip()
+
+    # трюк с sec-websocket-protocol: браузер умеет слать только его
+    protocols = websocket.headers.get("sec-websocket-protocol", "")
+    for part in (p.strip() for p in protocols.split(",")):
+        lower = part.lower()
+        if lower.startswith("bearer."):
+            return part.split(".", 1)[1]
+        if lower.startswith("bearer "):
+            return part.split(" ", 1)[1]
+    return None</code></pre>
+  </figure>
+
+  <div class="box trap">
+    <span class="tag">Грабли</span>
+    <p>Токен в query-параметре попадает в логи nginx, в историю браузера и в реферер. Если ваш прод логирует URL целиком — это утечка access-токена. Поэтому предпочтительный путь — через <code>sec-websocket-protocol</code>, а query оставить только для отладки и коротких одноразовых токенов.</p>
+  </div>
+
+  <h3>Команды клиента</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/schemas/ws.py</span></figcaption>
+    <pre><code class="language-python">class WSClientOp(StrEnum):
+    PING = "ping"
+    PONG = "pong"
+    SUBSCRIBE = "subscribe"
+    UNSUBSCRIBE = "unsubscribe"
+    RESUME = "resume"
+
+
+class WSClientCommand(BaseModel):
+    op: WSClientOp
+    chat_id: str | None = None
+    last_seq: int | None = None
+    cursors: dict[str, int] = Field(default_factory=dict)   # {chat_id: last_seq}</code></pre>
+  </figure>
+
+  <p>Цикл чтения устроен нарочито однообразно: разобрать кадр, превратить в команду, отдать медиатору. Ошибки не рвут соединение — на них отвечают кадром <code>ws.error</code>.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/routes/v1/ws.py</span><em>сокращено</em></figcaption>
+    <pre><code class="language-python">try:
+    while True:
+        try:
+            payload = await get_json_user(websocket)     # с проверкой размера кадра
+            conn.touch()                                 # ← продлеваем heartbeat
+            websocket_command = WSClientCommand.model_validate(payload)
+        except ValidationError as exc:
+            conn.try_send({"type": "ws.error", "code": "BAD_COMMAND", "detail": ...})
+            continue
+        except ValueError as exc:
+            conn.try_send({"type": "ws.error", "code": "BAD_FRAME", "detail": str(exc)})
+            continue
+
+        async with container() as request_container:
+            mediator = await request_container.get(BaseMediator)
+            match websocket_command.op:
+                case WSClientOp.RESUME:
+                    await mediator.handle_command(
+                        ResumeCommand(conn=conn, cursor=websocket_command.cursors))
+                case WSClientOp.SUBSCRIBE:
+                    await mediator.handle_command(SubscribeCommand(
+                        conn=conn, chat_id=websocket_command.chat_id,
+                        user_id=conn.user_id, last_seq=websocket_command.last_seq))
+                case WSClientOp.PING:
+                    await mediator.handle_command(PingCommand(conn=conn))
+                case WSClientOp.PONG:
+                    await mediator.handle_command(PongCommand(conn=conn))
+                case WSClientOp.UNSUBSCRIBE:
+                    await mediator.handle_command(
+                        UnsubscribeCommand(conn=conn, chat_id=websocket_command.chat_id))
+except WebSocketDisconnect:
+    pass
+finally:
+    await manager.unregister(conn)          # ← снятие маршрутов гарантировано</code></pre>
+  </figure>
+
+  <figure class="code">
+    <figcaption><span>app/chats/routes/v1/ws.py</span><em>защита от гигантского кадра</em></figcaption>
+    <pre><code class="language-python">async def get_json_user(websocket: WebSocket) -> dict[str, Any]:
+    message = await websocket.receive()
+    if message["type"] == "websocket.disconnect":
+        raise WebSocketDisconnect(message.get("code", 1000))
+
+    raw: str | bytes | None = message.get("text") or message.get("bytes")
+    if raw is None:
+        raise ValueError("empty websocket frame")
+
+    raw_bytes = raw.encode("utf-8") if isinstance(raw, str) else raw
+    if len(raw_bytes) > chat_config.WS_MAX_CLIENT_FRAME_BYTES:     # 64 КиБ
+        raise ValueError("websocket frame is too large")
+
+    data = orjson.loads(raw_bytes)
+    if not isinstance(data, dict):
+        raise ValueError("websocket frame must be a JSON object")
+    return data</code></pre>
+  </figure>
+
+  <h3>Подписка на чат = проверка доступа + докачка</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/commands/websockets/subscribe.py</span></figcaption>
+    <pre><code class="language-python">async def handle(self, command: SubscribeCommand) -> None:
+    chat_id = UUID(command.chat_id)
+    member = await self.chat_repository.get_member_chat(
+        chat_id=chat_id, member_id=command.user_id, with_role=False)
+
+    if member is None or member.is_banned:
+        command.conn.try_send({"type": "ws.error", "code": "NOT_CHAT_MEMBER",
+                               "detail": "You are not a member of this chat"})
+        return
+
+    await self.manager.subscribe_channel(command.conn, command.chat_id)
+    command.conn.try_send({"type": "ws.subscribed", "chat_id": str(chat_id),
+                           "payload": {"last_seq": command.last_seq}})
+
+    if command.last_seq is not None:
+        limit = chat_config.WS_REPLAY_BATCH_SIZE               # 50
+        last_seq = max(0, command.last_seq)
+        messages = await self.message_repository.get_chat_messages_after_seq(
+            chat_id=chat_id, last_seq=last_seq, limit=limit)
+
+        batch = messages[:limit]
+        next_last_seq = batch[-1].seq if batch else last_seq
+        command.conn.last_seq_by_chat[str(chat_id)] = next_last_seq
+
+        command.conn.try_send({
+            "type": "ws.history",
+            "chat_id": str(chat_id),
+            "payload": {
+                "after_seq": last_seq,
+                "messages": [...],                    # DTO + ссылки + реакции
+                "has_more": len(messages) > limit,    # ← клиент знает, что нужен ещё запрос
+                "next_last_seq": next_last_seq,
+            },
+        })</code></pre>
+  </figure>
+
+  <p class="note">Приём с <code>limit + 1</code>: запрашиваем на одну запись больше, чем отдадим. Если вернулось больше <code>limit</code> — значит, есть ещё, и в ответ уходит <code>has_more: true</code>. Никаких <code>COUNT(*)</code> ради «есть ли ещё».</p>
+
+  <h3>Resume: восстановление всех чатов разом</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/commands/websockets/resume.py</span></figcaption>
+    <pre><code class="language-python">async def handle(self, command: ResumeCommand) -> None:
+    if len(command.cursor) > 20:
+        raise MaxLimitCursorError(max_len=20, current_len=len(command.cursor))
+
+    for chat_id, cursor_seq in command.cursor.items():
+        member = await self.chat_repository.get_member_chat(
+            chat_id=UUID(chat_id), member_id=command.conn.user_id, with_role=False)
+        if member is None or member.is_banned:
+            command.conn.try_send({"type": "ws.error", "code": "NOT_CHAT_MEMBER", ...})
+            return
+
+        await self.manager.subscribe_channel(command.conn, chat_id)
+        # ... дальше то же самое: дочитать сообщения после cursor_seq и отдать ws.history</code></pre>
+  </figure>
+
+  <p>Клиент после переподключения шлёт один кадр:</p>
+
+  <figure class="code">
+    <figcaption><span>кадр от клиента</span><em>op: resume</em></figcaption>
+    <pre><code class="language-json">{
+  "op": "resume",
+  "cursors": {
+    "018f2c8a-...-a91": 4172,
+    "018f2c8b-...-b02": 88
+  }
+}</code></pre>
+  </figure>
+
+  <p>И получает обратно по <code>ws.subscribed</code> и <code>ws.history</code> на каждый чат. Лимит в 20 курсоров — защита: иначе клиент с тысячей чатов одним кадром устроит серверу тысячу запросов в базу.</p>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Здесь работает связка из трёх решений: (1) у сообщения есть монотонный <code>seq</code> в пределах чата, (2) клиент хранит последний виденный <code>seq</code> по каждому чату, (3) сервер умеет отдать «всё после N» одним индексным запросом. Уберите любое — и придётся или гарантировать доставку в реальном времени (невозможно), или синхронизироваться по времени (неточно и ломается при перекосе часов).</p>
+  </div>
+
+  <h3>Полный жизненный цикл клиента</h3>
+  <ol class="steps">
+    <li>Открыть WebSocket с токеном → получить <code>ws.ready</code> с параметрами.</li>
+    <li>Отправить <code>resume</code> с курсорами открытых чатов → получить <code>ws.history</code> с пропущенным.</li>
+    <li>Держать соединение: отвечать <code>pong</code> на <code>ws.ping</code> (или слать свой <code>ping</code>).</li>
+    <li>При открытии нового чата — <code>subscribe</code>, при закрытии — <code>unsubscribe</code>.</li>
+    <li>Получать <code>new_message</code>, <code>message_edited</code>, <code>reaction_update</code> и обновлять <code>last_seq</code>.</li>
+    <li>При обрыве — переподключиться и вернуться к шагу 2. Ничего не потеряно.</li>
+  </ol>
+</section>
+
+<!-- ============================================ 12 -->
+<section id="ch12">
+  <span class="chapter-no">Глава 12</span>
+  <h2>Реакции: как не утопить чат в шторме событий</h2>
+
+  <p class="lead-in">Реакции — самый «шумный» тип событий. Популярный пост в канале собирает сотни реакций в секунду, и каждая порождает событие. Отправлять их по одной — значит забить канал доставки мусором.</p>
+
+  <h3>Модель: составной ключ</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/models/reaction.py</span></figcaption>
+    <pre><code class="language-python">class MessageReaction(BaseModel, DateMixin):
+    __tablename__ = "message_reactions"
+
+    message_id: Mapped[UUID] = mapped_column(
+        SAUUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    emoji: Mapped[str] = mapped_column(String(chat_config.MAX_REACTION_LENGTH), primary_key=True)
+    chat_id: Mapped[UUID] = mapped_column(SAUUID(as_uuid=True),
+        ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)</code></pre>
+  </figure>
+
+  <p>Первичный ключ из трёх полей означает, что «поставить ту же реакцию дважды» невозможно на уровне БД — не нужно проверять это кодом.</p>
+
+  <h3>Политика: три ограничения</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/services/reaction_policy.py</span></figcaption>
+    <pre><code class="language-python">@dataclass(slots=True)
+class ReactionPolicy:
+    def ensure_can_react(self, chat: Chat, member: ChatMember) -> None:
+        if member.is_muted:
+            raise AccessDeniedChatError(chat_id=str(chat.id), requester_id=member.user_id)
+        if chat.reactions_mode == ChatReactionsMode.NONE:
+            raise ReactionsDisabledError(chat_id=str(chat.id))
+
+    def validate_emoji(self, chat: Chat, emoji: str) -> None:
+        if emoji not in chat_config.DEFAULT_REACTIONS:      # белый список из ~70 эмодзи
+            raise InvalidReactionError(emoji=emoji[:64])
+        if chat.reactions_mode == ChatReactionsMode.NONE:
+            raise ReactionsDisabledError(chat_id=str(chat.id))
+        if (chat.reactions_mode == ChatReactionsMode.SOME
+                and emoji not in set(chat.allowed_reactions or ())):
+            raise ReactionNotAllowedError(emoji=emoji, allowed=list(chat.allowed_reactions or []))</code></pre>
+  </figure>
+
+  <p class="note">Белый список эмодзи — не каприз, а защита. Без него пользователь пришлёт «реакцию» из 4096 символов zalgo-текста, которая сломает вёрстку у всех участников чата и раздует индекс.</p>
+
+  <h3>Событие несёт снимок, а не дельту</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/commands/reactions/__init__.py</span></figcaption>
+    <pre><code class="language-python">async def build_reaction_event(reaction_repository, *, chat_id: UUID, message_id: UUID,
+                               actor_id: int, action: str) -> ReactionUpdatedEvent:
+    groups = await reaction_repository.get_current_groups(message_id)   # [(👍, 12), (🔥, 3)]
+
+    recent_by_emoji: dict[str, list[int]] = {}
+    if chat_config.REACTIONS_INCLUDE_RECENT_USERS and groups:
+        state = await reaction_repository.get_reaction_state_for_messages([message_id], actor_id)
+        msg_state = state.get(message_id)
+        if msg_state is not None:
+            recent_by_emoji = msg_state.recent_by_emoji
+
+    return ReactionUpdatedEvent(
+        message_id=str(message_id), chat_id=str(chat_id),
+        actor_id=actor_id, action=action,
+        groups=groups, recent_by_emoji=recent_by_emoji,
+    )</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Событие содержит <strong>полное текущее состояние</strong> реакций сообщения, а не «+1 к 👍». Это делает его идемпотентным при доставке: клиент может получить снимок дважды, в неправильном порядке или пропустить один — итоговая картинка всё равно сойдётся. Дельты требуют строгого порядка и надёжной доставки; снимки — нет.</p>
+  </div>
+
+  <h3>Коалесинг: 500 событий → 1 отправка</h3>
+  <p>Раз событие — снимок, соседние события про одно сообщение взаимозаменяемы: достаточно отправить последнее. На этом построена схлопывающая очередь с окном в 500 мс.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/services/reaction_coalescer.py</span></figcaption>
+    <pre><code class="language-python">_CLAIM_DUE_LUA = """
+local due = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, tonumber(ARGV[2]))
+local out = {}
+for _, field in ipairs(due) do
+    local snapshot = redis.call('HGET', KEYS[2], field)
+    redis.call('ZREM', KEYS[1], field)
+    redis.call('HDEL', KEYS[2], field)
+    if snapshot then
+        out[#out + 1] = snapshot
+    end
+end
+return out
+"""
+
+@dataclass
+class ReactionCoalesceQueue:
+    redis: Redis
+
+    async def enqueue(self, event: DictEventDTO) -> None:
+        field = f"{event.payload['chat_id']}:{event.payload['message_id']}"
+        deadline = _now_ms() + chat_config.REACTIONS_COALESCE_WINDOW_MS      # +500 мс
+
+        pipe = self.redis.pipeline(transaction=True)
+        pipe.hset(ReactionKeys.reaction_coalesce_pending(), field, event.model_dump_json())
+        pipe.zadd(ReactionKeys.reaction_coalesce_due(), {field: deadline}, nx=True)
+        await pipe.execute()</code></pre>
+  </figure>
+
+  <p>Разберём по шагам, что тут происходит:</p>
+  <ul>
+    <li><code>HSET</code> — <strong>перезаписывает</strong> снимок по ключу «чат:сообщение». Пришло 500 реакций — в хеше осталась одна, последняя.</li>
+    <li><code>ZADD ... NX</code> — дедлайн ставится <strong>только если его ещё нет</strong>. Первая реакция назначает время отправки; последующие его не двигают. Иначе при непрерывном потоке реакций отправка откладывалась бы бесконечно.</li>
+    <li>Lua-скрипт забирает «созревшие» ключи, удаляет их из обеих структур и возвращает снимки — атомарно, поэтому два консьюмера не отправят одно и то же дважды.</li>
+  </ul>
+
+  <figure class="code">
+    <figcaption><span>app/chats/tasks/coalescer.py</span><em>фоновый цикл в процессе консьюмеров</em></figcaption>
+    <pre><code class="language-python">async def run_reaction_coalescer(container, queue: ReactionCoalesceQueue) -> None:
+    tick = chat_config.REACTIONS_COALESCE_TICK_MS / 1000        # 0.1 с
+
+    while True:
+        try:
+            snapshots = await queue.claim_due()
+            if snapshots:
+                CHAT_REACTION_COALESCE_COLLAPSED.observe(len(snapshots))
+                async with container() as request_container:
+                    router: ChatDeliveryRouter = await request_container.get(ChatDeliveryRouter)
+                    for snapshot in snapshots:
+                        await router.route_reaction_snapshot(snapshot)
+        except asyncio.CancelledError:
+            logger.info("Reaction coalescer stopping")
+            raise
+        except Exception:
+            logger.exception("Reaction coalescer tick failed")
+
+        await asyncio.sleep(tick)</code></pre>
+  </figure>
+
+  <p class="note">Цена схемы — задержка до 500 мс на реакциях. Для «сердечка под сообщением» это незаметно, а нагрузка на канал доставки падает на порядок. Тот же приём применим к «печатает…», к счётчикам просмотров, к статусам прочтения в больших группах.</p>
+</section>
+
+<!-- ============================================ 13 -->
+<section id="ch13">
+  <span class="chapter-no">Глава 13</span>
+  <h2>Вложения: файл не проходит через приложение</h2>
+
+  <p class="lead-in">Правило: бэкенд не принимает и не отдаёт байты файлов. Он выдаёт временные ссылки, а гоняет данные клиент напрямую с объектным хранилищем. Иначе один человек, отправляющий видео на 100 МБ, занимает воркер на минуту.</p>
+
+  <div class="flow">
+    <div class="flow-row">
+      <div class="node"><b>1. Слот</b><em>POST /attachments<br>presigned PUT</em></div>
+      <div class="arrow">→</div>
+      <div class="node hot"><b>2. Загрузка</b><em>клиент → MinIO<br>bucket pending</em></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>3. Сигнал</b><em>POST success</em></div>
+      <div class="arrow">→</div>
+      <div class="node hot"><b>4. Проверка</b><em>Taskiq: MIME,<br>размер, ffprobe</em></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>5. Перенос</b><em>pending → final</em></div>
+      <div class="arrow">→</div>
+      <div class="node hot"><b>6. Сообщение</b><em>upload_tokens</em></div>
+    </div>
+    <p class="flow-caption">Два бакета — не роскошь: в <code>chat-pending-attachments</code> лежит непроверенный пользовательский ввод, в <code>chat-attachments</code> — только то, что прошло валидацию.</p>
+  </div>
+
+  <h3>Шаг 1: выдача слота</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/commands/attachments/request_upload.py</span><em>сокращено</em></figcaption>
+    <pre><code class="language-python">async def handle(self, command: RequestAttachmentUploadCommand) -> list[UploadSlotDTO]:
+    user_id = int(command.user_jwt_data.id)
+
+    chat = await self.chat_repository.get_by_id(command.chat_id)
+    member = await self.chat_repository.get_member_chat(command.chat_id, user_id)
+    if not await self.chat_access_service.can_send_message(
+            user_jwt_data=command.user_jwt_data, chat=chat, member=member):
+        raise AccessDeniedChatError(chat_id=str(command.chat_id), requester_id=user_id)
+
+    for req in command.uploads:
+        if req.mime_type not in chat_config.ALL_ALLOWED_MIMES:
+            raise AttachmentValidationError(mime_type=req.mime_type)
+        # ... лимиты размера по типу: медиа 50 МБ, файл 100 МБ, голос 20 МБ
+
+    slots = []
+    for slot, att_type in zip(command.uploads, att_types, strict=False):
+        new_file_name = self.storage_service.clean_filename(slot.filename)
+        s3_key = f"chats/{command.chat_id}/{uuid4()}/{new_file_name}"
+
+        upload_url = await self.storage_service.upload_put_url(
+            bucket_name=chat_config.ATTACHMENT_BUCKET_PENDING,
+            file_key=s3_key,
+            expires=chat_config.ATTACHMENT_UPLOAD_TOKEN_TTL,      # 1 час
+        )
+
+        attachment = MessageAttachment.create(
+            chat_id=command.chat_id, uploader_id=user_id, attachment_type=att_type,
+            s3_key=s3_key, mime_type=slot.mime_type,
+            original_filename=slot.filename, size=slot.file_size,
+        )                                  # статус PENDING
+        await self.attachment_repository.create(attachment)
+
+        slots.append(UploadSlotDTO(upload_token=attachment.id, upload_url=upload_url,
+                                   attachment_type=att_type,
+                                   expires_in=chat_config.ATTACHMENT_UPLOAD_TOKEN_TTL))
+
+    await self.session.commit()
+    return slots</code></pre>
+  </figure>
+
+  <p class="note">Права проверяются <strong>до</strong> выдачи ссылки. Иначе забаненный в чате пользователь получит рабочий presigned URL и превратит ваше хранилище в файлопомойку.</p>
+
+  <h3>Шаг 4: проверка того, что реально загрузили</h3>
+  <p>Клиент присылает «готово» — и вот тут начинается настоящая валидация. В фоновой задаче, потому что <code>ffprobe</code> по видео не должен блокировать HTTP-запрос.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/commands/attachments/proccess.py</span><em>сокращено</em></figcaption>
+    <pre><code class="language-python">MAGIC_HEADER_BYTES = 1024
+
+for slot in slots:
+    try:
+        if slot.uploader_id != command.user_id:      # чужой токен — отказ
+            raise AccessDeniedChatError(chat_id=str(slot.chat_id), requester_id=command.user_id)
+
+        stat = await self.storage_service.get_stat(
+            bucket_name=chat_config.ATTACHMENT_BUCKET_PENDING, file_key=slot.s3_key)
+        if stat.size &lt;= 0 or stat.size > slot.size:   # заявлял 1 МБ, залил 900 МБ
+            slot.mark_error(); failed_tokens.append(str(slot.id)); continue
+
+        # читаем только первый килобайт — этого хватает для определения типа
+        data = await self.storage_service.download_range(
+            bucket_name=chat_config.ATTACHMENT_BUCKET_PENDING,
+            file_key=slot.s3_key, offset=0, length=MAGIC_HEADER_BYTES)
+        mime_type = magic.from_buffer(data, mime=True)
+
+        if mime_type != slot.mime_type:               # заявлял image/png, залил .exe
+            slot.mark_error(); failed_tokens.append(str(slot.id)); continue
+
+        if self.media_validator.requires_probe(slot.attachment_type):
+            media_info = await self.media_validator.validate_and_apply(slot, stat)
+            # длительность голосового ≤ 600 с, кружок ≤ 60 с и ≤ 640 px, fps ≤ 60
+
+        await self.storage_service.copy_object(
+            bucket_from=chat_config.ATTACHMENT_BUCKET_PENDING, file_key_from=slot.s3_key,
+            bucket_to=chat_config.ATTACHMENT_BUCKET,          file_key_to=slot.s3_key)
+        await self.storage_service.delete_file(
+            bucket_name=chat_config.ATTACHMENT_BUCKET_PENDING, file_key=slot.s3_key)
+        slot.mark_proccesed()
+
+    except AttachmentMediaValidationError as exc:
+        # постоянная ошибка: файл не пройдёт и со второй попытки
+        logger.warning("Attachment rejected by media validation",
+                       extra={"reason": exc.reason.value, "error_class": "permanent"})
+        slot.mark_error(); failed_tokens.append(str(slot.id))
+
+    except (StorageError, MediaProbeUnavailableError):
+        # временная ошибка: хранилище недоступно, стоит ретраить
+        logger.exception("Attachment processing failed due to infrastructure error",
+                         extra={"error_class": "transient"})
+        slot.mark_error(); failed_tokens.append(str(slot.id))</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Три уровня проверки: <strong>размер</strong> (не больше заявленного), <strong>сигнатура</strong> (<code>libmagic</code> по первому килобайту, а не по расширению и не по заголовку <code>Content-Type</code>), <strong>содержимое</strong> (<code>ffprobe</code> для медиа). Заявленный клиентом MIME — это пожелание, а не факт; верить ему нельзя. И заметьте разделение ошибок на <code>permanent</code> и <code>transient</code> в логах: по этой метке потом строится алертинг и решается, ретраить ли.</p>
+  </div>
+
+  <h3>Шаг 6: прикрепление к сообщению</h3>
+  <p>Клиент отправляет сообщение с <code>upload_tokens</code>. Хендлер (глава 05) поднимает вложения по токенам, а модель проверяет, что все они в статусе <code>SUCCESS</code>. Прикрепить непроверенный файл нельзя.</p>
+
+  <h3>Скачивание: presigned URL с кэшем</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/services/messages.py</span></figcaption>
+    <pre><code class="language-python">async def get_attachmnent_url_by_key(self, s3_key: str) -> str:
+    key = f"attachment:{s3_key}"
+    url = await self.redis.get(key)
+    if url is None:
+        url = await self.storage_service.generate_presigned_url(
+            bucket_name=chat_config.ATTACHMENT_BUCKET,
+            file_key=s3_key,
+            expires=chat_config.DOWNLOAD_URL_TTL,              # 300 с
+        )
+        await self.redis.set(key, url, ex=chat_config.DOWNLOAD_URL_TTL - 30)   # ← -30 с
+    return url</code></pre>
+  </figure>
+
+  <p class="note">Кэш живёт на 30 секунд меньше самой ссылки. Иначе последний, кто взял URL из кэша, получил бы ссылку, протухающую через секунду. Такой «запас прочности» нужен везде, где кэшируется что-то с собственным сроком годности.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/services/messages.py</span><em>ссылки для пачки сообщений — параллельно и без дублей</em></figcaption>
+    <pre><code class="language-python">async def attach_download_urls(self, messages) -> MessageDTO | list[MessageDTO]:
+    message_list = [messages] if isinstance(messages, MessageDTO) else list(messages)
+
+    attachments_by_key: dict[str, AttachmentDTO] = {}
+    profiles: list[ChatProfileDTO] = []
+
+    for message in message_list:
+        if message.profile is not None:
+            profiles.append(message.profile)
+        if message.reply_to is not None and message.reply_to.profile is not None:
+            profiles.append(message.reply_to.profile)
+        for attachment in message.attachments:
+            attachments_by_key[attachment.s3_key] = attachment   # дедупликация по ключу
+
+    await self.attach_profile_urls(profiles)
+
+    keys = tuple(attachments_by_key)
+    urls = await asyncio.gather(*(self.get_attachmnent_url_by_key(s3_key=s3_key)
+                                  for s3_key in keys))
+    for s3_key, url in zip(keys, urls, strict=True):
+        attachments_by_key[s3_key].url = url
+        attachments_by_key[s3_key].url_expires_in = chat_config.DOWNLOAD_URL_TTL
+    ...</code></pre>
+  </figure>
+
+  <p>Тридцать сообщений с вложениями — это не тридцать последовательных обращений к хранилищу, а один <code>asyncio.gather</code> по уникальным ключам. Классическая проблема N+1, решённая на уровне DTO-сборки.</p>
+</section>
+
+<!-- ============================================ 14 -->
+<section id="ch14">
+  <span class="chapter-no">Глава 14</span>
+  <h2>Офлайн: кому слать push и кто это решает</h2>
+
+  <p class="lead-in">Push — не «ещё один канал доставки», а запасной. Отправлять его тому, кто и так видит сообщение на экране, — верный способ довести пользователя до отключения уведомлений. Решение «этот сейчас офлайн» принимается ровно там, где уже известны все маршруты, — в роутере доставки.</p>
+
+  <h3>Кто считается офлайн</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/services/delivery_router.py</span></figcaption>
+    <pre><code class="language-python">OFFLINE_SIGNAL_EVENT_NAMES: frozenset[str] = frozenset({"chats.message.sent"})
+
+@staticmethod
+def _offline_recipients(ws_event: WsEvent, lookup_batch: Iterable[int],
+                        routes: RouteMap) -> list[int]:
+    online_user_ids: set[int] = set()
+    for gateway_users in routes.values():
+        online_user_ids |= gateway_users
+
+    sender_id = ws_event.delta.get("sender_id")
+    return sorted(set(lookup_batch) - online_user_ids - {sender_id})   # ← и не себе</code></pre>
+  </figure>
+
+  <p>Офлайн-получатели — это «все участники батча» минус «те, у кого нашёлся маршрут» минус «автор». Push шлётся только на событие <code>chats.message.sent</code>: будить телефон из-за отредактированного сообщения или чужой реакции не нужно.</p>
+
+  <h3>Сигнал в отдельный топик</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/services/delivery_router.py</span></figcaption>
+    <pre><code class="language-python">async def _publish_offline_signal(self, ws_event: WsEvent, offline_user_ids: list[int]) -> None:
+    await self.broker.send_data(
+        key=str(ws_event.chat_id),
+        topic=chat_config.CHAT_OFFLINE_DELIVERY_TOPIC,      # "chats.offline-delivery"
+        data={
+            "event_id": ws_event.event_id,
+            "event_name": ws_event.event_name,
+            "chat_id": str(ws_event.chat_id),
+            "message_id": ws_event.delta["message_id"],
+            "sender_id": ws_event.delta["sender_id"],
+            "offline_user_ids": offline_user_ids,
+            "occurred_at": ws_event.ts,
+        },
+    )
+    DELIVERY_ROUTER_OFFLINE_SIGNALS.labels(result="ok").inc()</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Это единственное место в проекте, где событие отправляется в Kafka напрямую, без outbox, — и это осознанное исключение. Такой сигнал не доменное событие: он производный, вычислен из состояния Redis, и его потеря не нарушает целостность данных (максимум — кто-то не получит один push). Правило «только через outbox» действует для фактов, которые обязаны совпадать с содержимым БД.</p>
+  </div>
+
+  <h3>Модуль уведомлений подхватывает сигнал</h3>
+  <figure class="code">
+    <figcaption><span>app/notifications/consumers/chat_offline_delivery.py</span></figcaption>
+    <pre><code class="language-python">class OfflineEventDTO(BaseModel):
+    event_id: UUID
+    event_name: str
+    chat_id: UUID
+    message_id: UUID
+    offline_user_ids: list[int]
+    occurred_at: datetime
+    sender_id: int | None = None
+
+
+@router.subscriber(notification_config.CHAT_OFFLINE_DELIVERY_TOPIC,
+                   group_id=notification_config.OFFLINE_PUSH_GROUP_ID)
+@inject
+async def handle_chat_offline_delivery(
+    event: OfflineEventDTO,
+    queue_service: FromDishka[QueueService],
+    idempotency_guard: FromDishka[EventIdempotencyGuard],
+) -> None:
+    if not await idempotency_guard.try_acquire(
+            group=notification_config.OFFLINE_PUSH_GROUP_ID, event_id=event.event_id):
+        return
+
+    try:
+        await queue_service.push(PushOfflineRecipientsTask, data={
+            "chat_id": str(event.chat_id),
+            "message_id": str(event.message_id),
+            "sender_id": event.sender_id,
+            "offline_user_ids": event.offline_user_ids,
+        })
+    except Exception:
+        await idempotency_guard.release(
+            group=notification_config.OFFLINE_PUSH_GROUP_ID, event_id=event.event_id)
+        raise</code></pre>
+  </figure>
+
+  <p class="note">Консьюмер не отправляет push сам — он ставит задачу в Taskiq. Причина простая: обращение к Firebase может занять секунды и упасть, а консьюмер Kafka должен возвращаться к чтению как можно быстрее. Медленный консьюмер = растущий лаг топика = задержка доставки для всех.</p>
+
+  <h3>Рассылка с ограничением параллелизма</h3>
+  <figure class="code">
+    <figcaption><span>app/notifications/tasks/push_offline_recipients.py</span></figcaption>
+    <pre><code class="language-python">@dataclass
+class PushOfflineRecipientsTask(BaseTask):
+    __task_name__ = "notifications.push.offline_recipients"
+
+    @staticmethod
+    @inject
+    async def run(chat_id: str, message_id: str | None, sender_id: int | None,
+                  offline_user_ids: list[int], mediator: FromDishka[BaseMediator]) -> None:
+        if not offline_user_ids:
+            return
+
+        payload = {"chat_id": chat_id, "message_id": message_id, "sender_id": sender_id}
+        semaphore = asyncio.Semaphore(notification_config.OFFLINE_PUSH_MAX_CONCURRENCY)
+
+        async def push_one(user_id: int) -> None:
+            async with semaphore:                     # ← не больше N одновременно
+                try:
+                    await mediator.handle_command(PushNotificationCommand(
+                        user_id=user_id,
+                        title=notification_config.PUSH_DEFAULT_TITLE,
+                        type=NotificationType.CHAT,
+                        message=None, payload=payload,
+                    ))
+                except Exception:
+                    logger.exception("Failed to push offline notification",
+                                     extra={"user_id": user_id, "chat_id": chat_id})
+
+        await asyncio.gather(*(push_one(user_id) for user_id in offline_user_ids))</code></pre>
+  </figure>
+
+  <div class="box trap">
+    <span class="tag">Грабли</span>
+    <p><code>asyncio.gather</code> без семафора на списке из 50 000 получателей — это 50 000 одновременных корутин, каждая со своей сессией БД. Пул соединений кончится на трёхсотой, остальные будут ждать таймаута. Семафор здесь не «оптимизация», а условие работоспособности. И заметьте <code>try/except</code> внутри <code>push_one</code>: один упавший токен не должен ронять всю рассылку.</p>
+  </div>
+
+  <h3>Отправка и чистка мёртвых токенов</h3>
+  <figure class="code">
+    <figcaption><span>app/notifications/services/push/firebase/service.py</span></figcaption>
+    <pre><code class="language-python">async def push(self, notification: Notification) -> None:
+    devices = await self.device_repository.get_active_by_user_id(notification.user_id)
+    if not devices:
+        return
+
+    tokens = [device.token for device in devices]
+    invalid_tokens: list[str] = []
+
+    for token_chunk in [list(tokens[i:i + self.send_batch_limit])       # FCM: до 500
+                        for i in range(0, len(tokens), self.send_batch_limit)]:
+        message = self._build_multicast(token_chunk, notification)
+        try:
+            # firebase-admin синхронный — уводим в тред, чтобы не блокировать loop
+            response = await asyncio.to_thread(
+                messaging.send_each_for_multicast, message, app=self.firebase_app)
+        except Exception:
+            logger.exception("Firebase multicast send failed", ...)
+            continue
+
+        invalid_tokens.extend(self._collect_invalid_tokens(token_chunk, response))
+
+    if invalid_tokens:
+        await self.device_repository.deactivate_tokens(invalid_tokens)   # гигиена
+
+
+def _is_unregistered(exception: Exception | None) -> bool:
+    if isinstance(exception, messaging.UnregisteredError):
+        return True
+    return isinstance(exception, messaging.SenderIdMismatchError)</code></pre>
+  </figure>
+
+  <p>Два приёма, которые легко забыть: <code>asyncio.to_thread</code> для синхронного SDK (иначе он заблокирует весь event loop процесса) и деактивация токенов, на которые Firebase ответил «такого устройства нет». Без второго база устройств за год превращается в кладбище, и каждая рассылка тратит время на заведомо мёртвые адреса.</p>
+
+  <p>Само уведомление при этом ещё и сохраняется в БД — чтобы у пользователя был список уведомлений в приложении, а не только всплывашка:</p>
+
+  <figure class="code">
+    <figcaption><span>app/notifications/commands/notifications/push.py</span></figcaption>
+    <pre><code class="language-python">async def handle(self, command: PushNotificationCommand) -> None:
+    notification = Notification.create(
+        user_id=command.user_id, type=command.type,
+        title=command.title, message=command.message, payload=command.payload)
+    await self.notification_repository.create(notification)
+    await self.push_service.push(notification=notification)
+    await self.session.commit()</code></pre>
+  </figure>
+</section>
+
+<!-- ============================================ 15 -->
+<section id="ch15">
+  <span class="chapter-no">Глава 15</span>
+  <h2>Звонки: приложение раздаёт пропуска, медиа идёт мимо</h2>
+
+  <p class="lead-in">Аудио- и видеозвонки — это отдельная инженерная вселенная (SFU, кодеки, NAT traversal, jitter buffer). Правильное решение для мессенджера — не писать её, а взять готовый медиасервер. Здесь это LiveKit, а роль бэкенда сводится к выдаче токенов и проверке прав.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/commands/calls/join.py</span></figcaption>
+    <pre><code class="language-python">async def handle(self, command: JoinCallCommand) -> JoinTokenDTO:
+    user_id = int(command.user_jwt_data.id)
+    username = command.user_jwt_data.username
+
+    member = await self.chat_repository.get_member_chat(command.chat_id, user_id)
+    if member is None:
+        raise NotChatMemberError(chat_id=str(command.chat_id), user_id=user_id)
+
+    chat = await self.chat_repository.get_by_id(command.chat_id)
+    if chat is None:
+        raise NotFoundChatError(chat_id=str(command.chat_id))
+
+    # в канале и супергруппе звонков нет; в комнату не больше 100 участников
+    if (chat.type == ChatType.SUPERGROUP or chat.type == ChatType.CHANNEL
+            or chat.member_count >= chat_config.ROOM_MAX_PARTICIPANTS):
+        raise AccessDeniedChatError(chat_id=str(chat.id), requester_id=user_id)
+
+    token = self.livekit_service.generate_join_token(
+        slug=str(chat.id),          # ← комната = чат, отдельной сущности нет
+        user_id=str(user_id),
+        username=username,
+    )
+    return JoinTokenDTO(token=token, slug=str(chat.id),
+                        livekit_url=self.livekit_service.url)</code></pre>
+  </figure>
+
+  <figure class="code">
+    <figcaption><span>app/chats/services/livekit_service.py</span></figcaption>
+    <pre><code class="language-python">def generate_join_token(self, slug: str, user_id: str, username: str,
+                        can_publish: bool = True, can_subscribe: bool = True,
+                        can_publish_data: bool = True, room_admin: bool = False) -> str:
+    token = lk_api.AccessToken(api_key=self.api_key, api_secret=self.api_secret)
+    token.with_identity(user_id)
+    token.with_name(username)
+    token.with_ttl(timedelta(seconds=chat_config.ROOM_TOKEN_TTL))     # 1 час
+    token.with_grants(lk_api.VideoGrants(
+        room_join=True, room=slug,
+        can_publish=can_publish, can_subscribe=can_subscribe,
+        can_publish_data=can_publish_data, room_admin=room_admin,
+    ))
+    return token.to_jwt()</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Токен — это JWT, подписанный вашим секретом, с явным списком прав внутри: в какую комнату, что можно публиковать, до какого момента. Медиасервер проверяет подпись и больше ни о чём вас не спрашивает — ему не нужен доступ к вашей базе. Модерация («замьютить участника») делается через административный API LiveKit, и права на неё проверяет уже ваш код: <code>"call:mute_member"</code> в наборе прав роли.</p>
+  </div>
+
+  <p>Комната создаётся вместе с чатом, и её падение не должно ронять создание чата:</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/commands/chats/create.py</span></figcaption>
+    <pre><code class="language-python">await self.chat_repository.create(chat)
+await self.event_bus.publish(chat.pull_events())
+await self.session.commit()
+
+with suppress(LiveKitServiceError):        # ← комната не создалась — чат всё равно есть
+    await self.livekit_sevice.create_room(str(chat.id))</code></pre>
+  </figure>
+
+  <p class="note">Внешний сервис вызывается <strong>после</strong> коммита и в <code>suppress</code>. Если бы вызов стоял до коммита, недоступность LiveKit ломала бы создание чатов; если бы исключение не подавлялось — пользователь получил бы ошибку при уже созданном чате. Такой порядок — общее правило для любых внешних интеграций.</p>
+</section>
+
+<!-- ============================================ 16 -->
+<section id="ch16">
+  <span class="chapter-no">Глава 16</span>
+  <h2>Профили: локальная копия вместо запроса к соседу</h2>
+
+  <p class="lead-in">Списку сообщений нужны имя и аватар автора. Ходить за ними в модуль профилей на каждое сообщение — это JOIN через границу модуля или, в микросервисной версии, HTTP-запрос на каждый рендер ленты. Вместо этого модуль чатов держит собственную читаемую копию — проекцию.</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/models/profile.py</span><em>только то, что нужно чатам</em></figcaption>
+    <pre><code class="language-python">class ChatUserProfile(BaseModel, DateMixin):
+    __tablename__ = "chat_user_profiles"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    username: Mapped[str | None] = mapped_column(String, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    avatar_s3_key: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    last_event_id: Mapped[UUID | None] = mapped_column(SAUUID(as_uuid=True), nullable=True)
+    source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))</code></pre>
+  </figure>
+
+  <p>Четыре поля данных и два служебных. В модуле <code>profiles</code> у профиля их два десятка — дата рождения, специализация, навыки, био; чатам они не нужны и в проекцию не попадают.</p>
+
+  <h3>Обновление по событию</h3>
+  <p>Модуль <code>profiles</code> публикует <code>profiles.profile.updated</code> через свой outbox. Модуль <code>chats</code> его слушает (глава 07) и обновляет копию. Ключевая деталь — как именно обновляет:</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/repositories/user_profile.py</span><em>UPSERT с защитой от старых событий</em></figcaption>
+    <pre><code class="language-python">async def upsert(self, user_id: int, username: str | None, display_name: str | None,
+                 avatar_s3_key: str | None, source_updated_at: datetime,
+                 event_id: UUID | None = None) -> bool:
+    now = now_utc()
+    stmt = (
+        insert(ChatUserProfile)
+        .values(user_id=user_id, username=username, display_name=display_name,
+                avatar_s3_key=avatar_s3_key, last_event_id=event_id,
+                source_updated_at=source_updated_at, created_at=now, updated_at=now)
+        .on_conflict_do_update(
+            index_elements=[ChatUserProfile.user_id],
+            set_={"username": username, "display_name": display_name,
+                  "avatar_s3_key": avatar_s3_key, "last_event_id": event_id,
+                  "source_updated_at": source_updated_at, "updated_at": now},
+            where=(or_(
+                ChatUserProfile.source_updated_at.is_(None),
+                ChatUserProfile.source_updated_at &lt; source_updated_at,   # ← только новее
+            )),
+        )
+        .returning(ChatUserProfile.user_id)
+    )
+    result = await self.session.execute(stmt)
+    return result.scalar() is not None      # False ⇒ событие устаревшее, пропущено</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Условие <code>WHERE source_updated_at &lt; новое</code> делает применение события идемпотентным и устойчивым к нарушению порядка. Событие пришло дважды — второй раз не применится. События пришли в обратном порядке (переобработка, ретрай, ребаланс партиций) — старое не затрёт новое. Это дешевле и надёжнее, чем пытаться гарантировать строгий порядок на всём пути.</p>
+  </div>
+
+  <h3>Что делать со «старыми» пользователями</h3>
+  <p>Проекция знает только о тех, чьи события она видела. Пользователи, зарегистрированные до включения проекции, останутся без имени. Для этого есть задача обратного заполнения:</p>
+
+  <figure class="code">
+    <figcaption><span>app/chats/tasks/backfill_profiles.py</span></figcaption>
+    <pre><code class="language-python">@dataclass
+class BackfillChatProfilesTask(BaseTask):
+    __task_name__ = "chats.profiles.backfill"
+
+    @staticmethod
+    @inject
+    async def run(mediator: FromDishka[BaseMediator], batch_size: int = 500) -> None:
+        await mediator.handle_command(BackfillChatProfilesCommand(batch_size=batch_size))</code></pre>
+  </figure>
+
+  <p class="note">Правило: <strong>любая проекция должна уметь пересобираться</strong>. Если восстановить её можно только «переиграв все события с начала времён», однажды вы окажетесь в ситуации, когда это невозможно (Kafka уже подчистила старые записи по retention).</p>
+
+  <h3>Как проекция используется в выборках</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/repositories/chat.py</span><em>список чатов: чат + моё членство + прочитанное + последнее сообщение</em></figcaption>
+    <pre><code class="language-python">author_profile = aliased(ChatUserProfile, name="author_profile")
+member_profile = aliased(ChatUserProfile, name="member_profile")
+
+stmt = (
+    select(Chat, ChatMember, ReadReceipt, Message)
+    .join(ChatMember, and_(ChatMember.chat_id == Chat.id, ChatMember.user_id == user_id))
+    .outerjoin(ReadReceipt, and_(ReadReceipt.chat_id == Chat.id,
+                                 ReadReceipt.user_id == user_id))
+    .outerjoin(Message, and_(Message.chat_id == Chat.id,
+                             Message.seq == Chat.seq_counter,       # ← последнее сообщение
+                             Message.is_deleted.is_(False)))
+    .outerjoin(author_profile, author_profile.user_id == Message.author_id)
+    .outerjoin(member_profile, member_profile.user_id == ChatMember.user_id)
+    .options(contains_eager(Message.profile.of_type(author_profile)),
+             contains_eager(ChatMember.profile.of_type(member_profile)))
+    .where(ChatMember.user_id == user_id, ChatMember.active_criteria(),
+           Chat.deleted_at.is_(None))
+    .order_by(Chat.last_activity_at.desc().nullslast(), Chat.id.desc())
+    .limit(limit + 1)
+)</code></pre>
+  </figure>
+
+  <p>Весь экран «список чатов» — <strong>один</strong> запрос: чаты, моя роль, до какого места я дочитал, последнее сообщение и профили авторов. Именно ради этого проекция и живёт в той же базе: без неё пришлось бы делать второй запрос за именами или, того хуже, по запросу на каждый чат.</p>
+
+  <p class="note">Трюк с <code>Message.seq == Chat.seq_counter</code>: «последнее сообщение чата» находится без подзапроса с <code>MAX</code> и без <code>LATERAL</code> — просто потому, что счётчик чата и есть номер последнего сообщения. Ещё одна выгода от денормализации из главы 03.</p>
+</section>
+
+<!-- ============================================ 17 -->
+<section id="ch17">
+  <span class="chapter-no">Глава 17</span>
+  <h2>Защита от дублей, гонок и злоупотреблений</h2>
+
+  <p class="lead-in">Мобильная сеть отвалилась ровно между «сервер записал сообщение» и «клиент получил ответ». Клиент повторит запрос. Если ничего не предпринять — в чате два одинаковых сообщения. Это самый частый пользовательский баг мессенджеров, и лечится он на уровне протокола.</p>
+
+  <h3>Idempotency-Key</h3>
+  <figure class="code">
+    <figcaption><span>app/core/services/idempotency.py</span></figcaption>
+    <pre><code class="language-python">@dataclass(slots=True)
+class IdempotencyStore:
+    redis: Redis
+    result_ttl: int = 86_400
+    lock_ttl: int = 30
+
+    async def run[ResultT: BaseModel](self, *, scope: str, key: str | None,
+                                      owner: Sequence[object], model: type[ResultT],
+                                      operation: Callable[[], Awaitable[ResultT]]) -> ResultT:
+        if not key:
+            return await operation()          # клиент не прислал ключ — его выбор
+
+        keys = {"scope": scope, "owner": ":".join(str(p) for p in owner), "key": key}
+        result_key = _RESULT_KEY_TEMPLATE.format(**keys)
+
+        cached = await self.redis.get(result_key)
+        if cached is not None:
+            return model.model_validate_json(cached)     # ← тот же ответ, что и в первый раз
+
+        lock_key = _LOCK_KEY_TEMPLATE.format(**keys)
+        if not await self.redis.set(lock_key, "1", ex=self.lock_ttl, nx=True):
+            raise IdempotencyConflictError(key=key)       # параллельный ретрай — 409
+
+        try:
+            result = await operation()
+            await self.redis.set(result_key, result.model_dump_json(), ex=self.result_ttl)
+        finally:
+            await self.redis.delete(lock_key)
+
+        return result</code></pre>
+  </figure>
+
+  <p>Три состояния вместо двух:</p>
+  <ul>
+    <li><strong>Результат уже есть</strong> — вернуть его же. Клиент получает тот самый ответ с тем самым <code>message_id</code>, повторной записи нет.</li>
+    <li><strong>Идёт обработка</strong> (замок занят) — вернуть 409. Клиент повторит чуть позже и получит закэшированный результат.</li>
+    <li><strong>Ничего нет</strong> — взять замок, выполнить, сохранить результат на сутки.</li>
+  </ul>
+
+  <p>Ключ в Redis включает <code>owner</code> — пару <code>(user_id, chat_id)</code>. Чужой ключ идемпотентности не подберёшь: даже угадав его, вы получите ответ на свой собственный запрос, а не на чужой.</p>
+
+  <h3>Единственность лички</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/commands/chats/create.py</span></figcaption>
+    <pre><code class="language-python">if chat.type == ChatType.DIRECT:
+    other_user_id = next(uid for uid in command.member_ids if uid != created_by)
+    direct_chat = await self.chat_repository.get_direct_chat(
+        user_id=created_by, other_user_id=other_user_id)
+    if direct_chat is not None:
+        return ChatDTO.model_validate(direct_chat)   # ← отдаём существующий, не создаём</code></pre>
+  </figure>
+
+  <p class="note">«Создать личный чат» — идемпотентная операция по смыслу: у двух людей может быть только один личный чат. Возвращать существующий вместо ошибки — правильное поведение: клиенту не нужно сначала искать, а потом создавать.</p>
+
+  <h3>Ограничение частоты</h3>
+  <figure class="code">
+    <figcaption><span>app/chats/routes/v1/messages.py + calls.py</span></figcaption>
+    <pre><code class="language-python">message_write_limiter = ConfigurableRateLimiter(
+    times=chat_config.RATE_LIMIT_MESSAGES_PER_SECOND,     # 10 в секунду
+    seconds=1,
+)
+
+@router.post("/", dependencies=[Depends(message_write_limiter)])
+async def send_message(...): ...
+
+# у звонков лимиты жёстче: вход в комнату — 10 раз за 5 минут
+@router.post("/join/", dependencies=[Depends(ConfigurableRateLimiter(times=10, seconds=5*60))])
+async def join_call(...): ...</code></pre>
+  </figure>
+
+  <p>Обратите внимание: ограничитель можно выключить целиком конфигом — это нужно для тестов и нагрузочных прогонов.</p>
+
+  <figure class="code">
+    <figcaption><span>app/core/api/rate_limiter.py</span></figcaption>
+    <pre><code class="language-python">class ConfigurableRateLimiter(RateLimiter):
+    async def __call__(self, request: Request, response: Response) -> None:
+        if app_config.RATE_LIMITER_ENABLED:
+            await super().__call__(request=request, response=response)
+        return</code></pre>
+  </figure>
+
+  <h3>Сводка защит</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Угроза</th><th>Механизм</th><th>Где</th></tr></thead>
+    <tbody>
+      <tr><td>Двойная отправка при ретрае</td><td><code>Idempotency-Key</code> + кэш ответа</td><td><code>IdempotencyStore</code></td></tr>
+      <tr><td>Дубль события из брокера</td><td><code>SET NX</code> по <code>event_id</code></td><td><code>EventIdempotencyGuard</code></td></tr>
+      <tr><td>Флуд сообщениями</td><td>Rate limit 10/с + slow mode чата</td><td>роутер + Lua-скрипт</td></tr>
+      <tr><td>Гонка при вступлении в чат</td><td>Проверка лимита в <code>UPDATE ... WHERE</code></td><td><code>shift_member_count</code></td></tr>
+      <tr><td>Гонка при выдаче <code>seq</code></td><td><code>UPDATE ... RETURNING</code></td><td><code>allocate_message_seq</code></td></tr>
+      <tr><td>Устаревшее событие проекции</td><td><code>WHERE source_updated_at &lt; new</code></td><td><code>ChatUserProfileRepository</code></td></tr>
+      <tr><td>Двойная реакция</td><td>Составной первичный ключ</td><td><code>MessageReaction</code></td></tr>
+      <tr><td>Подмена типа файла</td><td><code>libmagic</code> по содержимому</td><td>обработка вложений</td></tr>
+      <tr><td>Гигантский WS-кадр</td><td>Лимит 64 КиБ до парсинга</td><td><code>get_json_user</code></td></tr>
+      <tr><td>Медленный клиент</td><td>Очередь 256 + разрыв 1013</td><td><code>WSConnection</code></td></tr>
+      <tr><td>Множество вкладок</td><td>Лимит 2 соединения на пользователя</td><td><code>ConnectionManager.register</code></td></tr>
+      <tr><td>Мусор в Redis после падения</td><td>TTL на всех ключах + ленивая уборка</td><td>ключи гейтвея</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============================================ 18 -->
+<section id="ch18">
+  <span class="chapter-no">Глава 18</span>
+  <h2>Наблюдаемость и тесты: как понять, что оно работает</h2>
+
+  <p class="lead-in">В распределённой доставке «работает» — это не «эндпоинт вернул 201». Между записью в БД и появлением сообщения на чужом экране пять асинхронных участков, и на каждом нужна цифра.</p>
+
+  <h3>Метрики, которые действительно смотрят</h3>
+  <figure class="code">
+    <figcaption><span>app/core/metrics.py</span><em>сокращено</em></figcaption>
+    <pre><code class="language-python">WS_ACTIVE_CONNECTIONS = Gauge(
+    "chat_ws_active_connections",
+    "Number of live WebSocket connections served by this gateway process",
+    labelnames=("gateway_id",))
+
+WS_CONNECTION_EVICTIONS = Counter(
+    "chat_ws_connection_evictions_total",
+    "WebSocket connections force-closed by the gateway, by reason",
+    labelnames=("gateway_id", "reason"))       # slow_consumer | heartbeat_timeout | ...
+
+WS_GATEWAY_STREAM_PENDING = Gauge(
+    "chat_ws_gateway_stream_pending",
+    "Number of pending (delivered but not acked) entries in the gateway consumer group",
+    labelnames=("gateway_id",))
+
+WS_DELIVERY_LATENCY = Histogram(
+    "chat_ws_delivery_latency_seconds",
+    "End-to-end latency between the domain event time and the moment the event "
+    "was enqueued to a concrete WebSocket connection",
+    labelnames=("gateway_id",),
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0))</code></pre>
+  </figure>
+
+  <figure class="code">
+    <figcaption><span>app/core/websocket/manager.py</span><em>как измеряется сквозная задержка</em></figcaption>
+    <pre><code class="language-python">def _observe_delivery_latency(self, event: DeliveryDTO) -> None:
+    event_ts = datetime.fromisoformat(event.ts)          # время доменного события
+    latency = (now_utc() - event_ts).total_seconds()
+    if latency &lt; 0:                                      # часы разъехались — не портим гистограмму
+        return
+    WS_DELIVERY_LATENCY.labels(gateway_id=self.gateway_id).observe(latency)</code></pre>
+  </figure>
+
+  <div class="box">
+    <span class="tag">Почему так</span>
+    <p>Это самая ценная метрика проекта: она измеряет <strong>весь</strong> путь — Postgres → Debezium → Kafka → консьюмер → Redis Stream → очередь сокета. Если её p99 пополз вверх, дальше по частным метрикам (лаг Kafka, <code>xpending</code> потока, длина потока) видно, какое звено просело. Метрика «эндпоинт отвечает за 20 мс» о здоровье мессенджера не говорит ничего.</p>
+  </div>
+
+  <p>Набор сигналов, за которыми стоит следить с первого дня в проде:</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Метрика</th><th>О чём говорит рост</th></tr></thead>
+    <tbody>
+      <tr><td><code>chat_ws_delivery_latency_seconds</code> p99</td><td>Где-то в конвейере затор</td></tr>
+      <tr><td><code>chat_ws_gateway_stream_pending</code></td><td>Гейтвей не успевает разгребать свой ящик</td></tr>
+      <tr><td><code>chat_ws_gateway_stream_length</code></td><td>Приближение к <code>MAXLEN</code> — записи начнут теряться</td></tr>
+      <tr><td><code>chat_ws_connection_evictions_total{reason="slow_consumer"}</code></td><td>Клиенты не успевают читать: слишком «жирные» события или плохая сеть</td></tr>
+      <tr><td><code>chat_ws_gateway_stream_claimed_total</code></td><td>Кто-то падает, не подтвердив обработку</td></tr>
+      <tr><td>Лаг consumer group Kafka</td><td>Консьюмеров не хватает</td></tr>
+      <tr><td>Лаг слота репликации Postgres</td><td>Debezium отстал или умер — WAL копится</td></tr>
+      <tr><td>Размер <code>outbox_messages</code></td><td>Чистка не работает или CDC встал</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Тесты: три уровня</h3>
+  <p>В проекте 119 тестовых файлов, разложенных по трём уровням.</p>
+  <ul>
+    <li><strong>Unit</strong> — доменная модель без БД: правила создания чата, валидация вложений, лимиты участников. Быстрые, запускаются сотнями.</li>
+    <li><strong>Integration</strong> — настоящие Postgres и Redis в <code>testcontainers</code>, реальные HTTP-запросы через ASGI, реальные консьюмеры через <code>TestKafkaBroker</code>.</li>
+    <li><strong>E2E</strong> — полный жизненный цикл: создать чат, позвать участников, отправить сообщения, получить их по WebSocket, отреагировать, прочитать.</li>
+  </ul>
+
+  <figure class="code">
+    <figcaption><span>tests/conftest.py</span><em>ключевая идея тестовой обвязки</em></figcaption>
+    <pre><code class="language-python">from app.consumers import setup_router as setup_consumer_router
+from app.main import (custom_openapi, handle_application_exception, handle_unknown_exception,
+                      handle_validation_exception, setup_middleware, setup_router)</code></pre>
+  </figure>
+
+  <p class="note">Тесты собирают приложение <strong>теми же функциями</strong>, что и прод: <code>setup_router</code>, <code>setup_middleware</code>, обработчики исключений. Подменяются только внешние сервисы (почта, хранилище, брокер, очередь) — фейками. Если тестовое приложение собирается собственным кодом, вы тестируете тестовое приложение, а не своё.</p>
+
+  <figure class="code">
+    <figcaption><span>tests/chats/integration/api/test_ws_integration.py</span><em>WebSocket тестируется по-настоящему</em></figcaption>
+    <pre><code class="language-python">async def test_ready_ping_pong_with_query_token_and_subprotocol(self, app, client,
+                                                               user_jwt, create_access_token):
+    token = create_access_token(user_jwt)
+    async with AsyncASGIWebSocketSession(app, path=_ws_path(), query={"token": token},
+                                         subprotocols=["chat.v1", "test"]) as ws:
+        assert ws.accepted_subprotocol == "chat.v1"
+        ready = await ws.recv_event()
+        assert ready["type"] == "ws.ready"
+        assert ready["payload"]["connection_id"]
+        assert "heartbeat_interval" in ready["payload"]
+
+        await ws.send_json({"op": "ping"})
+        pong = await ws.recv_event()
+        assert pong["type"] == "ws.pong"
+
+
+async def test_missing_token_denied_before_accept(self, app, client):
+    with pytest.raises(WebSocketDenied) as exc:
+        async with AsyncASGIWebSocketSession(app, path=_ws_path()):
+            pass
+    assert exc.value.code == 1008        # ← отказ именно до accept</code></pre>
+  </figure>
+
+  <div class="box diy">
+    <span class="tag">Сделай сам</span>
+    <p>Первые три интеграционных теста, которые стоит написать в любом мессенджере: (1) отправленное сообщение приходит второму участнику по WebSocket; (2) после переподключения с <code>resume</code> клиент получает пропущенное; (3) чужой в чате не может ни читать, ни писать. Эти три покрывают ядро — и ломаются первыми при любом рефакторинге доставки.</p>
+  </div>
+</section>
+
+<!-- ============================================ 19 -->
+<section id="ch19">
+  <span class="chapter-no">Глава 19</span>
+  <h2>Как построить такое же: план по шагам</h2>
+
+  <p class="lead-in">Разбирать готовое легче, чем начинать с пустого репозитория. Ниже — порядок, в котором систему имеет смысл собирать: каждый этап работает целиком и его можно показать, а следующий снимает конкретное ограничение предыдущего.</p>
+
+  <h3>Этап 1. Скелет (1–2 дня)</h3>
+  <ol class="steps">
+    <li>FastAPI, Postgres, SQLAlchemy 2.0 async, Alembic. Один эндпоинт <code>/health</code>.</li>
+    <li><code>BaseCommand</code>, <code>BaseCommandHandler</code>, <code>BaseQuery</code>, медиатор с реестром. Пятьдесят строк.</li>
+    <li>DI-контейнер: сессия в request-скоупе, Redis в app-скоупе.</li>
+    <li>Аутентификация: JWT с <code>sub</code>, <code>username</code>, ролями внутри. Зависимость <code>CurrentUserJWTData</code>.</li>
+  </ol>
+  <p class="note">Проверка этапа: <code>POST /chats/</code> создаёт чат, <code>GET /chats/</code> возвращает список. Логики почти нет, но форма проекта задана.</p>
+
+  <h3>Этап 2. Чаты и сообщения без реалтайма (2–3 дня)</h3>
+  <ol class="steps">
+    <li>Таблицы <code>chats</code>, <code>chat_members</code>, <code>chat_roles</code>, <code>messages</code>. Сразу с <code>seq</code> и <code>seq_counter</code>: добавить их потом — миграция на миллионах строк.</li>
+    <li><code>allocate_message_seq</code> через <code>UPDATE ... RETURNING</code>.</li>
+    <li>Роли и права как словари; <code>ChatAccessService</code> с одной функцией <code>can_send_message</code>.</li>
+    <li>Курсорная пагинация ленты по <code>seq</code> — никаких <code>OFFSET</code>.</li>
+    <li><code>read_receipts</code> с <code>UPSERT</code> и условием «только вперёд».</li>
+  </ol>
+  <p class="note">Проверка: можно переписываться через <code>POST</code> и <code>GET</code> с опросом. Это уже мессенджер, просто неудобный.</p>
+
+  <h3>Этап 3. Реалтайм в одном процессе (2–3 дня)</h3>
+  <ol class="steps">
+    <li><code>WSConnection</code> с очередью и задачей-писателем. Сразу с <code>try_send</code>, а не с прямым <code>await send_text</code>.</li>
+    <li>Heartbeat и разрыв по таймауту.</li>
+    <li><code>ConnectionManager</code> со словарями <code>connections_by_user</code> и <code>connections_by_id</code>.</li>
+    <li>Протокол: <code>subscribe</code>, <code>unsubscribe</code>, <code>ping</code>/<code>pong</code>, <code>resume</code> с курсорами.</li>
+    <li>После записи сообщения — прямой вызов менеджера соединений.</li>
+  </ol>
+  <p class="note">Проверка: два браузера, сообщение появляется мгновенно; после «выключить wi-fi на минуту» и переподключения ничего не потеряно. Ограничение этапа: работает только на одном процессе.</p>
+
+  <h3>Этап 4. Несколько процессов (3–4 дня)</h3>
+  <ol class="steps">
+    <li>Реестры маршрутов в Redis: <code>ws:route:user:*</code>, <code>ws:conn:*</code>, <code>ws:sub:chat:*</code> — все с TTL.</li>
+    <li>Свой Redis Stream на каждый гейтвей + consumer group, чтение через <code>XREADGROUP</code>, подтверждение <code>XACK</code>.</li>
+    <li><code>XAUTOCLAIM</code> для подбора зависших записей.</li>
+    <li>Фоновый цикл продления TTL и ленивая уборка мусора.</li>
+    <li>Presence на одном Sorted Set.</li>
+  </ol>
+  <p class="note">Проверка: поднять два инстанса за балансировщиком; клиенты на разных инстансах видят сообщения друг друга. Убить один процесс <code>-9</code> — через полторы минуты его ключи исчезли сами.</p>
+
+  <h3>Этап 5. Развязка через события (3–5 дней)</h3>
+  <ol class="steps">
+    <li>Таблица <code>outbox_messages</code>, <code>BaseEvent</code> с <code>__event_name__</code> и <code>get_partition_key</code>.</li>
+    <li>События регистрируются в модели, публикуются шиной <strong>до</strong> коммита.</li>
+    <li>Простейший publisher: фоновая задача <code>SELECT ... FOR UPDATE SKIP LOCKED</code> → брокер → отметка. CDC оставьте на потом.</li>
+    <li>Консьюмер с идемпотентностью по <code>event_id</code>, с <code>release</code> при ошибке.</li>
+    <li>Роутер доставки переносится из хендлера в консьюмер.</li>
+  </ol>
+  <p class="note">Проверка: отправка сообщения больше не зависит от доступности WebSocket-слоя; консьюмер можно перезапускать, ничего не теряя. Ограничение снято: запись и доставка независимы.</p>
+
+  <h3>Этап 6. Масштаб и фичи (дальше — по потребности)</h3>
+  <ul>
+    <li><strong>Стратегии fan-out</strong> — когда появятся чаты больше нескольких сотен человек.</li>
+    <li><strong>Вложения</strong> — presigned URL, два бакета, валидация в фоновой задаче.</li>
+    <li><strong>Push</strong> — сигнал об офлайн-получателях из роутера доставки.</li>
+    <li><strong>Реакции с коалесингом</strong> — сразу снимками, а не дельтами.</li>
+    <li><strong>Проекции профилей</strong> — когда JOIN через границу модуля начнёт мешать.</li>
+    <li><strong>CDC вместо polling</strong> — когда опрос outbox станет заметен в нагрузке на БД.</li>
+    <li><strong>Звонки</strong> — взять LiveKit, писать только выдачу токенов.</li>
+  </ul>
+
+  <h3>Чего не делать</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Соблазн</th><th>Чем кончится</th><th>Как правильно</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Отправить в брокер прямо из хендлера</td>
+        <td>Расхождение БД и доставки, невоспроизводимые баги</td>
+        <td>Outbox в той же транзакции</td>
+      </tr>
+      <tr>
+        <td><code>await websocket.send_text()</code> из места события</td>
+        <td>Один медленный клиент тормозит всех</td>
+        <td>Очередь + писатель + backpressure</td>
+      </tr>
+      <tr>
+        <td>Redis Pub/Sub для доставки между серверами</td>
+        <td>Потери при кратком разрыве подписчика</td>
+        <td>Streams с consumer group и <code>XACK</code></td>
+      </tr>
+      <tr>
+        <td>Синхронизация клиента по времени</td>
+        <td>Дыры и дубли при перекосе часов</td>
+        <td>Монотонный <code>seq</code> в пределах чата</td>
+      </tr>
+      <tr>
+        <td>Дельты в событиях реакций и счётчиков</td>
+        <td>Расхождение состояния при потере события</td>
+        <td>Снимки — они идемпотентны</td>
+      </tr>
+      <tr>
+        <td><code>OFFSET</code> для перебора участников</td>
+        <td>Квадратичная сложность на больших чатах</td>
+        <td>Keyset-пагинация по <code>user_id</code></td>
+      </tr>
+      <tr>
+        <td>Файлы через приложение</td>
+        <td>Воркеры заняты перекачкой байтов</td>
+        <td>Presigned URL напрямую в хранилище</td>
+      </tr>
+      <tr>
+        <td>Доверять <code>Content-Type</code> от клиента</td>
+        <td>Исполняемый файл под видом картинки</td>
+        <td><code>libmagic</code> по содержимому</td>
+      </tr>
+      <tr>
+        <td>Ключи в Redis без TTL</td>
+        <td>Вечный мусор после падения процессов</td>
+        <td>TTL + продление + ленивая уборка</td>
+      </tr>
+      <tr>
+        <td><code>gather</code> без семафора на рассылке</td>
+        <td>Исчерпание пула соединений к БД</td>
+        <td><code>asyncio.Semaphore</code></td>
+      </tr>
+      <tr>
+        <td>Внешний вызов внутри транзакции</td>
+        <td>Недоступность LiveKit ломает создание чатов</td>
+        <td>После коммита, с подавлением ошибки</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Что стоит унести с собой</h3>
+  <p>Если из всего отчёта запомнить три вещи, то эти:</p>
+  <ol class="steps">
+    <li><strong>Атомарность на записи.</strong> Данные и факт их изменения записываются одной транзакцией. Всё остальное — доставка — происходит асинхронно и может быть повторено.</li>
+    <li><strong>Идемпотентность на чтении.</strong> Любой потребитель обязан переживать повтор: охрана по <code>event_id</code>, снимки вместо дельт, <code>UPSERT</code> с проверкой «новее ли».</li>
+    <li><strong>Клиент восстанавливается сам.</strong> Пока у сообщений есть монотонный номер, а у клиента — курсор, разрыв соединения перестаёт быть аварией и становится рутиной.</li>
+  </ol>
+
+  <p>Всё остальное в этом проекте — детали реализации этих трёх принципов.</p>
+</section>
+
+<footer class="end">
+  <p>Разбор построен по коду репозитория: <code>app/core</code> (инфраструктура), <code>app/chats</code> (мессенджер), <code>app/notifications</code> (push), <code>app/profiles</code> (проекции), <code>infra/</code> (Postgres, Debezium, LiveKit). Фрагменты кода сокращены — логирование и повторяющиеся ветки опущены; путь файла указан над каждым блоком.</p>
+</footer>
+
+</article>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+  (function () {
+    function run() {
+      if (window.hljs) {
+        document.querySelectorAll("figure.code pre code").forEach(function (block) {
+          try { window.hljs.highlightElement(block); } catch (e) { /* оставим как есть */ }
+        });
+      }
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run);
+    } else {
+      run();
+    }
+  })();
+</script>

@@ -1,0 +1,95 @@
+# Профиль нагрузочного теста app/chats (loadtests/README.md).
+#
+# Использование:
+#   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml build
+#   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml up -d db redis kafka minio debezium debezium_connector app consumers
+#   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml run --rm migrations
+#   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml run --rm loadtest-seed
+#   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml run --rm loadtest-rest-throughput
+#   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml run --rm loadtest-ws-fanout
+#   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml run --rm loadtest-ws-churn
+#
+# Сценарии гоняются ПО ОДНОМУ (`run`, не `up`) — так и просит п.3 промпта
+# ("отдельные Locust User classes... чтобы их можно было гонять по
+# отдельности"), плюс совместный прогон исказил бы цифры (REST-writer из
+# ws-fanout будет считаться в общую нагрузку REST-throughput и т.п.).
+#
+# Все сервисы сидят в том же app-network, что и app/consumers/db/redis/kafka
+# (внешняя сеть, см. docker-compose.yaml) — обращаются к ним по имени сервиса,
+# без localhost (п.5 промпта).
+
+x-loadtest-common: &loadtest-common
+  build:
+    context: .
+    dockerfile: loadtests/Dockerfile
+  user: root
+  env_file:
+    - .env
+  networks:
+    - app-network
+  volumes:
+    - loadtest_data:/app/loadtests/data
+  depends_on:
+    app:
+      condition: service_healthy
+
+services:
+  loadtest-seed:
+    <<: *loadtest-common
+    container_name: loadtest-seed
+    entrypoint:
+    - python
+    - loadtests/seed.py
+    command:
+      - --users=${LOADTEST_USERS:-6000}
+      - --direct-chats=${LOADTEST_DIRECT_CHATS:-1500}
+      - --group-chats=${LOADTEST_GROUP_CHATS:-60}
+      - --supergroups=${LOADTEST_SUPERGROUPS:-6}
+      - --channels=${LOADTEST_CHANNELS:-2}
+    depends_on:
+      app:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    restart: "no"
+
+  loadtest-rest-throughput:
+    <<: *loadtest-common
+    container_name: loadtest-rest-throughput
+    command: ["locust", "-f", "loadtests/locustfiles/rest_throughput.py", "--headless"]
+    environment:
+      LOCUST_HOST: "http://app:8000"
+      LOCUST_USERS: "${LOADTEST_USERS_CONCURRENCY:-200}"
+      LOCUST_SPAWN_RATE: "${LOADTEST_SPAWN_RATE:-20}"
+      LOCUST_RUN_TIME: "${LOADTEST_RUN_TIME:-5m}"
+      LOCUST_CHAT_KINDS: "${LOADTEST_CHAT_KINDS:-direct,group,supergroup}"
+    restart: "no"
+
+  loadtest-ws-fanout:
+    <<: *loadtest-common
+    container_name: loadtest-ws-fanout
+    command: ["locust", "-f", "loadtests/locustfiles/ws_fanout.py", "--headless"]
+    environment:
+      LOCUST_HOST: "http://app:8000"
+      LOCUST_USERS: "${LOADTEST_READERS:-500}"
+      LOCUST_SPAWN_RATE: "${LOADTEST_SPAWN_RATE:-50}"
+      LOCUST_RUN_TIME: "${LOADTEST_RUN_TIME:-5m}"
+      LOCUST_CHAT_KIND: "${LOADTEST_CHAT_KIND:-supergroup}"
+      LOCUST_WRITER_RATE: "${LOADTEST_WRITER_RATE:-2}"
+    restart: "no"
+
+  loadtest-ws-churn:
+    <<: *loadtest-common
+    container_name: loadtest-ws-churn
+    command: ["locust", "-f", "loadtests/locustfiles/ws_churn.py", "--headless"]
+    environment:
+      LOCUST_HOST: "http://app:8000"
+      LOCUST_USERS: "${LOADTEST_CHURN_USERS:-200}"
+      LOCUST_SPAWN_RATE: "${LOADTEST_SPAWN_RATE:-20}"
+      LOCUST_RUN_TIME: "${LOADTEST_RUN_TIME:-5m}"
+      LOCUST_CHAT_KINDS: "${LOADTEST_CHAT_KINDS:-group,supergroup}"
+      LOCUST_CHURN_RATE: "${LOADTEST_CHURN_RATE:-5}"
+    restart: "no"
+
+volumes:
+  loadtest_data:

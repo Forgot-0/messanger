@@ -1,0 +1,62 @@
+import logging
+from dataclasses import dataclass
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.dtos.user import AuthUserJWTData
+from app.auth.exceptions import NotFoundPermissionsError, NotFoundUserError
+from app.auth.repositories.permission import PermissionRepository
+from app.auth.repositories.session import TokenBlacklistRepository
+from app.auth.repositories.user import UserRepository
+from app.auth.services.rbac import AuthRBACManager
+from app.core.commands import BaseCommand, BaseCommandHandler
+from app.core.services.auth.exceptions import AccessDeniedError
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AddPermissionToUserCommand(BaseCommand):
+    user_jwt_data: AuthUserJWTData
+    user_id: int
+    permissions: set[str]
+
+
+@dataclass(frozen=True)
+class AddPermissionToUserCommandHandler(BaseCommandHandler[AddPermissionToUserCommand, None]):
+    session: AsyncSession
+    user_repository: UserRepository
+    permission_repository: PermissionRepository
+    rbac_manager: AuthRBACManager
+    token_blacklist: TokenBlacklistRepository
+
+    async def handle(self, command: AddPermissionToUserCommand) -> None:
+        if not self.rbac_manager.check_permission(command.user_jwt_data, {"permission:update", "user:update"}):
+            raise AccessDeniedError(
+                need_permissions={"permission:update", "user:update"} - set(command.user_jwt_data.permissions)
+            )
+
+        user = await self.user_repository.get_user_with_permission_by_id(command.user_id)
+        if user is None:
+            raise NotFoundUserError(user_by=command.user_id, user_field="id")
+
+        permissions = await self.permission_repository.get_permissions_by_names(
+            command.permissions
+        )
+
+        if len(permissions) != len(command.permissions):
+            found_names = {p.name for p in permissions}
+            missing = command.permissions - found_names
+            raise NotFoundPermissionsError(missing=missing)
+
+        for permission in permissions:
+            user.add_permission(permission)
+
+        await self.token_blacklist.add_user(user.id)
+        await self.session.commit()
+
+        logger.info("Add permission to user", extra={
+            "added_to": command.user_id,
+            "added_by": command.user_jwt_data.id,
+            "permission": command.permissions
+        })

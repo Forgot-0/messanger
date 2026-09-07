@@ -1,0 +1,7 @@
+# Устанавливается ПОВЕРХ уже собранного venv приложения (app/pyproject.toml
+# + poetry.lock — см. loadtests/Dockerfile), поэтому здесь только то, чего
+# нет в основном проекте: сам Locust и синхронный WS-клиент для сценария (b)/(c).
+# asyncpg, pyjwt, pydantic, sqlalchemy и т.п. уже есть в venv приложения —
+# см. рационале в loadtests/README.md ("Почему Locust и почему так").
+locust==2.46.3
+websocket-client==1.9.0

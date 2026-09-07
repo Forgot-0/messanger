@@ -1,0 +1,177 @@
+import pytest
+from httpx import AsyncClient
+
+from app.auth.models.user import User
+from tests.support.http import api_path
+
+
+@pytest.mark.integration
+@pytest.mark.auth
+@pytest.mark.asyncio
+class TestAuthEndpoints:
+
+    async def test_register_endpoint(
+        self,
+        client: AsyncClient,
+    ):
+        response = await client.post(
+            api_path("users/register/"),
+            json={
+                "username": "newuser",
+                "email": "newuser@example.com",
+                "password": "TestPass123!",
+                "password_repeat": "TestPass123!"
+            }
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["username"] == "newuser"
+        assert data["email"] == "newuser@example.com"
+        assert "id" in data
+
+    async def test_register_duplicate_email(
+        self,
+        client: AsyncClient,
+        standard_user: User,
+    ) -> None:
+        response = await client.post(
+            api_path("users/register/"),
+            json={
+                "username": "anotheruser",
+                "email": standard_user.email,
+                "password": "TestPass123!",
+                "password_repeat": "TestPass123!"
+            }
+        )
+
+        assert response.status_code == 409
+        data = response.json()
+        assert data["error"]["code"] == "DUPLICATE_USER"
+
+    async def test_login_endpoint(
+        self,
+        client: AsyncClient,
+        standard_user: User,
+    ) -> None:
+        response = await client.post(
+            api_path("auth/login/"),
+            data={
+                "username": standard_user.username,
+                "password": "TestPass123!"
+            }
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "access_token" in data
+        assert data["access_token"] is not None
+
+        assert "refresh_token" in response.cookies
+
+    async def test_login_wrong_password(
+        self,
+        client: AsyncClient,
+        standard_user: User,
+    ) -> None:
+        response = await client.post(
+            api_path("auth/login/"),
+            data={
+                "username": standard_user.username,
+                "password": "WrongPassword123!"
+            }
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["error"]["code"] == "WRONG_LOGIN_DATA"
+
+    async def test_me_endpoint(
+        self,
+        client: AsyncClient,
+        standard_user: User,
+        auth_headers,
+    ) -> None:
+        headers = auth_headers(standard_user)
+
+        response = await client.get(
+            api_path("users/me/"),
+            headers=headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == standard_user.id
+        assert data["username"] == standard_user.username
+        assert data["email"] == standard_user.email
+
+    async def test_me_endpoint_unauthorized(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        response = await client.get(api_path("users/me/"))
+        assert response.status_code == 401
+
+    async def test_refresh_token_endpoint(
+        self,
+        client: AsyncClient,
+        standard_user: User,
+        auth_headers
+    ) -> None:
+
+        login_response = await client.post(
+            api_path("auth/login/"),
+            data={
+                "username": standard_user.username,
+                "password": "TestPass123!"
+            }
+        )
+
+        assert login_response.status_code == 200
+
+        cookies = login_response.cookies
+        refresh_token = cookies.get("refresh_token")
+        assert refresh_token is not None
+        client.cookies.set("refresh_token", refresh_token)
+
+        headers = auth_headers(standard_user)
+        response = await client.post(
+            api_path("auth/refresh/"),
+            headers=headers
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "access_token" in data
+        assert data["access_token"] != login_response.json()["access_token"]
+
+    async def test_logout_endpoint(
+        self,
+        client: AsyncClient,
+        standard_user: User,
+    ) -> None:
+
+        login_response = await client.post(
+            api_path("auth/login/"),
+            data={
+                "username": standard_user.email,
+                "password": "TestPass123!"
+            }
+        )
+
+        cookies = login_response.cookies
+        refresh_token = cookies.get("refresh_token")
+        assert refresh_token is not None
+        client.cookies.set("refresh_token", refresh_token)
+
+        response = await client.post(
+            api_path("auth/logout/"),
+        )
+
+        assert response.status_code == 204
+
+        refresh_response = await client.post(
+            api_path("auth/refresh/"),
+        )
+        assert refresh_response.status_code in [400, 401]
+

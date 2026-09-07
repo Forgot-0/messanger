@@ -1,0 +1,59 @@
+groups:
+  - name: outbox-cdc
+    rules:
+      - alert: OutboxReplicationSlotInactive
+        expr: pg_replication_slot_slot_is_active{slot_name="outbox_slot"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Debezium replication slot `outbox_slot` is inactive"
+          description: >-
+            The outbox_slot logical replication slot has no active consumer for
+            more than 2 minutes. Debezium is down or disconnected: domain events
+            are not being relayed to Kafka and Postgres is retaining WAL.
+            Check the `debezium` container and connector status
+            (curl http://debezium:8083/connectors/outbox-connector/status).
+
+      - alert: OutboxReplicationSlotLagHigh
+        expr: >-
+          (pg_replication_slot_slot_current_wal_lsn{slot_name="outbox_slot"}
+           - pg_replication_slot_slot_confirmed_flush_lsn{slot_name="outbox_slot"})
+          > 512 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Debezium `outbox_slot` lag above 512 MiB"
+          description: >-
+            Retained-WAL lag of the outbox replication slot exceeds 512 MiB for
+            5 minutes. Debezium is falling behind (slow Kafka, connector
+            rebalancing, or event burst). Event delivery latency is growing and
+            WAL is accumulating on disk.
+
+      - alert: OutboxReplicationSlotLagCritical
+        expr: >-
+          (pg_replication_slot_slot_current_wal_lsn{slot_name="outbox_slot"}
+           - pg_replication_slot_slot_confirmed_flush_lsn{slot_name="outbox_slot"})
+          > 4 * 1024 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Debezium `outbox_slot` lag above 4 GiB — disk exhaustion risk"
+          description: >-
+            Retained WAL for outbox_slot exceeds 4 GiB. If Debezium cannot be
+            recovered, consider the runbook for dropping/recreating the slot —
+            an unbounded slot can take the whole database down by filling the
+            disk.
+
+      - alert: PostgresWALDirectoryGrowing
+        expr: pg_wal_size_bytes > 8 * 1024 * 1024 * 1024
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres WAL directory above 8 GiB"
+          description: >-
+            Total pg_wal size is unusually large — commonly caused by an
+            abandoned replication slot (check outbox_slot alerts above).

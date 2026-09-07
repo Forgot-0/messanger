@@ -1,0 +1,241 @@
+import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import Any
+
+import redis.asyncio as redis
+from aiojobs import Scheduler
+from dishka.integrations.fastapi import setup_dishka
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
+from fastapi_limiter import FastAPILimiter
+from prometheus_fastapi_instrumentator.instrumentation import PrometheusFastApiInstrumentator
+from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
+
+from app.auth.routers import router_v1 as auth_router_v1
+from app.chats.routers import router_v1 as chat_router_v1
+from app.core.api.builder import create_response
+from app.core.api.schemas import ErrorDetail, ErrorResponse, ORJSONResponse
+from app.core.configs.app import app_config
+from app.core.di.container import create_container
+from app.core.exceptions import ApplicationError, ValidationError
+from app.core.log.init import configure_logging
+from app.core.message_brokers.base import BaseMessageBroker
+from app.core.middlewares.context import ContextMiddleware
+from app.core.middlewares.log import LoggingMiddleware
+from app.core.routers import router as core_router
+from app.core.utils import now_utc
+from app.core.websocket.manager import ConnectionManager
+from app.notifications.routers import router_v1 as notification_router_v1
+from app.profiles.routers import router_v1 as profile_router_v1
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    logger.info("Starting FastAPI")
+
+    redis_client = await app.state.dishka_container.get(redis.Redis)
+    await FastAPILimiter.init(redis_client)
+
+    message_broker: BaseMessageBroker = await app.state.dishka_container.get(BaseMessageBroker)
+    await message_broker.start()
+
+    connection_manager = await app.state.dishka_container.get(ConnectionManager)
+
+    scheduler = Scheduler()
+    await scheduler.spawn(connection_manager.startup())
+
+    yield
+    await scheduler.close()
+    await redis_client.aclose()
+    await message_broker.close()
+    await app.state.dishka_container.close()
+    logger.info("Shutting down FastAPI")
+
+
+def setup_middleware(app: FastAPI) -> None:
+    app.add_middleware(LoggingMiddleware)
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+    if app_config.BACKEND_CORS_ORIGINS:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[str(origin).strip("/") for origin in app_config.BACKEND_CORS_ORIGINS],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    app.add_middleware(ContextMiddleware)
+
+
+def setup_router(app: FastAPI) -> None:
+    app.include_router(core_router)
+
+    app.include_router(auth_router_v1, prefix=app_config.API_V1_STR)
+    app.include_router(profile_router_v1, prefix=app_config.API_V1_STR)
+    app.include_router(chat_router_v1, prefix=app_config.API_V1_STR)
+    app.include_router(notification_router_v1, prefix=app_config.API_V1_STR)
+
+
+def handle_application_exception(request: Request, exc: ApplicationError) -> ORJSONResponse:
+    logger.error(
+        "Application exception",
+        exc_info=exc,
+        extra={"status": exc.status, "title": exc.message, "detail": exc.detail, "code": exc.code}
+    )
+    return ORJSONResponse(
+        status_code=exc.status,
+        content=ErrorResponse(
+            error=ErrorDetail(
+                code=exc.code,
+                message=exc.message,
+                detail=exc.detail
+            ),
+            status=exc.status,
+            request_id=request.state.request_id,
+            timestamp=now_utc().timestamp()
+        ),
+    )
+
+def handle_validation_exception(request: Request, exc: RequestValidationError) -> ORJSONResponse:
+    logger.error(
+        "Validation exception",
+        exc_info=exc,
+        extra={
+            "status": 422,
+            "title": "Validation exception",
+            "detail": jsonable_encoder(exc.errors()),
+            "code": "VALIDATION",
+        }
+    )
+    return ORJSONResponse(
+        status_code=422,
+        content=ErrorResponse(
+            error=ErrorDetail(
+                code="VALIDATION",
+                message="Validation exception",
+                detail=jsonable_encoder(exc.errors()),
+            ),
+            status=422,
+            request_id=request.state.request_id,
+            timestamp=now_utc().timestamp()
+        ),
+    )
+
+def handle_unknown_exception(request: Request, exc: Exception) -> ORJSONResponse:
+    logger.error(
+        "Unknown exception",
+        exc_info=exc,
+        extra={
+            "status": 500,
+            "title": "Unknown exception",
+            "detail": str(exc),
+            "code": "UNKNOWN_EXCEPTION",
+        }
+    )
+    return ORJSONResponse(
+        status_code=500,
+        content=ErrorResponse(
+            error=ErrorDetail(
+                code="UNKNOWN_EXCEPTION",
+                message="Unknown exception",
+            ),
+            status=500,
+            request_id=request.state.request_id,
+            timestamp=now_utc().timestamp()
+        ),
+    )
+
+def custom_openapi(app: FastAPI) -> dict[str, Any]:
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    response_def = create_response(ValidationError(), description="Validation error")
+
+    components = openapi_schema.setdefault("components", {})
+    responses = components.setdefault("responses", {})
+
+    responses["HTTPValidationError"] = {
+        "description": response_def.get("description", "Validation Error"),
+        "content": response_def.get("content", {"application/json": {"example": {}}}),
+    }
+
+    model = response_def.get("model")
+    if model is not None:
+
+        model_schema = model.model_json_schema(ref_template="#/components/schemas/{model}")
+        components_schemas = components.setdefault("schemas", {})
+        model_name = getattr(model, "__name__", None) or model.__class__.__name__
+        if isinstance(model_schema, dict):
+            defs = (
+                model_schema.get("$defs") or
+                model_schema.get("definitions") or model_schema.get("components", {}).get("schemas")
+            )
+            if defs and isinstance(defs, dict):
+                for k, v in defs.items():
+                    components_schemas.setdefault(k, v)
+            if "$ref" not in model_schema:
+                components_schemas.setdefault(model_name, model_schema)
+                schema_ref = {"$ref": f"#/components/schemas/{model_name}"}
+            else:
+                schema_ref = model_schema
+            content = responses["HTTPValidationError"].setdefault("content", {})
+            app_json = content.setdefault("application/json", {})
+            app_json["schema"] = schema_ref
+
+    for path_item in openapi_schema.get("paths", {}).values():
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            responses_obj = operation.get("responses", {})
+            if "422" in responses_obj:
+                responses_obj["422"] = {"$ref": "#/components/responses/HTTPValidationError"}
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+def init_app() -> FastAPI:
+
+    app = FastAPI(
+        openapi_url=(
+            f"{app_config.API_V1_STR}/openapi.json"
+            if app_config.ENVIRONMENT in ["local", "testing"]
+            else None
+        ),
+        lifespan=lifespan,
+        redirect_slashes=False
+    )
+
+    PrometheusFastApiInstrumentator(
+        excluded_handlers=[r"^/health$", r"^/metrics$"]
+    ).instrument(
+        app,
+        latency_lowr_buckets=(0.1, 0.5, 1, 1.5, 2, 2.5, 3)
+    ).expose(app, should_gzip=True, tags=["core"])
+
+    configure_logging()
+    container = create_container()
+    setup_dishka(container=container, app=app)
+
+    setup_middleware(app)
+    setup_router(app)
+
+    app.add_exception_handler(Exception, handle_unknown_exception)
+    app.add_exception_handler(ApplicationError, handle_application_exception) # type: ignore
+    app.add_exception_handler(RequestValidationError, handle_validation_exception) # type: ignore
+    app.openapi = lambda: custom_openapi(app)
+    return app

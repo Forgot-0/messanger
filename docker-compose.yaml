@@ -1,0 +1,330 @@
+x-app-base: &app-base
+  build:
+    context: .
+    target: production
+  tmpfs:
+    - /prometheus:uid=100,gid=101,mode=1777
+  env_file:
+    - .env
+  restart: unless-stopped
+  networks:
+    - app-network
+
+services:
+  app:
+    <<: *app-base
+    container_name: app
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "
+      rm -rf /prometheus/* &&
+      exec gunicorn 'app.main:init_app()'
+      -k uvicorn.workers.UvicornWorker
+      -w ${GUNICORN_WORKERS:-4}
+      -c gunicorn.conf.py
+      --bind 0.0.0.0:8000
+      --timeout 120
+      --graceful-timeout 30
+      --log-level warning
+      "
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+
+  consumers:
+    <<: *app-base
+    container_name: consumers
+    hostname: consumers
+    command: ["faststream", "run", "app.consumers:app", "--host", "0.0.0.0", "--port", "9002", "--workers", "2"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
+  queue_worker:
+    <<: *app-base
+    container_name: queue_worker
+    command: ["taskiq", "worker", "app.tasks:broker", "--no-configure-logging"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
+  scheduler:
+    <<: *app-base
+    container_name: scheduler
+    command: ["taskiq", "scheduler", "app.tasks:scheduler", "--no-configure-logging"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  migrations:
+    <<: *app-base
+    container_name: migrations
+    command:
+    - sh
+    - -c
+    - |
+      alembic upgrade head
+      python -m app.init_data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    container_name: minio
+    command: server --console-address ":9001" /data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:?STORAGE_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:?STORAGE_SECRET_KEY is required}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_CORS_ORIGIN:-*}
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://localhost:9001}
+      MINIO_PROMETHEUS_AUTH_TYPE: "public"
+      MINIO_PROMETHEUS_JOB_ID: "minio"
+      MINIO_REGION: "us-east-1"
+      MINIO_BROWSER: "on"
+      MINIO_COMPRESSION: "gzip"
+      MINIO_COMPRESSION_EXTENSIONS: ".txt,.log,.json,.csv,.md"
+      MINIO_COMPRESSION_MIME_TYPES: "text/*,application/json,application/xml"
+      MINIO_MAX_CONNECTIONS: "1000"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:9000/minio/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+
+  db:
+    image: postgres:18.3
+    container_name: db
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  redis:
+    image: valkey/valkey:8.1-alpine
+    container_name: "redis"
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: >
+      redis-server
+      --maxmemory 2gb
+      --maxmemory-policy noeviction
+      --hz 20
+      --tcp-backlog 511
+      --timeout 0
+      --tcp-keepalive 300
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2200M
+
+  kafka:
+    image: confluentinc/cp-kafka:8.2.0
+    container_name: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_BYTES: 1073741824 # 1 GB
+      KAFKA_LOG_SEGMENT_BYTES: 268435456 # 256 MB
+    ports:
+      - "127.0.0.1:29092:29092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+      - kafka_secrets:/etc/kafka/secrets
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    networks:
+      - app-network
+
+  debezium:
+    image: debezium/connect:2.7.3.Final
+    container_name: debezium
+    env_file:
+      - .env
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+
+      CONNECT_PRODUCER_RETRIES: 10
+      CONNECT_PLUGIN_PATH: /kafka/connect
+
+      CONNECT_REST_ADVERTISED_HOST_NAME: debezium
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+
+      CONNECT_CONFIG_PROVIDERS: env
+      CONNECT_CONFIG_PROVIDERS_ENV_CLASS: org.apache.kafka.common.config.provider.EnvVarConfigProvider
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  debezium_connector:
+    image: curlimages/curl:latest
+    container_name: debezium_connector
+    depends_on:
+      - debezium
+    entrypoint: ["/bin/sh", "-c"]
+    env_file:
+      - .env
+    command:
+      - |
+        set -e
+
+        echo "Waiting for Debezium..."
+
+        until curl -sf http://debezium:8083/connectors >/dev/null; do
+          sleep 2
+        done
+
+        echo "Debezium is ready"
+
+        if ! curl -sf http://debezium:8083/connectors/outbox-connector >/dev/null; then
+          echo "Creating outbox connector..."
+
+          curl -sf \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            --data @/config/outbox-connector.json \
+            http://debezium:8083/connectors
+
+          echo "Connector created"
+        else
+          echo "Connector already exists"
+        fi
+    volumes:
+      - ./infra/debezium/outbox-connector.json:/config/outbox-connector.json
+    restart: "no"
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+  redis-data:
+  kafka_data:
+  kafka_secrets:
+  miniodata:
+
+
+networks:
+  app-network:
+    external: true

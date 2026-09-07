@@ -1,0 +1,60 @@
+import logging
+from dataclasses import dataclass
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.dtos.user import AuthUserJWTData
+from app.auth.exceptions import NotFoundPermissionsError, NotFoundRoleError
+from app.auth.repositories.permission import PermissionRepository
+from app.auth.repositories.role import RoleInvalidateRepository, RoleRepository
+from app.auth.services.rbac import AuthRBACManager
+from app.core.commands import BaseCommand, BaseCommandHandler
+from app.core.services.auth.exceptions import AccessDeniedError
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AddPermissionRoleCommand(BaseCommand):
+    role_name: str
+    permissions: set[str]
+    user_jwt_data: AuthUserJWTData
+
+
+@dataclass(frozen=True)
+class AddPermissionRoleCommandHandler(BaseCommandHandler[AddPermissionRoleCommand, None]):
+    session: AsyncSession
+    role_repository: RoleRepository
+    permission_repository: PermissionRepository
+    rbac_manager: AuthRBACManager
+    role_invalidation: RoleInvalidateRepository
+
+    async def handle(self, command: AddPermissionRoleCommand) -> None:
+        if not self.rbac_manager.check_permission(command.user_jwt_data, {"role:create" }):
+            raise AccessDeniedError(need_permissions={"role:create"} - set(command.user_jwt_data.permissions))
+
+        role = await self.role_repository.get_with_permission_by_name(command.role_name)
+        if role is None:
+            raise NotFoundRoleError(name=command.role_name)
+
+        self.rbac_manager.check_security_level(command.user_jwt_data.security_level, role.security_level)
+
+        permissions = await self.permission_repository.get_permissions_by_names(
+            command.permissions
+        )
+
+        if len(permissions) != len(command.permissions):
+            found_names = {p.name for p in permissions}
+            missing = command.permissions - found_names
+            raise NotFoundPermissionsError(missing=missing)
+
+        for permission in permissions:
+            role.add_permission(permission)
+
+        await self.role_invalidation.invalidate_role(role.name)
+        await self.session.commit()
+        logger.info("Add permission to role", extra={
+            "role_name": command.role_name,
+            "permission": role.permissions,
+            "add_permission_by": command.user_jwt_data.id
+        })

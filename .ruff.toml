@@ -1,0 +1,117 @@
+target-version = "py314"
+line-length = 120
+
+exclude = [
+    ".git",
+    ".github",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "env",
+    "dist",
+    "build",
+    "docs",
+    "benchmarks",
+    "migrations",
+    "__pycache__",
+]
+
+[lint]
+select = [
+    # pycodestyle
+    "E",
+    "W",
+
+    # Pyflakes
+    "F",
+
+    # isort
+    "I",
+
+    # flake8-bugbear
+    "B",
+
+    # flake8-comprehensions
+    "C4",
+
+    # pyupgrade
+    "UP",
+
+    # flake8-simplify
+    "SIM",
+
+    # flake8-pie
+    "PIE",
+
+    # flake8-return
+    "RET",
+
+    # flake8-raise
+    "RSE",
+
+    # flake8-unused-arguments
+    "ARG",
+
+    # flake8-print
+    "T20",
+
+    # flake8-implicit-str-concat
+    "ISC",
+
+    # pathlib
+    "PTH",
+
+    # flake8-bandit security checks
+    "S",
+]
+
+ignore = [
+    # Formatting is handled by `ruff format`
+    "E501",
+
+    # Common in FastAPI:
+    # Depends(...), Query(...), Body(...), etc.
+    "B008",
+
+    # Allow raising framework exceptions without
+    # preserving the original exception context.
+    "B904",
+
+    "RET504",
+    "SIM103",
+
+]
+
+[lint.isort]
+combine-as-imports = true
+force-wrap-aliases = true
+known-first-party = [
+    "app",
+]
+
+[lint.mccabe]
+max-complexity = 12
+
+[lint.per-file-ignores]
+"**/__init__.py" = [
+    "F401",
+]
+
+"tests/**/*.py" = [
+    "S101",  # assert is normal in tests
+    "D",     # docstrings are not required in tests
+    "ARG",   # unused args can be intentional in fixtures
+]
+
+"scripts/**/*.py" = [
+    "T201",  # print() can be legitimate in CLI scripts
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+docstring-code-format = true
