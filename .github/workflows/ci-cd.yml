@@ -60,7 +60,7 @@ jobs:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           SSH_HOST: ${{ secrets.DEPLOY_HOST }}
           SSH_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/home/forgot/social_github' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/home/forgot/messanger' }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
