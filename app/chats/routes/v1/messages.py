@@ -195,7 +195,11 @@ async def forward_message(
 
 @router.post(
     "/read/",
-    status_code=status.HTTP_204_NO_CONTENT
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.RATE_LIMIT_READ_RECEIPTS_PER_SECOND,
+        seconds=1,
+    ))]
 )
 async def mark_read(
     chat_id: UUID,

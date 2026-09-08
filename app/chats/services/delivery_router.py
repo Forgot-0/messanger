@@ -66,15 +66,15 @@ class ChatDeliveryRouter:
             await self.coalesce_queue.enqueue(event)
             return
 
-        chat = await self.chat_repository.get_by_id(
+        fanout_strategy = await self.chat_repository.get_fanout_strategy(
             UUID(event.payload["chat_id"]),
             include_deleted=event.event_name == CHAT_DELETED_EVENT_NAME,
         )
-        if chat is None:
+        if fanout_strategy is None:
             return
 
         ws_event = WsEvent.build(
-            event, ws_type=ws_type, fanout_strategy=chat.fanout_strategy
+            event, ws_type=ws_type, fanout_strategy=fanout_strategy
         )
 
         message_dto: MessageDTO | None = None

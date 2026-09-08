@@ -22,6 +22,7 @@ class ChatConfig(BaseConfig):
     WS_REPLAY_BATCH_SIZE: int = 50
     WS_MAX_CLIENT_FRAME_BYTES: int = 65_536
     RATE_LIMIT_MESSAGES_PER_SECOND: int = 10
+    RATE_LIMIT_READ_RECEIPTS_PER_SECOND: int = 5
 
     CHAT_TOPIC: str = "chats"
     PROFILE_TOPIC: str= "profiles"

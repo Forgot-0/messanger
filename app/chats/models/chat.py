@@ -195,15 +195,21 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
             return chat_config.MAX_CHANNEL_SUBSCRIBERS
         return chat_config.MAX_MEMBERS
 
-    @property
-    def fanout_strategy(self) -> ChatFanoutStrategy:
-        if self.type == ChatType.CHANNEL:
+    @staticmethod
+    def resolve_fanout_strategy(
+        chat_type: ChatType, member_count: int
+    ) -> ChatFanoutStrategy:
+        if chat_type == ChatType.CHANNEL:
             return ChatFanoutStrategy.CHANNEL_SUBSCRIBERS
-        if self.type == ChatType.SUPERGROUP:
+        if chat_type == ChatType.SUPERGROUP:
             return ChatFanoutStrategy.ACTIVE_SUBSCRIBERS
-        if self.type == ChatType.GROUP and self.member_count > chat_config.FAN_OUT_WRITE_THRESHOLD:
+        if chat_type == ChatType.GROUP and member_count > chat_config.FAN_OUT_WRITE_THRESHOLD:
             return ChatFanoutStrategy.ACTIVE_SUBSCRIBERS
         return ChatFanoutStrategy.FANOUT_ON_WRITE
+
+    @property
+    def fanout_strategy(self) -> ChatFanoutStrategy:
+        return self.resolve_fanout_strategy(self.type, self.member_count)
 
     @property
     def support_read_event(self) -> bool:

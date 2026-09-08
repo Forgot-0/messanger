@@ -46,22 +46,29 @@ class MarkAsReadCommandHandler(BaseCommandHandler[MarkAsReadCommand, None]):
         ):
             raise AccessDeniedChatError(chat_id=str(command.chat_id), requester_id=user_id)
 
-        await self.read_receipt_repository.mark_read(
+        message_seq = min(command.message_seq, chat.seq_counter)
+
+        is_read = await self.read_receipt_repository.mark_read(
             user_id=user_id,
             chat_id=command.chat_id,
-            message_seq=command.message_seq,
+            message_seq=message_seq,
         )
 
-        if chat.support_read_event:
+        if is_read and chat.support_read_event:
             await self.event_bus.publish([ReadedMessageEvent(
                 chat_id=str(command.chat_id),
-                seq=command.message_seq,
+                seq=message_seq,
                 reader_id=user_id
             )])
 
         await self.session.commit()
 
-        logger.info(
+        logger.debug(
             "Messages marked as read",
-            extra={"chat_id": command.chat_id, "user_id": user_id, "up_to": command.message_seq},
+            extra={
+                "chat_id": command.chat_id,
+                "user_id": user_id,
+                "up_to": message_seq,
+                "advanced": is_read,
+            },
         )

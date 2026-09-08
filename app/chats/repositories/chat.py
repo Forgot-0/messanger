@@ -7,7 +7,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import aliased, contains_eager, selectinload
 
 from app.chats.exceptions import NotFoundChatError
-from app.chats.models.chat import Chat, ChatType
+from app.chats.models.chat import Chat, ChatFanoutStrategy, ChatType
 from app.chats.models.chat_members import ChatMember
 from app.chats.models.message import Message
 from app.chats.models.profile import ChatUserProfile
@@ -24,11 +24,8 @@ class ChatRepository(IRepository[Chat], CacheRepository):
         chat_id: UUID,
         with_members: bool = False,
         with_for_update: bool = False,
-        include_deleted: bool = False,
     ) -> Chat | None:
         stmt = select(Chat).where(Chat.id == chat_id)
-        if not include_deleted:
-            stmt = stmt.where(Chat.deleted_at.is_(None))
 
         if with_for_update:
             stmt = stmt.with_for_update()
@@ -41,6 +38,19 @@ class ChatRepository(IRepository[Chat], CacheRepository):
 
         result = await self.session.execute(stmt)
         return result.scalar()
+
+    async def get_fanout_strategy(self, chat_id: UUID, include_deleted: bool = False) -> ChatFanoutStrategy | None:
+        stmt = select(Chat.type, Chat.member_count).where(Chat.id == chat_id)
+        if not include_deleted:
+            stmt = stmt.where(Chat.deleted_at.is_(None))
+
+        result = await self.session.execute(stmt)
+        row = result.first()
+
+        if row is None:
+            return None
+
+        return Chat.resolve_fanout_strategy(row.type, row.member_count)
 
     async def get_direct_chat(self, user_id: int, other_user_id: int) -> Chat | None:
         member_a = aliased(ChatMember)
