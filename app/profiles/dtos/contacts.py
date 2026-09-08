@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ContactDTO(BaseModel):
@@ -6,3 +6,4 @@ class ContactDTO(BaseModel):
     provider: str
     contact: str
 
+    model_config = ConfigDict(from_attributes=True)

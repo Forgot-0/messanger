@@ -24,30 +24,15 @@ class TestLoginCommand:
     ) -> LoginCommandHandler:
         return await request_container.get(LoginCommandHandler)
 
-    async def test_login_with_username_success(
+    @pytest.mark.parametrize("identifier", ["username", "email"])
+    async def test_login_accepts_username_or_email(
         self,
         handler: LoginCommandHandler,
         standard_user: User,
+        identifier: str,
     ) -> None:
         cmd_data = AuthCommandFactory.create_login_command(
-            username=standard_user.username,
-            password="TestPass123!",
-            ip_address="127.0.0.1"
-        )
-        command = LoginCommand(**cmd_data)
-
-        token_group = await handler.handle(command)
-
-        assert token_group.access_token is not None
-        assert token_group.refresh_token is not None
-
-    async def test_login_with_email_success(
-        self,
-        handler: LoginCommandHandler,
-        standard_user: User,
-    ) -> None:
-        cmd_data = AuthCommandFactory.create_login_command(
-            username=standard_user.email,
+            username=getattr(standard_user, identifier),
             password="TestPass123!",
             ip_address="127.0.0.1"
         )
@@ -67,7 +52,7 @@ class TestLoginCommand:
             username=standard_user.username,
             password="WrongPassword123!",
             user_agent="Mozilla/5.0",
-            ip_address="1277.0.0.1"
+            ip_address="127.0.0.1"
         )
 
         with pytest.raises(WrongLoginDataError) as exc_info:
@@ -83,7 +68,7 @@ class TestLoginCommand:
             username="nonexistent@example.com",
             password="TestPass123!",
             user_agent="Mozilla/5.0",
-            ip_address="1277.0.0.1"
+            ip_address="127.0.0.1"
         )
 
         with pytest.raises(WrongLoginDataError):
@@ -159,7 +144,7 @@ class TestLoginCommand:
             username="oauthuser",
             password="AnyPassword123!",
             user_agent="Mozilla/5.0",
-            ip_address="1277.0.0.1"
+            ip_address="127.0.0.1"
         )
 
         with pytest.raises(WrongLoginDataError):

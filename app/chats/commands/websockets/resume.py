@@ -3,7 +3,6 @@ from uuid import UUID
 
 from app.chats.config import chat_config
 from app.chats.dtos.messages import MessageDTO
-from app.chats.exceptions import MaxLimitCursorError
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.message import MessageRepository
 from app.chats.schemas.ws import WSClientOp
@@ -31,7 +30,12 @@ class ResumeCommandHandler(BaseCommandHandler[ResumeCommand, None]):
 
     async def handle(self, command: ResumeCommand) -> None:
         if len(command.cursor) > 20:
-            raise MaxLimitCursorError(max_len=20, current_len=len(command.cursor))
+            command.conn.try_send({
+                "type": "ws.error",
+                "code": "MAX_LIMIT_CURSOR",
+                "detail": "Max limit cursor 20"
+            })
+            return
 
         for chat_id, cursor_seq in command.cursor.items():
             member = await self.chat_repository.get_member_chat(
@@ -45,7 +49,7 @@ class ResumeCommandHandler(BaseCommandHandler[ResumeCommand, None]):
                     "code": "NOT_CHAT_MEMBER",
                     "detail": "You are not a member of this chat"
                 })
-                return
+                continue
 
             await self.manager.subscribe_channel(command.conn, chat_id)
             command.conn.try_send({

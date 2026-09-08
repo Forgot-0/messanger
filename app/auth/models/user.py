@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.auth.exceptions import NotFoundPermissionsError, NotFoundRoleError
 from app.auth.models.oauth import OAuthAccount
 from app.auth.models.session import Session
 from app.core.db.base_model import BaseModel, DateMixin, SoftDeleteMixin
@@ -121,12 +122,18 @@ class User(BaseModel, DateMixin, SoftDeleteMixin):
         self.roles.add(role)
 
     def delete_role(self, role: Role) -> None:
+        if role not in self.roles:
+            raise NotFoundRoleError(name=role.name)
+
         self.roles.remove(role)
 
     def add_permission(self, permission: Permission) -> None:
         self.permissions.add(permission)
 
     def delete_permission(self, permission: Permission) -> None:
+        if permission not in self.permissions:
+            raise NotFoundPermissionsError(missing={permission.name, })
+
         self.permissions.remove(permission)
 
     def password_reset(self, password_hash: str) -> None:

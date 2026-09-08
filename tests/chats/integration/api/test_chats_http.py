@@ -197,18 +197,24 @@ class TestChatsHttpEndpoints:
         assert len(body["chats"]) == 2
         assert body["has_next"] is True
         assert body["next_chat_id"] is not None
+        assert body["next_date"] is not None
         ids_first = {str(c["id"]) for c in body["chats"]}
         assert ids_first.issubset(set(created_ids))
 
-        if body["next_date"] is not None:
-            second = await client.get(
-                api_path("chats/"),
-                params={
-                    "limit": 2,
-                    "last_chat_id": str(body["next_chat_id"]),
-                    "last_activity_at": body["next_date"],
-                },
-                headers=headers,
-            )
-            assert second.status_code == 200
-            assert second.json()["has_next"] in (True, False)
+        second = await client.get(
+            api_path("chats/"),
+            params={
+                "limit": 2,
+                "last_chat_id": str(body["next_chat_id"]),
+                "last_activity_at": body["next_date"],
+            },
+            headers=headers,
+        )
+        assert second.status_code == 200
+        page2 = second.json()
+
+        ids_second = {str(c["id"]) for c in page2["chats"]}
+        assert ids_second.issubset(set(created_ids))
+        assert ids_first.isdisjoint(ids_second)
+        assert ids_first | ids_second == set(created_ids)
+        assert page2["has_next"] is False

@@ -5,8 +5,6 @@ from app.auth.commands.auth.login import LoginCommand, LoginCommandHandler
 from app.auth.commands.auth.logout import LogoutCommand, LogoutCommandHandler
 from app.auth.models.user import User
 from app.auth.repositories.session import SessionRepository
-from app.auth.services.jwt import AuthJWTManager
-from app.core.services.auth.dto import JwtTokenType
 from app.core.services.auth.exceptions import InvalidTokenError
 from tests.auth.integration.factories import AuthCommandFactory
 
@@ -32,7 +30,6 @@ class TestLogoutCommand:
     async def test_logout_success(
         self,
         session_repository: SessionRepository,
-        auth_jwt_manager: AuthJWTManager,
         login_handler: LoginCommandHandler,
         logout_handler: LogoutCommandHandler,
         standard_user: User,
@@ -47,7 +44,6 @@ class TestLogoutCommand:
         logout_command = LogoutCommand(refresh_token=token_group.refresh_token)
         await logout_handler.handle(logout_command)
 
-        await auth_jwt_manager.validate_token(token_group.refresh_token, token_type=JwtTokenType.REFRESH)
         sessions = await session_repository.get_active_by_user(standard_user.id)
         active_sessions = [s for s in sessions if s.is_active]
 

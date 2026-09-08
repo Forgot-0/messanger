@@ -132,7 +132,7 @@ class SQLAlchemyFilterConverter:
                     relationship_loading
                 )
                 options.append(loader)
-            except ValueError:
+            except AttributeNotExistError:
                 continue
 
         return options

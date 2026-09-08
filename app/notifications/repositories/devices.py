@@ -23,6 +23,15 @@ class DeviceRepository(IRepository[UserDeviceToken], CacheRepository):
         )
         return list(result.scalars().all())
 
+    async def get_device_by_user_token(self, user_id: int, token: str) -> UserDeviceToken | None:
+        result = await self.session.execute(
+            select(UserDeviceToken).where(
+                UserDeviceToken.user_id == user_id,
+                UserDeviceToken.token == token,
+            )
+        )
+        return result.scalar()
+
     async def deactivate_tokens(self, tokens: Sequence[str]) -> None:
         await self.session.execute(
             update(UserDeviceToken)

@@ -121,16 +121,13 @@ class TestStaffFlags:
     def test_is_staff(self, role: ChatRole, expected: bool) -> None:
         assert make_member(role).is_staff is expected
 
-    @pytest.mark.parametrize("role,expected", [
-        (OWNER,  True),
-        (ADMIN,  True),
-        (EDITOR, True),
-        (DIRECT, False),
-        (MEMBER, False),
-        (VIEWER, False),
-    ])
-    def test_is_editor_or_above(self, role: ChatRole, expected: bool) -> None:
-        assert make_member(role).is_editor_or_above is expected
+    def test_editor_threshold_is_config_driven(self) -> None:
+        custom_role = ChatRole(id=99, name="custom", level=chat_config.CHAT_EDITOR_MIN_ROLE_LEVEL)
+        assert make_member(custom_role).is_editor_or_above is True
+
+    def test_just_below_editor_threshold_is_not_editor(self) -> None:
+        custom_role = ChatRole(id=99, name="custom", level=chat_config.CHAT_EDITOR_MIN_ROLE_LEVEL - 1)
+        assert make_member(custom_role).is_editor_or_above is False
 
     def test_staff_threshold_is_config_driven(self) -> None:
         custom_role = ChatRole(id=99, name="custom", level=chat_config.CHAT_STAFF_MIN_ROLE_LEVEL)
@@ -196,7 +193,6 @@ class TestCanBypassSlowMode:
 @pytest.mark.unit
 @pytest.mark.chats
 class TestBanMuteSemantics:
-    """NULL = ограничения нет; «навсегда» — явный маркер в будущем."""
 
     def test_fresh_member_is_neither_banned_nor_muted(self) -> None:
         member = ChatMember.create(chat_id=uuid4(), user_id=1, role_id=MEMBER.id)

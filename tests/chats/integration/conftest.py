@@ -36,7 +36,7 @@ def go_online(redis_client: Redis):
 def delivered_frames(redis_client: Redis):
     async def _delivered_frames() -> list[dict]:
         entries = await redis_client.xrange(WebsocketKeys.gateway_stream_key(GATEWAY_ID))
-        return [json.loads(fields["event"]) for _entry_id, fields in entries]
+        return [json.loads(fields["event"]) for _entry_id, fields in entries] # type: ignore
 
     return _delivered_frames
 

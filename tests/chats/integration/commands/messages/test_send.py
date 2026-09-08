@@ -22,7 +22,7 @@ class TestSendMessageCommand:
     ) -> SendMessageCommandHandler:
         return await request_container.get(SendMessageCommandHandler)
 
-    async def test_send_text_message_persists_and_fires_event(
+    async def test_send_text_message_persists(
         self,
         handler: SendMessageCommandHandler,
         message_repository: MessageRepository,

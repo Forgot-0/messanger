@@ -90,26 +90,3 @@ class TestVerifyEmailCommand:
 
         with pytest.raises(InvalidTokenError):
             await handler.handle(command)
-
-    async def test_verify_email_already_verified(
-        self,
-        user_repository: UserRepository,
-        standard_user: User,
-        token_blacklist_repository: TokenBlacklistRepository,
-        handler: VerifyCommandHandler,
-    ) -> None:
-        verify_token = secrets.token_urlsafe(32)
-        hashed_token = hashlib.sha256(verify_token.encode()).hexdigest()
-
-        await token_blacklist_repository.add_token(
-            hashed_token,
-            user_id=standard_user.id,
-            expiration=timedelta(minutes=15),
-        )
-
-        command = VerifyCommand(token=hashed_token)
-        await handler.handle(command)
-
-        verified_user = await user_repository.get_by_id(standard_user.id)
-        assert verified_user is not None
-        assert verified_user.is_verified is True

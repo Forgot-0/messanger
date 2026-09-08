@@ -27,7 +27,7 @@ class SessionRepository(IRepository[Session]):
         return result.scalar()
 
     async def get_active_by_user(self, user_id: int) -> list[Session]:
-        query = select(Session).where(Session.user_id == user_id)
+        query = select(Session).where(Session.user_id == user_id, Session.is_active.is_(True))
         result = await self.session.execute(query)
         return list(result.scalars())
 

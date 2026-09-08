@@ -16,7 +16,7 @@ from tests.support.http import api_path
 @pytest.mark.asyncio
 class TestFullChatLifecycleE2E:
 
-    async def test_create_send_receive_ws_mark_read_unread_zero(
+    async def test_create_subscribe_send_mark_read_unread_zero(
         self,
         app,
         client: AsyncClient,
@@ -56,18 +56,9 @@ class TestFullChatLifecycleE2E:
             assert send_resp.status_code == 201
             message_seq = send_resp.json()["seq"]
 
-            event = None
-            for _ in range(5):
-                try:
-                    event = await ws.recv_event()
-                    if event.get("type") in ("ws.history", "new_message"):
-                        break
-                except TimeoutError:
-                    break
-
             await ws.send_json({"op": "ping"})
-            pong = await ws.recv_event()
-            assert pong["type"] in ("ws.pong", "ws.history", "new_message")
+            pong = await recv_until_type(ws, "ws.pong")
+            assert pong["type"] == "ws.pong"
 
         read_resp = await client.post(
             api_path(f"chats/{chat_id}/messages/read/"),
@@ -179,52 +170,3 @@ class TestFullChatLifecycleE2E:
         list_resp2 = await client.get(api_path("chats/"), headers=reader_headers)
         chat2 = next(c for c in list_resp2.json()["chats"] if c["id"] == chat_id)
         assert chat2["unread_count"] == 1
-
-    async def test_ws_connection_survives_ping_pong(
-        self,
-        app,
-        client: AsyncClient,
-        user_jwt: UserJWTData,
-        create_access_token,
-    ) -> None:
-        token = create_access_token(user_jwt)
-        async with AsyncASGIWebSocketSession(
-            app, path=api_path("chats/ws/"), query={"token": token}
-        ) as ws:
-            await ws.recv_event()
-
-            for _ in range(3):
-                await ws.send_json({"op": "ping"})
-                pong = await ws.recv_event()
-                assert pong["type"] == "ws.pong"
-
-    async def test_chat_seq_counter_increments_per_message(
-        self,
-        client: AsyncClient,
-        user_jwt: UserJWTData,
-        create_auth_headers,
-    ) -> None:
-        headers = create_auth_headers(user_jwt)
-
-        create_resp = await client.post(
-            api_path("chats/"),
-            json=group_chat_payload(name="E2E Seq check"),
-            headers=headers,
-        )
-        assert create_resp.status_code == 201
-        chat_id = create_resp.json()["id"]
-
-        seqs = []
-        for i in range(5):
-            resp = await client.post(
-                api_path(f"chats/{chat_id}/messages/"),
-                json=send_text_payload(f"msg {i}"),
-                headers=headers,
-            )
-            assert resp.status_code == 201
-            seqs.append(resp.json()["seq"])
-
-        for i in range(1, len(seqs)):
-            assert seqs[i] == seqs[i - 1] + 1, (
-                f"seq не монотонный: {seqs[i - 1]} → {seqs[i]}"
-            )

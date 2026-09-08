@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi_limiter import FastAPILimiter
 from faststream.kafka import KafkaBroker, TestKafkaBroker
 from httpx import ASGITransport, AsyncClient
+from minio import Minio
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
@@ -23,22 +24,29 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.pool import NullPool
+from testcontainers.community.minio import MinioContainer
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import AsyncRedisContainer
 
+from app.auth.services.oauth_manager import OAuthProviderFactory
+from app.chats.config import chat_config
 from app.consumers import setup_router as setup_consumer_router
 from app.core.configs.app import app_config
 from app.core.db.base_model import BaseModel
 from app.core.di.container import create_container
+from app.core.events.event import EventRegistry
 from app.core.events.service import BaseEventBus
 from app.core.exceptions import ApplicationError
 from app.core.log.init import configure_logging
 from app.core.message_brokers.base import BaseMessageBroker
+from app.core.outbox.repository import OutboxRepository
 from app.core.services.auth.dto import JwtTokenType, UserJWTData
 from app.core.services.auth.jwt_manager import JWTManager
 from app.core.services.auth.rbac import RBACManagerInterface
 from app.core.services.mail.service import BaseMailService
 from app.core.services.queues.service import QueueService
+from app.core.services.storage.aminio.policy import Policy
+from app.core.services.storage.aminio.service import MinioStorageService
 from app.core.services.storage.service import StorageService
 from app.core.utils import now_utc
 from app.init_data import create_first_data
@@ -50,8 +58,17 @@ from app.main import (
     setup_middleware,
     setup_router,
 )
+from app.notifications.services.push.base import PushService
+from app.profiles.config import profile_config
 from tests.chats.providers import ChatsIntegrationProvider
-from tests.mocks import FakeMessageBroker, FakeQueueService, FakeStorageService, MockMailService
+from tests.mocks import (
+    FakeMessageBroker,
+    FakeOAuthProvider,
+    FakePushService,
+    FakeQueueService,
+    MockMailService,
+    RecordingEventBus,
+)
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -81,6 +98,53 @@ def postgres_container() -> Generator[PostgresContainer]:
 def redis_container() -> Generator[AsyncRedisContainer]:
     with AsyncRedisContainer("redis:7.2-alpine") as redis:
         yield redis
+
+
+MINIO_IMAGE = "minio/minio:RELEASE.2025-07-23T15-54-02Z"
+
+
+@pytest.fixture(scope="session")
+def minio_container() -> Generator[MinioContainer]:
+    with MinioContainer(MINIO_IMAGE) as minio:
+        yield minio
+
+
+TEST_BUCKETS: dict[str, Policy] = {
+    "base": Policy.NONE,
+    chat_config.ATTACHMENT_BUCKET: Policy.NONE,
+    chat_config.ATTACHMENT_BUCKET_PENDING: Policy.NONE,
+    profile_config.AVATAR_BUCKET: Policy.GET,
+    profile_config.PENDING_AVATAR_BUCKET: Policy.GET,
+}
+
+
+@pytest.fixture(scope="session")
+def storage_service(minio_container: MinioContainer) -> StorageService:
+    host_ip = minio_container.get_container_host_ip()
+    port = minio_container.get_exposed_port(9000)
+    endpoint = f"{host_ip}:{port}"
+
+    client = Minio(
+        endpoint=endpoint,
+        access_key=minio_container.access_key,
+        secret_key=minio_container.secret_key,
+        secure=False,
+    )
+    return MinioStorageService(
+        client=client,
+        public_minio=client,
+        bucket_policy=dict(TEST_BUCKETS),
+    )
+
+
+@pytest.fixture(scope="session")
+def minio_client(minio_container: MinioContainer) -> Minio:
+    return Minio(
+        endpoint=f"{minio_container.get_container_host_ip()}:{minio_container.get_exposed_port(9000)}",
+        access_key=minio_container.access_key,
+        secret_key=minio_container.secret_key,
+        secure=False,
+    )
 
 
 @pytest.fixture(scope="session")
@@ -199,6 +263,7 @@ def create_auth_headers(create_access_token):
 async def di_container(
     db_connection: AsyncConnection,
     redis_client: Redis,
+    storage_service: StorageService,
 ) -> AsyncGenerator[AsyncContainer]:
 
     class TestProvider(Provider):
@@ -225,17 +290,44 @@ async def di_container(
         def mail_service(self) -> BaseMailService:
             return MockMailService()
 
-        # @provide(scope=Scope.APP)
-        # def get_mock_event_bus(self, event_registy: EventRegistry) -> BaseEventBus:
-        #     return MockEventBus(event_registy=event_registy)
-
         @provide(scope=Scope.APP)
         def get_queue_service(self) -> QueueService:
             return FakeQueueService()
 
+        @provide(scope=Scope.REQUEST)
+        def get_recording_event_bus(
+            self,
+            event_registy: EventRegistry,
+            outbox_repository: OutboxRepository,
+        ) -> BaseEventBus:
+            return RecordingEventBus(
+                event_registy=event_registy,
+                outbox_repository=outbox_repository,
+            )
+
+        @provide(scope=Scope.APP)
+        def get_push_service(self) -> PushService:
+            return FakePushService()
+
+        @provide(scope=Scope.APP)
+        def get_oauth_factory(self) -> OAuthProviderFactory:
+            factory = OAuthProviderFactory()
+            factory.register_provider(
+                FakeOAuthProvider(
+                    name='google',
+                    client_id='test-client',
+                    client_secret='test-secret',  # noqa: S106
+                    redirect_uri='https://app.test/callback',
+                    base_auth_url='https://accounts.test/authorize',
+                    token_url='https://accounts.test/token',  # noqa: S106
+                    userinfo_url='https://accounts.test/userinfo',
+                )
+            )
+            return factory
+
         @provide(scope=Scope.APP)
         def get_storage_service(self) -> StorageService:
-            return FakeStorageService()
+            return storage_service
 
         @provide(scope=Scope.APP)
         def get_message_broker(self) -> BaseMessageBroker:
@@ -258,8 +350,17 @@ async def mock_mail_service(di_container: AsyncContainer) -> BaseMailService:
     return await di_container.get(BaseMailService)
 
 @pytest.fixture
-async def mock_event_bus(di_container: AsyncContainer) -> BaseEventBus:
-    return await di_container.get(BaseEventBus)
+async def mock_event_bus(request_container: AsyncContainer) -> RecordingEventBus:
+    bus = await request_container.get(BaseEventBus)
+    assert isinstance(bus, RecordingEventBus)
+    return bus
+
+
+@pytest.fixture
+async def mock_push_service(di_container: AsyncContainer) -> FakePushService:
+    service = await di_container.get(PushService)
+    assert isinstance(service, FakePushService)
+    return service
 
 
 @pytest.fixture

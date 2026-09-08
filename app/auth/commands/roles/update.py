@@ -43,6 +43,7 @@ class RoleUpdateCommandHandler(BaseCommandHandler[RoleUpdateCommand, None]):
 
         self.rbac_manager.check_security_level(command.user_jwt_data.security_level, role.security_level)
         if command.name:
+            self.rbac_manager.validate_role_name(command.user_jwt_data, command.name)
             role.name = command.name
 
         if command.description:

@@ -22,8 +22,8 @@ class MarkAllNotificationsAsReadCommandHandler(BaseCommandHandler[MarkAllNotific
 
     async def handle(self, command: MarkAllNotificationsAsReadCommand) -> None:
         await self.notification_repository.mark_all_as_read(int(command.user_jwt_data.id))
-        await self.notification_repository.invalidate_cache()
         await self.session.commit()
+        await self.notification_repository.invalidate_cache()
         logger.info(
             "Mark all notifications as read",
             extra={"user_id": command.user_jwt_data.id},

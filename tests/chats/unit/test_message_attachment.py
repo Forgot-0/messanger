@@ -67,11 +67,6 @@ class TestMessageAttachmentCreate:
         assert att.height is None
         assert att.duration_seconds is None
 
-    @pytest.mark.parametrize("att_type", [AttachmentType.IMAGE, AttachmentType.VIDEO, AttachmentType.FILE])
-    def test_all_attachment_types_can_be_created(self, att_type: AttachmentType) -> None:
-        att = make_attachment(att_type)
-        assert att.attachment_type == att_type
-
 
 @pytest.mark.unit
 @pytest.mark.chats
@@ -98,121 +93,58 @@ class TestMarkProcessed:
 
 @pytest.mark.unit
 @pytest.mark.chats
-class TestSetResolution:
+class TestDimensionSetters:
 
-    def test_set_resolution_updates_width_and_height(self) -> None:
-        att = make_attachment(AttachmentType.IMAGE)
-        att.set_resolution(1920, 1080)
-        assert att.width == 1920
-        assert att.height == 1080
-
-    def test_set_resolution_can_be_overwritten(self) -> None:
-        att = make_attachment(AttachmentType.IMAGE)
-        att.set_resolution(800, 600)
-        att.set_resolution(1280, 720)
-        assert att.width == 1280
-        assert att.height == 720
-
-    def test_set_resolution_zero_values(self) -> None:
-        att = make_attachment(AttachmentType.IMAGE)
-        att.set_resolution(0, 0)
-        assert att.width == 0
-        assert att.height == 0
-
-    @pytest.mark.parametrize("w,h", [(1, 1), (4096, 2160), (720, 1280)])
-    def test_set_resolution_various_sizes(self, w: int, h: int) -> None:
+    @pytest.mark.parametrize("w,h", [(0, 0), (1, 1), (1920, 1080), (4096, 2160), (720, 1280)])
+    def test_set_resolution_stores_both_dimensions(self, w: int, h: int) -> None:
         att = make_attachment(AttachmentType.IMAGE)
         att.set_resolution(w, h)
         assert (att.width, att.height) == (w, h)
 
-@pytest.mark.unit
-@pytest.mark.chats
-class TestSetDuration:
-
-    def test_set_duration_updates_field(self) -> None:
-        att = make_attachment(AttachmentType.VIDEO)
-        att.set_duration(120)
-        assert att.duration_seconds == 120
-
-    def test_set_duration_can_be_overwritten(self) -> None:
-        att = make_attachment(AttachmentType.VIDEO)
-        att.set_duration(60)
-        att.set_duration(90)
-        assert att.duration_seconds == 90
-
-    def test_set_duration_zero(self) -> None:
-        att = make_attachment(AttachmentType.VIDEO)
-        att.set_duration(0)
-        assert att.duration_seconds == 0
-
-    @pytest.mark.parametrize("seconds", [1, 30, 3600, 7200])
-    def test_set_duration_various_lengths(self, seconds: int) -> None:
+    @pytest.mark.parametrize("seconds", [0, 1, 30, 3600, 7200])
+    def test_set_duration_stores_seconds(self, seconds: int) -> None:
         att = make_attachment(AttachmentType.VIDEO)
         att.set_duration(seconds)
         assert att.duration_seconds == seconds
+
 
 @pytest.mark.unit
 @pytest.mark.chats
 class TestCreateForForward:
 
-    def test_forward_gets_new_id(self) -> None:
-        original = make_attachment()
-        original.mark_proccesed()
-        forwarded = original.create_for_forward(chat_id=uuid4())
-        assert forwarded.id != original.id
-
-    def test_forward_status_is_success(self) -> None:
-        original = make_attachment()
-        original.attachment_status = AttachmentStatus.PENDING
-        forwarded = original.create_for_forward(chat_id=uuid4())
-        assert forwarded.attachment_status == AttachmentStatus.SUCCESS
-
-    def test_forward_goes_to_target_chat(self) -> None:
-        original = make_attachment(chat_id=uuid4())
-        target_chat_id = uuid4()
-        forwarded = original.create_for_forward(chat_id=target_chat_id)
-        assert forwarded.chat_id == target_chat_id
-
-    def test_forward_preserves_s3_key(self) -> None:
-        original = make_attachment(s3_key="chats/orig/abc/photo.jpg")
-        forwarded = original.create_for_forward(chat_id=uuid4())
-        assert forwarded.s3_key == "chats/orig/abc/photo.jpg"
-
-    def test_forward_preserves_mime_type_and_filename(self) -> None:
+    @pytest.mark.parametrize("att_type", [AttachmentType.IMAGE, AttachmentType.VIDEO, AttachmentType.FILE])
+    def test_forward_copies_payload_into_target_chat(self, att_type: AttachmentType) -> None:
         original = make_attachment(
+            att_type,
+            uploader_id=99,
             mime_type="image/png",
             original_filename="screenshot.png",
+            size=512000,
+            s3_key="chats/orig/abc/photo.jpg",
         )
-        forwarded = original.create_for_forward(chat_id=uuid4())
+        target_chat_id = uuid4()
+
+        forwarded = original.create_for_forward(chat_id=target_chat_id)
+
+        assert forwarded.chat_id == target_chat_id
+        assert forwarded.attachment_type == att_type
+        assert forwarded.uploader_id == 99
         assert forwarded.mime_type == "image/png"
         assert forwarded.original_filename == "screenshot.png"
-
-    def test_forward_preserves_size(self) -> None:
-        original = make_attachment(size=512000)
-        forwarded = original.create_for_forward(chat_id=uuid4())
         assert forwarded.size == 512000
+        assert forwarded.s3_key == "chats/orig/abc/photo.jpg"
 
-    def test_forward_preserves_uploader_id(self) -> None:
-        original = make_attachment(uploader_id=99)
-        forwarded = original.create_for_forward(chat_id=uuid4())
-        assert forwarded.uploader_id == 99
-
-    def test_forward_sets_source_attachment_id(self) -> None:
+    def test_forward_is_a_fresh_row_ready_for_a_new_message(self) -> None:
         original = make_attachment()
-        forwarded = original.create_for_forward(chat_id=uuid4())
-        assert forwarded.source_attachment_id == original.id
-
-    def test_forward_message_id_is_none(self) -> None:
-        original = make_attachment()
+        original.attachment_status = AttachmentStatus.PENDING
         original.message_id = uuid4()
-        forwarded = original.create_for_forward(chat_id=uuid4())
-        assert forwarded.message_id is None
 
-    def test_forward_preserves_attachment_type(self) -> None:
-        for att_type in [AttachmentType.IMAGE, AttachmentType.VIDEO, AttachmentType.FILE]:
-            original = make_attachment(att_type)
-            forwarded = original.create_for_forward(chat_id=uuid4())
-            assert forwarded.attachment_type == att_type
+        forwarded = original.create_for_forward(chat_id=uuid4())
+
+        assert forwarded.id != original.id
+        assert forwarded.source_attachment_id == original.id
+        assert forwarded.message_id is None
+        assert forwarded.attachment_status == AttachmentStatus.SUCCESS
 
     def test_original_is_not_mutated_by_forward(self) -> None:
         original = make_attachment()

@@ -9,9 +9,7 @@ from app.chats.repositories.chat import ChatRepository
 @pytest.mark.chats
 @pytest.mark.asyncio
 class TestMemberCountShift:
-    """Счётчик и лимит участников живут в одном UPDATE — иначе их пробивают гонкой."""
-
-    async def test_shift_is_atomic_under_concurrency(
+    async def test_shift_accumulates_sequential_deltas(
         self,
         chat_repository: ChatRepository,
         db_session: AsyncSession,
@@ -52,5 +50,4 @@ class TestMemberCountShift:
         )
 
         assert new_count == before + 1
-        # synchronize_session="fetch" держит объект в памяти согласованным с БД.
         assert group_chat.member_count == before + 1

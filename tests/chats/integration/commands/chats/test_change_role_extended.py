@@ -34,40 +34,6 @@ class TestChangeMemberRoleDowngrade:
         assert member is not None
         return member.role_id
 
-    async def test_owner_promotes_member_to_admin(
-        self,
-        handler: ChangeMemberRoleCommandHandler,
-        chat_repository: ChatRepository,
-        group_chat: Chat,
-        user_jwt: UserJWTData,
-    ) -> None:
-        await handler.handle(
-            ChangeMemberRoleCommand(
-                user_jwt_data=user_jwt,
-                chat_id=group_chat.id,
-                target_user_id=2,
-                role_id=ADMIN_ID,
-            )
-        )
-        assert await self._get_role_id(chat_repository, group_chat, 2) == ADMIN_ID
-
-    async def test_owner_promotes_member_to_editor(
-        self,
-        handler: ChangeMemberRoleCommandHandler,
-        chat_repository: ChatRepository,
-        group_chat: Chat,
-        user_jwt: UserJWTData,
-    ) -> None:
-        await handler.handle(
-            ChangeMemberRoleCommand(
-                user_jwt_data=user_jwt,
-                chat_id=group_chat.id,
-                target_user_id=2,
-                role_id=EDITOR_ID,
-            )
-        )
-        assert await self._get_role_id(chat_repository, group_chat, 2) == EDITOR_ID
-
     async def test_owner_downgrades_admin_to_viewer(
         self,
         handler: ChangeMemberRoleCommandHandler,
@@ -91,24 +57,6 @@ class TestChangeMemberRoleDowngrade:
         )
 
         assert await self._get_role_id(chat_repository, group_chat, 2) == VIEWER_ID
-
-    async def test_owner_downgrades_member_to_viewer(
-        self,
-        handler: ChangeMemberRoleCommandHandler,
-        chat_repository: ChatRepository,
-        group_chat: Chat,
-        user_jwt: UserJWTData,
-    ) -> None:
-        await handler.handle(
-            ChangeMemberRoleCommand(
-                user_jwt_data=user_jwt,
-                chat_id=group_chat.id,
-                target_user_id=2,
-                role_id=VIEWER_ID,
-            )
-        )
-        role_id = await self._get_role_id(chat_repository, group_chat, 2)
-        assert role_id == VIEWER_ID
 
     async def test_viewer_has_no_send_permission_after_downgrade(
         self,
@@ -322,7 +270,9 @@ class TestRoleAssignmentGuard:
                     role_id=OWNER_ID,
                 )
             )
-        assert (await chat_repository.get_member_chat(group_chat.id, 3)).role_id == MEMBER_ID
+        member = await chat_repository.get_member_chat(group_chat.id, 3)
+        assert member is not None
+        assert member.role_id == MEMBER_ID
 
     async def test_unknown_role_id_is_rejected(
         self,

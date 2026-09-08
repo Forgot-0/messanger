@@ -34,3 +34,13 @@ class NotificationAccessDeniedError(ApplicationError):
     @property
     def detail(self) -> dict[str, Any] | list[dict[str, Any]]:
         return {"notification_id": self.notification_id}
+
+
+@dataclass(kw_only=True)
+class AlreadyExistDeviceTokennError(ApplicationError):
+    status: int = 400
+    code: str = "ALREADY_EXIST_DEVICE_TOKEN"
+
+    @property
+    def message(self) -> str:
+        return "Device token already exist"

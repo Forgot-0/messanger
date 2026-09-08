@@ -35,9 +35,9 @@ class PushNotificationCommandHandler(BaseCommandHandler[PushNotificationCommand,
             payload=command.payload
         )
         await self.notification_repository.create(notification)
+        await self.session.commit()
         await self.push_service.push(notification=notification)
 
-        await self.session.commit()
         logger.info(
             "Push notification",
             extra={"user_id": command.user_id},

@@ -109,6 +109,7 @@ class Profile(BaseModel, DateMixin, SoftDeleteMixin):
         instance.change_bio(bio)
         instance.update_skills(skills or set())
 
+        instance.contacts = []
         if contacts:
             instance.contacts = contacts
 

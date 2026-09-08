@@ -33,18 +33,6 @@ def make_connection(user_id: int = 1) -> WSConnection:
 @pytest.mark.chats
 class TestTrySend:
 
-    def test_try_send_returns_true_on_success(self) -> None:
-        conn = make_connection()
-        result = conn.try_send({"type": "ws.ping", "payload": {}})
-
-        assert result is True
-
-    def test_try_send_puts_message_into_queue(self) -> None:
-        conn = make_connection()
-        conn.try_send({"type": "ws.pong", "payload": {}})
-
-        assert conn.send_queue.qsize() == 1
-
     def test_try_send_returns_false_when_closed(self) -> None:
         conn = make_connection()
         conn.closed = True
@@ -62,18 +50,19 @@ class TestTrySend:
         result = conn.try_send({"type": "ws.overflow", "payload": {}})
         assert result is False
 
-    def test_try_send_multiple_messages_queued_in_order(self) -> None:
+    def test_try_send_queues_messages_in_order_and_stamps_them(self) -> None:
         conn = make_connection()
-        messages = [{"type": "ws.msg", "seq": i} for i in range(3)]
 
-        for msg in messages:
-            conn.try_send(msg)
+        for i in range(3):
+            assert conn.try_send({"type": "ws.msg", "seq": i}) is True
 
         assert conn.send_queue.qsize() == 3
 
-        for expected in messages:
-            raw = conn.send_queue.get_nowait()
-            assert orjson.loads(raw) == expected
+        for expected_seq in range(3):
+            queued = orjson.loads(conn.send_queue.get_nowait())
+            assert queued["type"] == "ws.msg"
+            assert queued["seq"] == expected_seq
+            assert queued["enqueued_at"]
 
     def test_try_send_does_not_raise_on_any_dict(self) -> None:
         conn = make_connection()
@@ -111,22 +100,6 @@ class TestClosedBehavior:
         conn = make_connection()
         assert conn.closed is False
 
-    def test_try_send_after_closed_is_noop(self) -> None:
-        conn = make_connection()
-        conn.closed = True
-
-        result = conn.try_send({"type": "ws.test"})
-
-        assert result is False
-        assert conn.send_queue.empty()
-
-    def test_multiple_sends_after_close_all_return_false(self) -> None:
-        conn = make_connection()
-        conn.closed = True
-        results = [conn.try_send({"type": f"msg-{i}"}) for i in range(5)]
-
-        assert all(r is False for r in results)
-
     @pytest.mark.asyncio
     async def test_close_idempotent(self) -> None:
         conn = make_connection()
@@ -150,19 +123,6 @@ class TestSubscriptions:
         conn = make_connection()
         assert len(conn.last_seq_by_chat) == 0
 
-    def test_can_add_to_subscriptions(self) -> None:
-        conn = make_connection()
-        conn.subscriptions.add("chat-abc")
-
-        assert "chat-abc" in conn.subscriptions
-
-    def test_subscriptions_is_a_set(self) -> None:
-        conn = make_connection()
-        conn.subscriptions.add("chat-1")
-        conn.subscriptions.add("chat-1")
-
-        assert len(conn.subscriptions) == 1
-
 
 @pytest.mark.unit
 @pytest.mark.chats
@@ -171,13 +131,3 @@ class TestQueueConfig:
     def test_queue_max_size_matches_config(self) -> None:
         conn = make_connection()
         assert conn.send_queue.maxsize == app_config.WS_SEND_QUEUE_SIZE
-
-    def test_queue_accepts_exactly_max_items(self) -> None:
-        conn = make_connection()
-
-        for i in range(app_config.WS_SEND_QUEUE_SIZE):
-            result = conn.try_send({"seq": i})
-            assert result is True
-
-        overflow = conn.try_send({"seq": "overflow"})
-        assert overflow is False

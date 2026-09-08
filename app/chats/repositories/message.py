@@ -110,7 +110,7 @@ class MessageRepository(IRepository[Message]):
 
         newer_stmt = (
             select(Message)
-            .where(and_(Message.chat_id == chat_id, Message.seq > target_seq))
+            .where(and_(Message.chat_id == chat_id, Message.seq > target_seq), Message.is_deleted.is_(False))
             .order_by(Message.seq.asc())
             .limit(half)
             .options(*_message_load_options())

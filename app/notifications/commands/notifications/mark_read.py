@@ -33,8 +33,8 @@ class MarkNotificationAsReadCommandHandler(BaseCommandHandler[MarkNotificationAs
             raise NotificationAccessDeniedError(notification_id=command.notification_id)
 
         notification.is_read = command.is_read
-        await self.notification_repository.invalidate_cache()
         await self.session.commit()
+        await self.notification_repository.invalidate_cache()
         logger.info(
             "Mark notification as read",
             extra={"user_id": command.user_jwt_data.id, "notification_id": command.notification_id},

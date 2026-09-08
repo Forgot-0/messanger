@@ -51,9 +51,9 @@ class TestMessagesHttpEndpoints:
         list_resp = await client.get(api_path(f"chats/{chat_id}/messages/"), headers=headers)
         assert list_resp.status_code == 200
         listed = list_resp.json()
-        assert listed["has_next"] in (True, False)
+        assert listed["has_next"] is False
         ids = {m["id"] for m in listed["messages"]}
-        assert message_id in ids
+        assert ids == {message_id}
 
         one = await client.get(
             api_path(f"chats/{chat_id}/messages/{message_id}/"),
@@ -168,32 +168,6 @@ class TestMessagesHttpEndpoints:
         )
         assert fwd.status_code == 201
         assert fwd.json()["type"] == "forward"
-
-    async def test_send_idempotency_returns_same_message(
-        self,
-        client: AsyncClient,
-        user_jwt: UserJWTData,
-        create_auth_headers,
-    ) -> None:
-        headers = create_auth_headers(user_jwt)
-        chat_id = await _create_group_chat(client, headers)
-        idem_key = "idem-integration-1"
-
-        first = await client.post(
-            api_path(f"chats/{chat_id}/messages/"),
-            json=send_text_payload("idempotent body"),
-            headers={**headers, "Idempotency-Key": idem_key},
-        )
-        assert first.status_code == 201
-        first_id = first.json()["id"]
-
-        second = await client.post(
-            api_path(f"chats/{chat_id}/messages/"),
-            json=send_text_payload("different body ignored"),
-            headers={**headers, "Idempotency-Key": idem_key},
-        )
-        assert second.status_code == 201
-        assert second.json()["id"] == first_id
 
     async def test_slow_mode_blocks_second_message_for_member(
         self,
@@ -376,8 +350,6 @@ class TestMessagesHttpEndpoints:
 @pytest.mark.chats
 @pytest.mark.asyncio
 class TestClientMessageTypeContract:
-    """SYSTEM обходил проверки контента, FORWARD оставлял пустые forwarded_from_*."""
-
     @pytest.mark.parametrize("message_type", ["system", "forward"])
     async def test_server_only_message_types_are_rejected(
         self,

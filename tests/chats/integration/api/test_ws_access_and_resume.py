@@ -45,7 +45,7 @@ class TestWebSocketSubscribeAccess:
 
             err = await ws.recv_event()
             assert err["type"] == "ws.error"
-            assert err.get("code") in ("NOT_CHAT_MEMBER", "BAD_COMMAND", "FORBIDDEN")
+            assert err["code"] == "NOT_CHAT_MEMBER"
 
     async def test_banned_member_cannot_subscribe(
         self,
@@ -84,6 +84,7 @@ class TestWebSocketSubscribeAccess:
 
             err = await ws.recv_event()
             assert err["type"] == "ws.error"
+            assert err["code"] == "NOT_CHAT_MEMBER"
 
 
 @pytest.mark.integration

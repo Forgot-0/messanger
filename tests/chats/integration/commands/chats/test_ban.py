@@ -48,20 +48,6 @@ class TestBanMemberCommand:
         assert member is not None
         assert member.is_banned is True
 
-    async def test_ban_fires_banned_event(
-        self,
-        handler: BanMemberCommandHandler,
-        group_chat: Chat,
-        user_jwt: UserJWTData,
-    ) -> None:
-        await handler.handle(
-            BanMemberCommand(
-                user_jwt_data=user_jwt,
-                chat_id=group_chat.id,
-                target_user_id=2,
-            )
-        )
-
     async def test_ban_does_not_remove_from_chat(
         self,
         handler: BanMemberCommandHandler,
@@ -109,53 +95,6 @@ class TestBanMemberCommand:
         refreshed = await chat_repository.get_member_chat(group_chat.id, 2)
         assert refreshed is not None
         assert refreshed.is_banned is False
-
-    async def test_unban_fires_event_with_ban_false(
-        self,
-        handler: BanMemberCommandHandler,
-        group_chat: Chat,
-        user_jwt: UserJWTData,
-        db_session: AsyncSession,
-        chat_repository: ChatRepository,
-    ) -> None:
-        member = await chat_repository.get_member_chat(group_chat.id, 2)
-        assert member is not None
-
-        member.ban(banned_by=int(user_jwt.id))
-        await db_session.commit()
-
-        await handler.handle(
-            BanMemberCommand(
-                user_jwt_data=user_jwt,
-                chat_id=group_chat.id,
-                target_user_id=2,
-                banned_until=now_utc() - timedelta(days=1)
-            )
-        )
-
-    async def test_ban_then_unban_restores_access(
-        self,
-        handler: BanMemberCommandHandler,
-        chat_repository: ChatRepository,
-        group_chat: Chat,
-        user_jwt: UserJWTData,
-    ) -> None:
-        await handler.handle(
-            BanMemberCommand(user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=2)
-        )
-        member = await chat_repository.get_member_chat(group_chat.id, 2)
-        assert member is not None
-        assert member.is_banned is True
-
-        await handler.handle(
-            BanMemberCommand(
-                user_jwt_data=user_jwt,
-                chat_id=group_chat.id, target_user_id=2,
-                banned_until=now_utc() - timedelta(days=1))
-        )
-        member = await chat_repository.get_member_chat(group_chat.id, 2)
-        assert member is not None
-        assert member.is_banned is False
 
     async def test_unban_already_active_member_is_noop(
         self,

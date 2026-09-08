@@ -18,9 +18,11 @@ docker network inspect app-network >/dev/null 2>&1 || docker network create app-
 
 "${COMPOSE[@]}" build
 "${COMPOSE[@]}" up -d --remove-orphans
+
 # `migrations` runs here as a one-shot service (restart: "no"); alembic upgrade is idempotent.
 
 docker image prune -f
+docker builder prune -f
 
 "${COMPOSE[@]}" ps
 echo "==> deploy done"

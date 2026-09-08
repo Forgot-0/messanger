@@ -3,9 +3,10 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 
+from app.chats.config import chat_config
 from app.core.services.auth.dto import UserJWTData
 from tests.chats.integration.factories import group_chat_payload, send_text_payload
-from tests.support.http import api_path
+from tests.support.http import api_path, assert_presigned_url
 
 
 @pytest.mark.integration
@@ -40,7 +41,11 @@ class TestAttachmentsHttpEndpoints:
         slots = response.json()
         assert len(slots) == 1
         assert "upload_token" in slots[0]
-        assert slots[0]["upload_url"].startswith("https://storage.test/upload/")
+        assert_presigned_url(
+            slots[0]["upload_url"],
+            bucket=chat_config.ATTACHMENT_BUCKET_PENDING,
+            file_key="photo.jpg",
+        )
 
     async def test_confirm_upload_accepted(
         self,

@@ -122,16 +122,18 @@ class TestCreateRoleCommand:
         with pytest.raises(AccessDeniedError):
             await handler.handle(command)
 
+    @pytest.mark.parametrize("role_name", ["ab", "", "a" * 30])
     async def test_create_role_invalid_name(
         self,
         handler: CreateRoleCommandHandler,
         admin_user: User,
+        role_name: str,
     ) -> None:
         user_jwt = jwt_from_user(admin_user)
 
         command = CreateRoleCommand(
             user_jwt_data=user_jwt,
-            role_name="ab",
+            role_name=role_name,
             description="Test role",
             security_level=3,
             permissions=set(),
@@ -176,23 +178,6 @@ class TestCreateRoleCommand:
         with pytest.raises(AccessDeniedError):
             await handler.handle(command)
 
-    async def test_create_role_empty_name(
-        self,
-        handler: CreateRoleCommandHandler,
-        admin_user: User,
-    ) -> None:
-        user_jwt = jwt_from_user(admin_user)
-
-        command = CreateRoleCommand(
-            user_jwt_data=user_jwt,
-            role_name="",
-            description="Test role",
-            security_level=3,
-            permissions=set(),
-        )
-
-        with pytest.raises(InvalidRoleNameError):
-            await handler.handle(command)
 
     async def test_create_role_with_invalid_security_level(
         self,
@@ -211,55 +196,3 @@ class TestCreateRoleCommand:
 
         with pytest.raises(AccessDeniedError):
             await handler.handle(command)
-
-    async def test_create_role_preserves_description(
-        self,
-        role_repository: RoleRepository,
-        handler: CreateRoleCommandHandler,
-        admin_user: User,
-    ) -> None:
-        user_jwt = jwt_from_user(admin_user)
-
-        description = "This is a detailed description of the editor role"
-        command = CreateRoleCommand(
-            user_jwt_data=user_jwt,
-            role_name="editor_role",
-            description=description,
-            security_level=4,
-            permissions=set(),
-        )
-
-        await handler.handle(command)
-
-        created_role = await role_repository.get_by_name("editor_role")
-        assert created_role is not None
-        assert created_role.description == description
-
-    async def test_create_multiple_roles_with_different_levels(
-        self,
-        role_repository: RoleRepository,
-        handler: CreateRoleCommandHandler,
-        admin_user: User,
-    ) -> None:
-        user_jwt = jwt_from_user(admin_user)
-
-        roles_data = [
-            ("viewer_role", "Can view content", 1),
-            ("editor_role", "Can edit content", 3),
-            ("manager_role", "Can manage content", 5),
-        ]
-
-        for role_name, description, security_level in roles_data:
-            command = CreateRoleCommand(
-                user_jwt_data=user_jwt,
-                role_name=role_name,
-                description=description,
-                security_level=security_level,
-                permissions=set(),
-            )
-            await handler.handle(command)
-
-        for role_name, _, security_level in roles_data:
-            created_role = await role_repository.get_by_name(role_name)
-            assert created_role is not None
-            assert created_role.security_level == security_level

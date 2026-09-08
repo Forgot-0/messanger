@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 from app.auth.models.oauth import OAuthProviderEnum
 
@@ -33,15 +33,15 @@ class DeviceInfo(BaseModel):
 class OAuthToken(BaseModel):
     access_token: str
     token_type: str
-    expires_in: int | None = Field(None)
-    refresh_token: str | None = Field(None)
-    scope: str | None = Field(None)
+    expires_in: int | None = None
+    refresh_token: str | None = None
+    scope: str | None = None
 
 
 class OAuthData(BaseModel):
     provider_user_id: str
     email: EmailStr
-    username: str | None = Field(None)
+    username: str | None = None
 
 
 class OAuthAccountDTO(BaseModel):

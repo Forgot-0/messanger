@@ -80,7 +80,7 @@ class TestRemoveContactFromProfileCommand:
             for contact in updated.contacts
         )
         assert any(
-            contact.provider != "twitter"
+            contact.provider == "twitter"
             for contact in updated.contacts
         )
 
