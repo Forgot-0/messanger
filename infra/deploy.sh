@@ -16,8 +16,9 @@ echo "==> $(date -Is)  deploying $(git rev-parse --short HEAD) on $(hostname)"
 # Both compose files declare `app-network` as external — create it once.
 docker network inspect app-network >/dev/null 2>&1 || docker network create app-network
 
-"${COMPOSE[@]}" build
-"${COMPOSE[@]}" up -d --remove-orphans
+
+"${COMPOSE[@]}" down
+"${COMPOSE[@]}" up -d --build
 
 # `migrations` runs here as a one-shot service (restart: "no"); alembic upgrade is idempotent.
 
