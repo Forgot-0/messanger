@@ -5,10 +5,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats.exceptions import AccessDeniedChatError
-from app.chats.models.message import ReadedMessageEvent
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.reads import ReadReceiptRepository
 from app.chats.services.access import ChatAccessService
+from app.chats.services.read_coalescer import ReadReceiptCoalesceQueue
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
 from app.core.services.auth.dto import UserJWTData
@@ -30,6 +30,7 @@ class MarkAsReadCommandHandler(BaseCommandHandler[MarkAsReadCommand, None]):
     chat_repository: ChatRepository
     access_service: ChatAccessService
     read_receipt_repository: ReadReceiptRepository
+    coalesce_queue: ReadReceiptCoalesceQueue
     event_bus: BaseEventBus
 
     async def handle(self, command: MarkAsReadCommand) -> None:
@@ -47,28 +48,12 @@ class MarkAsReadCommandHandler(BaseCommandHandler[MarkAsReadCommand, None]):
             raise AccessDeniedChatError(chat_id=str(command.chat_id), requester_id=user_id)
 
         message_seq = min(command.message_seq, chat.seq_counter)
+        support_read_event = chat.support_read_event
 
-        is_read = await self.read_receipt_repository.mark_read(
-            user_id=user_id,
+        await self.coalesce_queue.enqueue(
             chat_id=command.chat_id,
+            user_id=user_id,
             message_seq=message_seq,
+            support_read_event=support_read_event,
         )
 
-        if is_read and chat.support_read_event:
-            await self.event_bus.publish([ReadedMessageEvent(
-                chat_id=str(command.chat_id),
-                seq=message_seq,
-                reader_id=user_id
-            )])
-
-        await self.session.commit()
-
-        logger.debug(
-            "Messages marked as read",
-            extra={
-                "chat_id": command.chat_id,
-                "user_id": user_id,
-                "up_to": message_seq,
-                "advanced": is_read,
-            },
-        )

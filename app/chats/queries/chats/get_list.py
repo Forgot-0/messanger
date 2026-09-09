@@ -6,8 +6,10 @@ from app.chats.dtos.chats import ChatDTO, ListChats
 from app.chats.dtos.members import MemberChatDTO
 from app.chats.dtos.messages import MessageDTO, ReadDetail
 from app.chats.dtos.profiles import ChatProfileDTO
+from app.chats.models.read_receipts import ReadReceipt
 from app.chats.repositories.chat import ChatRepository
 from app.chats.services.messages import MessageService
+from app.chats.services.read_coalescer import PendingReadCursor, ReadReceiptCoalesceQueue
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
 
@@ -24,20 +26,27 @@ class GetListChatUserQuery(BaseQuery):
 class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListChats]):
     chat_repository: ChatRepository
     message_service: MessageService
+    coalesce_queue: ReadReceiptCoalesceQueue
 
     async def handle(self, query: GetListChatUserQuery) -> ListChats:
         limit = min(max(query.limit, 1), 100)
+        user_id = int(query.user_jwt_data.id)
         rows = await self.chat_repository.get_chats(
-            user_id=int(query.user_jwt_data.id),
+            user_id=user_id,
             limit=limit,
             last_activity_at=query.last_activity_at,
             chat_id=query.last_chat_id,
         )
         page = rows[:limit]
 
+        pending = await self.coalesce_queue.peek_many(
+            user_id, [chat.id for chat, *_ in page]
+        )
+
         chats = []
         profiles: list[ChatProfileDTO | None] = []
         for chat, member, read, message in page:
+            last_read = self._merge_read_cursor(read, pending.get(chat.id))
             me_dto = MemberChatDTO.model_validate(member)
             last_message = (
                 MessageDTO.model_validate(message) if message is not None else None
@@ -62,12 +71,12 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
                 created_by=chat.created_by,
                 member_count=chat.member_count,
                 unread_count=(
-                    max(0, chat.seq_counter - read.last_read_message_seq)
-                    if read is not None
+                    max(0, chat.seq_counter - last_read.last_read_message_seq)
+                    if last_read is not None
                     else chat.seq_counter
                 ),
                 me=me_dto,
-                last_read=ReadDetail.model_validate(read) if read is not None else None,
+                last_read=last_read,
                 last_message=last_message,
             ))
 
@@ -78,4 +87,21 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
             chats=chats,
             next_date=page[-1][0].last_activity_at if len(rows) > limit and page else None,
             next_chat_id=page[-1][0].id if len(rows) > limit and page else None,
+        )
+
+    @staticmethod
+    def _merge_read_cursor(
+        stored: ReadReceipt | None, pending: PendingReadCursor | None
+    ) -> ReadDetail | None:
+        detail = ReadDetail.model_validate(stored) if stored is not None else None
+
+        if pending is None:
+            return detail
+
+        if detail is not None and detail.last_read_message_seq >= pending.message_seq:
+            return detail
+
+        return ReadDetail(
+            last_read_message_seq=pending.message_seq,
+            last_read_at=pending.read_at,
         )

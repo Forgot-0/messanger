@@ -15,7 +15,9 @@ from prometheus_client import CollectorRegistry, make_asgi_app
 from app.auth.consumers import user as auth_user
 from app.chats.consumers import delivery, profiles
 from app.chats.services.reaction_coalescer import ReactionCoalesceQueue
+from app.chats.services.read_coalescer import ReadReceiptCoalesceQueue
 from app.chats.tasks.coalescer import run_reaction_coalescer
+from app.chats.tasks.read_coalescer import run_read_receipt_coalescer
 from app.core.configs.app import app_config
 from app.core.di.container import create_container
 from app.core.log.init import configure_logging
@@ -33,19 +35,28 @@ async def lifespan(context: ContextRepo) -> AsyncGenerator[None]:
     message_broker: BaseMessageBroker = await container.get(BaseMessageBroker)
     await message_broker.start()
 
-    coalescer_task: asyncio.Task | None = None
+    background_tasks: list[asyncio.Task] = []
+
     coalesce_queue = await container.get(ReactionCoalesceQueue)
-    coalescer_task = asyncio.create_task(
+    background_tasks.append(asyncio.create_task(
         run_reaction_coalescer(container, coalesce_queue),
         name="chats:reaction-coalescer",
-    )
+    ))
+
+    read_coalesce_queue = await container.get(ReadReceiptCoalesceQueue)
+    background_tasks.append(asyncio.create_task(
+        run_read_receipt_coalescer(container, read_coalesce_queue),
+        name="chats:read-receipt-coalescer",
+    ))
 
     yield
 
-    if coalescer_task is not None:
-        coalescer_task.cancel()
+    for task in background_tasks:
+        task.cancel()
+
+    for task in background_tasks:
         with contextlib.suppress(asyncio.CancelledError):
-            await coalescer_task
+            await task
 
     await message_broker.close()
 

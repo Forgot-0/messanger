@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -33,3 +34,34 @@ class ReadReceiptRepository(IRepository[ReadReceipt]):
 
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
+
+    async def mark_read_many(
+        self, cursors: Sequence[tuple[UUID, int, int]]
+    ) -> set[tuple[UUID, int]]:
+        if not cursors:
+            return set()
+
+        insert_stmt = insert(ReadReceipt).values([
+            {
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "last_read_message_seq": message_seq,
+            }
+            for chat_id, user_id, message_seq in cursors
+        ])
+
+        stmt = insert_stmt.on_conflict_do_update(
+            index_elements=[ReadReceipt.chat_id, ReadReceipt.user_id],
+            set_={
+                "last_read_message_seq": insert_stmt.excluded.last_read_message_seq,
+                "last_read_at": func.now(),
+                "updated_at": func.now(),
+            },
+            where=(
+                ReadReceipt.last_read_message_seq
+                < insert_stmt.excluded.last_read_message_seq
+            ),
+        ).returning(ReadReceipt.chat_id, ReadReceipt.user_id)
+
+        result = await self.session.execute(stmt)
+        return {(row.chat_id, row.user_id) for row in result}

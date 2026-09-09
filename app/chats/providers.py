@@ -60,6 +60,8 @@ from app.chats.services.messages import MessageService
 from app.chats.services.reaction_attach import ReactionAttachService
 from app.chats.services.reaction_coalescer import ReactionCoalesceQueue
 from app.chats.services.reaction_policy import ReactionPolicy
+from app.chats.services.read_coalescer import ReadReceiptCoalesceQueue
+from app.chats.services.read_flusher import ReadReceiptFlusher
 from app.core.events.event import EventRegistry
 from app.core.mediators.base import CommandRegistry, QueryRegistry
 from app.core.services.storage.aminio.policy import Policy
@@ -77,6 +79,8 @@ class ChatModuleProvider(Provider):
     delivery_router = provide(ChatDeliveryRouter, scope=Scope.REQUEST)
     reaction_attach_service = provide(ReactionAttachService, scope=Scope.REQUEST)
     reaction_coalesce_queue = provide(ReactionCoalesceQueue, scope=Scope.APP)
+    read_coalesce_queue = provide(ReadReceiptCoalesceQueue, scope=Scope.APP)
+    read_receipt_flusher = provide(ReadReceiptFlusher, scope=Scope.REQUEST)
 
     commands = provide_all(
         RequestAttachmentUploadCommandHandler,
