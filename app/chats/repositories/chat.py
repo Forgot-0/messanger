@@ -25,7 +25,7 @@ class ChatRepository(IRepository[Chat], CacheRepository):
         with_members: bool = False,
         with_for_update: bool = False,
     ) -> Chat | None:
-        stmt = select(Chat).where(Chat.id == chat_id)
+        stmt = Chat.select_not_deleted().where(Chat.id == chat_id)
 
         if with_for_update:
             stmt = stmt.with_for_update()

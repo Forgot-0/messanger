@@ -13,8 +13,8 @@ class ReadReceiptRepository(IRepository[ReadReceipt]):
 
     async def mark_read(self, user_id: int, chat_id: UUID, message_seq: int) -> bool:
         insert_stmt = insert(ReadReceipt).values({
-            "user_id": user_id,
             "chat_id": chat_id,
+            "user_id": user_id,
             "last_read_message_seq": message_seq,
         })
 
