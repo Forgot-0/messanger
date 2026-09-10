@@ -1,4 +1,4 @@
-﻿# API Documentation — social_github
+﻿# API Documentation — messanger
 
 > Сверено с исходным кодом на `main` (2026-08-14). Основной референс для написания клиента (роуты, Pydantic-схемы, DTO, exception-классы, конфиги).
 

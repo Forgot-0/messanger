@@ -163,7 +163,7 @@ pre-commit run --all-files
 ### Project Structure
 
 ```
-social_github/
+messanger/
 ├── migrations/          # Alembic migrations
 ├── infra/
 │   ├── debezium/outbox-connector.json   # Конфиг CDC-коннектора (регистрируется автоматически)

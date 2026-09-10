@@ -10,7 +10,7 @@ Backend мессенджера (Telegram-подобного): чаты/груп�
 
 Технически — **production-ready модульный монолит на FastAPI**, выросший из
 [fastapi_template](https://github.com/Forgot-0/fastapi_template) (README местами всё ещё
-называет проект «FastAPI Template» и `social_github` — это исторические названия, репозиторий один).
+называет проект «FastAPI Template»).
 
 Ключевые архитектурные решения:
 

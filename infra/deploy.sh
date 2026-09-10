@@ -6,7 +6,7 @@
 #   - `git pull --ff-only` has just updated the working tree
 #   - `.env` is present on the server (it is gitignored, managed by hand)
 #
-# Safe to run by hand too:  cd ~/social_github && git pull --ff-only && bash infra/deploy.sh
+# Safe to run by hand too:  cd ~/messanger && git pull --ff-only && bash infra/deploy.sh
 set -euo pipefail
 
 COMPOSE=(docker compose -f docker-compose.yaml -f docker-compose.monitoring.yml)
