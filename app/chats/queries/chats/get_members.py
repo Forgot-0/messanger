@@ -14,7 +14,7 @@ from app.core.websocket.presence import PresenceService
 class GetChatMembersQuery(BaseQuery):
     user_jwt_data: UserJWTData
     chat_id: UUID
-    limit: int = 100
+    limit: int = 30
     cursor_user_id: int | None = None
     include_presence: bool = False
 
@@ -36,7 +36,7 @@ class GetChatMembersQueryHandler(BaseQueryHandler[GetChatMembersQuery, ListMembe
         if requester is None or requester.is_banned:
             raise NotChatMemberError(chat_id=str(query.chat_id), user_id=requester_id)
 
-        limit = min(max(query.limit, 1), 500)
+        limit = min(max(query.limit, 1), 30)
         members = await self.chat_repository.get_chat_members(
             chat_id=query.chat_id,
             limit=limit,

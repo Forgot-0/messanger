@@ -170,7 +170,7 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
         JSONB, server_default="[]", default=list, nullable=False
     )
 
-    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
     members: Mapped[list[ChatMember]] = relationship(back_populates="chat", lazy="noload")
     messages: Mapped[list[Message]] = relationship(
@@ -179,7 +179,6 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
 
     __table_args__ = (
         Index("ix_chats_type_public", "type", "is_public"),
-        Index("ix_chats_last_activity", "last_activity_at"),
         Index("ix_chats_type_member_count", "type", "member_count"),
     )
 

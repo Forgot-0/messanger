@@ -185,8 +185,6 @@ class ConnectionManager:
         results = await pipe.execute()
 
         remaining_routes = self._as_int(results[-1] if results else 0)
-        if remaining_routes <= 0:
-            await self.presence_service.set_offline(conn.user_id)
 
         await conn.close(code=close_code, reason=close_reason)
 
