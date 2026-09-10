@@ -34,7 +34,7 @@ EDITOR_PERMISSIONS = {
 }
 
 DIRECT_MEMBER_PERMISSIONS = {
-    "chat:delete": False, "chat:update": True, "chat:get": True,
+    "chat:delete": False, "chat:update": False, "chat:get": True,
     "member:invite": False, "member:kick": False, "member:ban": False, "member:mute": False,
     "role:change": False, "permission:update": False,
     "message:read": True,
@@ -42,8 +42,8 @@ DIRECT_MEMBER_PERMISSIONS = {
     "message:send_admin_only": False,
     "settings:update": False, "settings:get": True,
     "channel:publish": False, "channel:edit": False, "channel:manage_subscribers": False,
-    "slowmode:bypass": False,
-    "call:join": True, "call:mute_member": False, "call:end": False,
+    "slowmode:bypass": True,
+    "call:join": True, "call:mute_member": False, "call:end": True,
 }
 
 MEMBER_PERMISSIONS = {

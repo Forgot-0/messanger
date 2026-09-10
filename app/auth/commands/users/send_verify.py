@@ -32,7 +32,7 @@ class SendVerifyCommandHandler(BaseCommandHandler[SendVerifyCommand, None]):
         if not user:
             raise NotFoundUserError(user_by=command.email, user_field="email")
 
-        verify_token = secrets.token_urlsafe(32)
+        verify_token = secrets.token_urlsafe(4)
         hashed_token = hashlib.sha256(verify_token.encode()).hexdigest()
         await self.token_repository.add_token(
             hashed_token,
@@ -43,7 +43,7 @@ class SendVerifyCommandHandler(BaseCommandHandler[SendVerifyCommand, None]):
         email_data = EmailData(subject="Код для верификации почты", recipient=user.email)
         template = VerifyTokenTemplate(
             email=user.email,
-            token=hashed_token,
+            token=verify_token,
         )
         await self.mail_service.queue(template=template, email_data=email_data)
         logger.info("Send verify email", extra={"email": user.email})

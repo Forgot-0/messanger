@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from dataclasses import dataclass
 
@@ -25,7 +26,9 @@ class VerifyCommandHandler(BaseCommandHandler[VerifyCommand, None]):
     token_repository: TokenBlacklistRepository
 
     async def handle(self, command: VerifyCommand) -> None:
-        user_id = await self.token_repository.is_valid_token(token=command.token)
+
+        hash_token = hashlib.sha256(command.token.encode()).hexdigest()
+        user_id = await self.token_repository.is_valid_token(token=hash_token)
 
         if user_id is None:
             raise InvalidTokenError(token=command.token)

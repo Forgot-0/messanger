@@ -30,7 +30,7 @@ class SendResetPasswordCommandHandler(BaseCommandHandler[SendResetPasswordComman
         if not user:
             raise NotFoundUserError(user_by=command.email, user_field="email")
 
-        reset_token = secrets.token_urlsafe(32)
+        reset_token = secrets.token_urlsafe(4)
         hashed_token = hashlib.sha256(reset_token.encode()).hexdigest()
 
         await self.token_repository.add_token(
@@ -42,7 +42,7 @@ class SendResetPasswordCommandHandler(BaseCommandHandler[SendResetPasswordComman
         email_data = EmailData(subject="Password reset code", recipient=user.email)
         template = ResetTokenTemplate(
             username=user.username,
-            token=hashed_token,
+            token=reset_token,
             valid_minutes=auth_config.EMAIL_RESET_TOKEN_EXPIRE_MINUTES,
         )
         await self.mail_service.queue(template=template, email_data=email_data)

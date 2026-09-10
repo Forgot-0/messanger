@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
@@ -31,7 +32,8 @@ class ResetPasswordCommandHandler(BaseCommandHandler[ResetPasswordCommand, None]
     hash_service: HashService
 
     async def handle(self, command: ResetPasswordCommand) -> None:
-        user_id = await self.token_repository.is_valid_token(token=command.token)
+        hash_token = hashlib.sha256(command.token.encode()).hexdigest()
+        user_id = await self.token_repository.is_valid_token(token=hash_token)
 
         if user_id is None:
             raise InvalidTokenError(token=command.token)
