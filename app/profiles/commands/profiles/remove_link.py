@@ -13,21 +13,20 @@ from app.profiles.repositories.profiles import ProfileRepository
 logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
-class AddContactToProfileCommand(BaseCommand):
+class RemoveLinkFromProfileCommand(BaseCommand):
     profile_id: int
     provider: str
-    contact: str
 
     user_jwt_data: UserJWTData
 
 
 @dataclass(frozen=True)
-class AddContactToProfileCommandHandler(BaseCommandHandler[AddContactToProfileCommand, None]):
+class RemoveLinkFromProfileCommandHandler(BaseCommandHandler[RemoveLinkFromProfileCommand, None]):
     session: AsyncSession
     profile_repository: ProfileRepository
     rbac_manager: RBACManagerInterface
 
-    async def handle(self, command: AddContactToProfileCommand) -> None:
+    async def handle(self, command: RemoveLinkFromProfileCommand) -> None:
         profile = await self.profile_repository.get_by_id(command.profile_id)
 
         if profile is None:
@@ -41,15 +40,14 @@ class AddContactToProfileCommandHandler(BaseCommandHandler[AddContactToProfileCo
                 need_permissions={"profile:update", "user:update" } - set(command.user_jwt_data.permissions)
             )
 
-        profile.add_contact(command.provider, command.contact)
+        profile.remove_link(command.provider)
         await self.session.commit()
         await self.profile_repository.invalidate_cache()
 
         logger.info(
-            "Add contact profile", extra={
-                "aded_by": command.user_jwt_data.id,
+            "Remove link profile", extra={
+                "removed_by": command.user_jwt_data.id,
                 "provider": command.provider,
-                "contact": command.contact,
                 "profile_id": command.profile_id
             }
         )

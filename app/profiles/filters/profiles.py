@@ -19,4 +19,4 @@ class ProfileFilter(BaseFilter):
 
         self.add_condition("skills", FilterOperator.ALL, self.skills)
 
-        self.add_relation("contacts")
+        self.add_relation("links")

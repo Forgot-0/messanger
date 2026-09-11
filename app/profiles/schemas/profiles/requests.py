@@ -57,7 +57,7 @@ class AvatarPreSignUrlRequest(BaseModel):
     filename: str
 
 
-class AddContactProfileRequest(BaseModel):
-    provider: str
-    contact: str
+class AddProfileLinkRequest(BaseModel):
+    provider: str = Field(max_length=30)
+    contact: str = Field(max_length=256)
 

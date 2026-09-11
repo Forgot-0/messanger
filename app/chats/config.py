@@ -121,5 +121,11 @@ class ChatConfig(BaseConfig):
     )
 
     PROFILE_PROJECTION_GROUP_ID: str = "profile_projection"
+    # Из топика profiles проекции нужны только эти события, остальное (контакты,
+    # блокировки) подписчик пропускает.
+    PROFILE_PROJECTION_EVENTS: frozenset[str] = frozenset({
+        "profiles.profile.created",
+        "profiles.profile.updated",
+    })
 
 chat_config = ChatConfig()

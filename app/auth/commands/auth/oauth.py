@@ -100,6 +100,10 @@ class ProcessOAuthCallbackCommandHandler(BaseCommandHandler[ProcessOAuthCallback
                     roles={role }
                 )
                 await self.user_repository.create(user)
+                await self.session.flush()
+                user.pull_events()
+                user.verify()
+                await self.event_bus.publish(user.pull_events())
                 await self.session.commit()
 
                 user_id = user.id

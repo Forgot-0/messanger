@@ -1,5 +1,3 @@
-import logging
-
 from dishka.integrations.faststream import FromDishka, inject
 from faststream.kafka import KafkaRouter
 from pydantic import BaseModel, Field
@@ -10,7 +8,6 @@ from app.core.consumers.event import TypedEventDTO
 from app.core.consumers.idempotency import EventIdempotencyGuard
 from app.core.mediators.base import BaseMediator
 
-logger = logging.getLogger(__name__)
 
 router = KafkaRouter()
 
@@ -65,3 +62,8 @@ async def route_profile_delivery_event(
             event_id=event.event_id
         )
         raise
+
+@subscriber()
+@inject
+async def pass_() -> None:
+    return

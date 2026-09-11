@@ -3,7 +3,7 @@ from dishka import AsyncContainer
 
 from app.core.services.auth.dto import UserJWTData
 from app.core.services.auth.exceptions import AccessDeniedError
-from app.profiles.commands.profiles.add_contact import AddContactToProfileCommand, AddContactToProfileCommandHandler
+from app.profiles.commands.profiles.add_link import AddLinkToProfileCommand, AddLinkToProfileCommandHandler
 from app.profiles.exceptions import NotFoundProfileError
 from app.profiles.models.profile import Profile
 from app.profiles.repositories.profiles import ProfileRepository
@@ -12,23 +12,23 @@ from app.profiles.repositories.profiles import ProfileRepository
 @pytest.mark.integration
 @pytest.mark.profiles
 @pytest.mark.asyncio
-class TestAddContactToProfileCommand:
+class TestAddLinkToProfileCommand:
 
     @pytest.fixture
     async def handler(
         self,
         request_container: AsyncContainer,
-    ) -> AddContactToProfileCommandHandler:
-        return await request_container.get(AddContactToProfileCommandHandler)
+    ) -> AddLinkToProfileCommandHandler:
+        return await request_container.get(AddLinkToProfileCommandHandler)
 
-    async def test_owner_can_add_contact_success(
+    async def test_owner_can_add_link_success(
         self,
         persisted_profile: Profile,
         user_jwt: UserJWTData,
         handler,
         profile_repository: ProfileRepository,
     ) -> None:
-        command = AddContactToProfileCommand(
+        command = AddLinkToProfileCommand(
             profile_id=persisted_profile.id,
             provider="github",
             contact="https://github.com/testuser",
@@ -40,18 +40,18 @@ class TestAddContactToProfileCommand:
         updated = await profile_repository.get_by_id(persisted_profile.id)
         assert updated is not None
         assert any(
-            contact.contact == "https://github.com/testuser" and contact.provider == "github"
-            for contact in updated.contacts
+            link.contact == "https://github.com/testuser" and link.provider == "github"
+            for link in updated.links
         )
 
-    async def test_add_multiple_contacts(
+    async def test_add_multiple_links(
         self,
         persisted_profile: Profile,
         user_jwt: UserJWTData,
         handler,
         profile_repository: ProfileRepository,
     ) -> None:
-        command1 = AddContactToProfileCommand(
+        command1 = AddLinkToProfileCommand(
             profile_id=persisted_profile.id,
             provider="github",
             contact="https://github.com/testuser",
@@ -59,7 +59,7 @@ class TestAddContactToProfileCommand:
         )
         await handler.handle(command1)
 
-        command2 = AddContactToProfileCommand(
+        command2 = AddLinkToProfileCommand(
             profile_id=persisted_profile.id,
             provider="linkedin",
             contact="https://linkedin.com/in/testuser",
@@ -70,12 +70,12 @@ class TestAddContactToProfileCommand:
         updated = await profile_repository.get_by_id(persisted_profile.id)
         assert updated is not None
         assert any(
-            contact.contact == "https://github.com/testuser" and contact.provider == "github"
-            for contact in updated.contacts
+            link.contact == "https://github.com/testuser" and link.provider == "github"
+            for link in updated.links
         )
         assert any(
-            contact.contact == "https://linkedin.com/in/testuser" and contact.provider == "linkedin"
-            for contact in updated.contacts
+            link.contact == "https://linkedin.com/in/testuser" and link.provider == "linkedin"
+            for link in updated.links
         )
 
     async def test_not_found_raises(
@@ -83,7 +83,7 @@ class TestAddContactToProfileCommand:
         user_jwt: UserJWTData,
         handler,
     ) -> None:
-        command = AddContactToProfileCommand(
+        command = AddLinkToProfileCommand(
             profile_id=999999,
             provider="github",
             contact="https://github.com/testuser",
@@ -99,7 +99,7 @@ class TestAddContactToProfileCommand:
         make_user_jwt,
         handler,
     ) -> None:
-        command = AddContactToProfileCommand(
+        command = AddLinkToProfileCommand(
             profile_id=persisted_profile.id,
             provider="github",
             contact="https://github.com/testuser",
@@ -116,7 +116,7 @@ class TestAddContactToProfileCommand:
         handler,
         profile_repository: ProfileRepository,
     ) -> None:
-        command = AddContactToProfileCommand(
+        command = AddLinkToProfileCommand(
             profile_id=persisted_profile.id,
             provider="twitter",
             contact="https://twitter.com/testuser",
@@ -129,11 +129,11 @@ class TestAddContactToProfileCommand:
         assert updated is not None
 
         assert any(
-            contact.contact == "https://twitter.com/testuser" and contact.provider == "twitter"
-            for contact in updated.contacts
+            link.contact == "https://twitter.com/testuser" and link.provider == "twitter"
+            for link in updated.links
         )
 
-    async def test_update_existing_contact(
+    async def test_update_existing_link(
         self,
         persisted_profile: Profile,
         user_jwt: UserJWTData,
@@ -141,7 +141,7 @@ class TestAddContactToProfileCommand:
         profile_repository: ProfileRepository,
     ) -> None:
 
-        command1 = AddContactToProfileCommand(
+        command1 = AddLinkToProfileCommand(
             profile_id=persisted_profile.id,
             provider="github",
             contact="https://github.com/olduser",
@@ -149,7 +149,7 @@ class TestAddContactToProfileCommand:
         )
         await handler.handle(command1)
 
-        command2 = AddContactToProfileCommand(
+        command2 = AddLinkToProfileCommand(
             profile_id=persisted_profile.id,
             provider="github",
             contact="https://github.com/newuser",
@@ -160,6 +160,6 @@ class TestAddContactToProfileCommand:
         updated = await profile_repository.get_by_id(persisted_profile.id)
         assert updated is not None
         assert any(
-            contact.contact == "https://github.com/newuser" and contact.provider == "github"
-            for contact in updated.contacts
+            link.contact == "https://github.com/newuser" and link.provider == "github"
+            for link in updated.links
         )

@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime
 from uuid import UUID
 
@@ -10,8 +9,6 @@ from app.core.consumers.idempotency import EventIdempotencyGuard
 from app.core.services.queues.service import QueueService
 from app.notifications.config import notification_config
 from app.notifications.tasks.push_offline_recipients import PushOfflineRecipientsTask
-
-logger = logging.getLogger(__name__)
 
 router = KafkaRouter()
 
@@ -57,8 +54,4 @@ async def handle_chat_offline_delivery(
         )
         raise
 
-    logger.info(
-        "Queued offline push fan-out",
-        extra={"chat_id": str(event.chat_id), "recipients": len(event.offline_user_ids)},
-    )
 

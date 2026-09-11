@@ -12,7 +12,7 @@
 - [1. Общие конвенции API](#1-общие-конвенции-api)
 - [2. Ошибки: формат и полный каталог кодов](#2-ошибки-формат-и-полный-каталог-кодов)
 - [3. Аутентификация и пользователи (`/auth`, `/users`, `/roles`, `/permissions`, `/sessions`)](#3-аутентификация-и-пользователи)
-- [4. Профили (`/profiles`)](#4-профили-profiles)
+- [4. Профили и контакты (`/profiles`, `/contacts`)](#4-профили-и-контакты-profiles-contacts)
 - [5. Чаты — REST (`/chats`)](#5-чаты--rest)
 - [6. Чаты — WebSocket (`/chats/ws/`)](#6-чаты--websocket)
 - [7. Уведомления (`/devices`, `/notifications`)](#7-уведомления)
@@ -33,7 +33,7 @@
 | 4 | **`POST /auth/login/`** использует `OAuth2PasswordRequestForm` → тело запроса **`application/x-www-form-urlencoded`**, поля называются `username` и `password` (не `email`!). JSON туда слать нельзя, FastAPI вернёт 422. |
 | 5 | **Refresh-токен** никогда не приходит и не уходит в JSON. Сервер кладёт его в **HttpOnly-cookie** `refresh_token` (`Secure=true`, `SameSite=strict`, `Path=/`). `POST /auth/refresh/` читает его из cookie автоматически. Подробности и последствия для мобильного/веб-клиента — в разделе 9. |
 | 6 | **Время жизни access-токена** — `ACCESS_TOKEN_EXPIRE_MINUTES = 5`. Клиенту обязателен агрессивный proactive-refresh или retry-on-401 механизм. Refresh-токен живёт 60 дней. |
-| 8 | **`POST /profiles/` не существует.** Профиль создаётся автоматически бэкендом через Kafka-consumer сразу после `POST /users/register/` (слушает топик `users`). Между регистрацией и появлением профиля возможна небольшая задержка (eventual consistency) — `GET /profiles/{id}/` может на короткое время вернуть 404 сразу после регистрации. |
+| 8 | **`POST /profiles/` не существует.** Профиль заводит бэкенд, консьюмер модуля `profiles` по событию `auth.user.verified` — то есть в момент подтверждения почты (у OAuth-пользователей сразу при первом входе). Доставка асинхронная, поэтому сразу после верификации `GET /profiles/{id}/` может успеть ответить `404 NOT_FOUND_PROFILE`. `GET /profiles/my/` на такой случай создаёт профиль сам и всегда отвечает `200`. |
 | 9 | **Аватар профиля**: `avatars: { "32"\|"64"\|"256"\|"512": { "jpg": url, "webp": url, "avif": url } }` — 4 размера × 3 формата на размер. См. раздел 4.5. |
 | 10 | **Загрузка аватара — presigned PUT**, тем же механизмом, что и вложения чата (раздел 6.5), но валидация типа/размера файла происходит **асинхронно**, уже после подтверждения загрузки — `POST /profiles/avatar/upload_complete/` всегда отвечает `200 OK`, даже если файл в итоге окажется невалидным и аватар не обновится. См. раздел 4.5. |
 | 11 | Раздела "realtime" (`/chats/realtime/presence/`, `/chats/realtime/ws/status/`) в коде нет. Presence отдаётся через `GET /chats/{chat_id}/members/?include_presence=true` и через WS. |
@@ -43,6 +43,10 @@
 | 15 | **`GET /users/me/`** возвращает облегчённый `UserResponse`: только `{id, username, email}`. Роли/права/сессии — через `GET /users/` (админский, постранично) или `GET /users/sessions/`. |
 | 16 | **`GET /users/sessions/`** возвращает голый массив `SessionDTO[]`, не обёрнутый в `PageResult`. |
 | 17 | **`PATCH /notifications/read_all/`** возвращает голое число (int) — количество обновлённых уведомлений, не объект. |
+| 18 | **Порядок путей в `/contacts` значим.** Статические `/contacts/import/`, `/contacts/search/`, `/contacts/blocked/` объявлены **до** параметризованного `/contacts/{user_id}/`. Для клиента это значит, что пользователя с таким `user_id`, как эти сегменты, не существует, а опечатка вида `/contacts/blocked` (без слэша) даст 404, а не список. |
+| 19 | **Поиска по email нет и не будет.** Идентификаторы адресной книги хранятся только как HMAC-SHA256 с серверным pepper (`user_identifiers`, `pending_contacts`), сырой email в базу не попадает. Сопоставление возможно лишь точным совпадением: клиент шлёт email в `POST /contacts/import/`, сервер сравнивает хеши. `GET /contacts/search/` ищет по `@username` и по префиксу имени, но не по почте. |
+| 20 | **Большой импорт отвечает `202`.** Батч свыше 100 записей уходит в фоновую задачу: тело ответа `{status: "queued", accepted}` без списка контактов, итог приходит WS-событием `contacts_import_completed`. Батч до 100 записей обрабатывается синхронно и отвечает `200` со `status: "done"`. Оба варианта принимают заголовок `Idempotency-Key`. |
+| 21 | **Список контактов — курсорная пагинация, не `PageResult`.** `GET /contacts/` отдаёт `{contacts, has_next, next_contact_id, version}`; `total` нет вообще. `version` приходит **только на последней странице** и является отметкой для дельта-синка: следующий запуск шлёт её в `updated_after` и получает только изменившееся. Удаления через дельту не видны, полный список нужно перечитывать периодически. |
 
 ---
 
@@ -205,8 +209,18 @@ interface ErrorResponse {
 | `TOO_LONG_BIO` | 400 | `{ "bio": string }` — лимит 1024 симв. |
 | `AVATAR_NOT_TYPE_IMAGE` | 400 | `{ "type": string }` — реальный MIME-тип загруженного файла (определяется через `python-magic` по содержимому, а не по расширению) не начинается с `image/` |
 | `AVATAR_SIZE` | 400 | `{ "current_size": number }` — файл больше `AVATAR_MAX_SIZE` (5 МБ) |
+| `AVATAR_FILE_KEY` | 400 | `{ "file_key": string }` — ключ не принадлежит вызывающему |
+| `NOT_FOUND_CONTACT` | 404 | `{ "contact_id": number }` — контакта нет в адресной книге вызывающего |
+| `NOT_FOUND_CONTACT_TARGET` | 404 | `{ "user_id": number\|null, "username": string\|null }` — некого добавлять: профиля с таким id/username нет |
+| `SELF_CONTACT_NOT_ALLOWED` | 400 | `{}` — попытка добавить или заблокировать самого себя |
+| `CONTACT_LIMIT_EXCEEDED` | 409 | `{ "limit": number }` — упёрлись в `MAX_CONTACTS_PER_USER` (5000) |
+| `CONTACT_BLOCKED` | 409 | `{ "user_id": number }` — пользователь в блок-листе, сначала разблокировать |
+| `TOO_LONG_CONTACT_NAME` | 400 | `{ "name": string }` — локальное имя длиннее 64 символов |
+| `IMPORT_BATCH_TOO_LARGE` | 400 | `{ "limit": number, "current": number }` — батч импорта больше 500 записей (при запросе через HTTP отсекается схемой и даёт 422) |
+| `IDENTIFIER_QUOTA_EXCEEDED` | 429 | `{ "limit": number, "period": "24h" }` — исчерпана суточная квота новых идентификаторов (5000). В отличие от rate-limit'а FastAPI, приходит в обычном конверте ошибки |
+| `IDENTIFIER_PEPPER_NOT_CONFIGURED` | 503 | `{}` — на сервере не задан `CONTACT_IDENTIFIER_PEPPER`, хеширование недоступно |
 
-⚠️ Оба кода выше возникают **асинхронно**, внутри фоновой задачи обработки аватара — они не приходят как HTTP-ответ ни на `/avatar/presign/`, ни на `/avatar/upload_complete/` (оба всегда отвечают `200`, если запрос сам по себе корректен). См. раздел 4.5.
+⚠️ `AVATAR_NOT_TYPE_IMAGE` и `AVATAR_SIZE` возникают **асинхронно**, внутри фоновой задачи обработки аватара — они не приходят как HTTP-ответ ни на `/avatar/presign/`, ни на `/avatar/upload_complete/` (оба всегда отвечают `200`, если запрос сам по себе корректен). См. раздел 4.5.
 
 ### 2.6 Коды модуля `chats`
 
@@ -454,11 +468,21 @@ interface SessionDTO {
 Полный список системных строк-прав: `system:manage_settings`, `system:view_logs`, `user:create`, `user:update`, `user:delete`, `user:view`, `user:impersonate`, `role:create`, `role:update`, `role:delete`, `role:view`, `role:assign`, `role:remove`, `permission:create`, `permission:update`, `permission:delete`, `permission:view`.
 
 
-## 4. Профили (`/profiles`)
+## 4. Профили и контакты (`/profiles`, `/contacts`)
 
-### 4.1 Важно: профиль создаётся автоматически
+### 4.1 Важно: профиль создаётся по верификации пользователя
 
-Эндпоинта `POST /profiles/` **не существует**. `profile.id` всегда равен `user.id` (связь 1:1). Как только `POST /users/register/` отработал, бэкенд асинхронно (Kafka-consumer, топик `users`) сам создаёт профиль. Между регистрацией и появлением профиля возможна короткая задержка — если сразу после регистрации запросить `GET /profiles/{id}/`, теоретически можно словить `404 NOT_FOUND_PROFILE`; на практике стоит либо повторить запрос через секунду, либо просто не делать этот запрос сразу после регистрации.
+Эндпоинта `POST /profiles/` **не существует**. `profile.id` всегда равен `user.id` (связь 1:1).
+
+Профиль создаёт консьюмер модуля `profiles`, слушающий топик `auth`: событие `auth.user.verified`
+приходит при подтверждении почты (`POST /users/verify/`), а у OAuth-пользователей — сразу при первом
+входе через провайдера. Тем же событием заводится идентификатор адресной книги и разбираются
+ожидающие импорты (см. 4.11). На `auth.user.created` профиль не создаётся: в этом событии нет `user_id`.
+
+Доставка асинхронная (outbox → Debezium → Kafka), поэтому между верификацией и появлением профиля
+проходит короткое время. `GET /profiles/my/` на этот случай остаётся идемпотентной страховкой:
+если строки ещё нет, эндпоинт создаёт её сам. Клиенту проще один раз позвать `/profiles/my/` после
+логина, чем ловить `404` на `GET /profiles/{id}/`.
 
 ### 4.2 `GET /profiles/` 🔓 (публичный)
 
@@ -479,9 +503,9 @@ interface ProfileDTO {
   bio: string | null;
   date_birthday: string | null;                 // "YYYY-MM-DD"
   skills: string[];                              // хранятся в lowercase, приходят как обычный массив (Python set → JSON array)
-  contacts: ContactDTO[];
+  links: ProfileLinkDTO[];                       // ⚠️ ранее поле называлось contacts
 }
-interface ContactDTO { profile_id: number; provider: string; contact: string }
+interface ProfileLinkDTO { profile_id: number; provider: string; contact: string }
 ```
 
 Если у пользователя ещё нет аватара, `avatars` — пустой объект `{}`.
@@ -532,12 +556,216 @@ interface ContactDTO { profile_id: number; provider: string; contact: string }
 
 **Фоновая обработка** (без обратной связи в API): задача скачивает файл из `pending_avatar`, определяет реальный MIME-тип по содержимому (`python-magic`, не по расширению/заголовку), проверяет размер (≤ 5 МБ, `AVATAR_MAX_SIZE`) — при нарушении генерируется `AVATAR_SIZE`/`AVATAR_NOT_TYPE_IMAGE`, но это не долетает до клиента как HTTP-ответ (см. раздел 2.5), просто новый аватар не появится. При успехе генерируются 4 размера (32/64/256/512) × 3 формата (jpg/webp/avif), заливаются в бакет `profiles` и складываются в `ProfileDTO.avatars`. Клиенту стоит после шага 3 подождать и переопросить `GET /profiles/{id}/` (например с retry/poll в течение нескольких секунд), а если `avatars` не изменился — считать, что загрузка не удалась, и позволить попробовать снова.
 
-### 4.6 Контакты профиля
+### 4.6 Ссылки на внешние профили (`links`)
 
-- **`POST /profiles/{profile_id}/contacts/`** 🔒 — `{ provider: string; contact: string }` → `200`, пусто.
-- **`DELETE /profiles/{profile_id}/{provide_contact}/delete/`** 🔒 ⚠️ необычный путь (без `/contacts/` сегмента, с `/delete/` суффиксом) — `provide_contact` в пути — это значение `provider`. → `200`, пусто.
+Это соц-ссылки в профиле (github, telegram, сайт), а **не** адресная книга — она живёт в `/contacts`, см. 4.7.
+
+- **`POST /profiles/{profile_id}/links/`** 🔒 — `{ provider: string; contact: string }` → `200`, пусто.
+  Повторный вызов с тем же `provider` перезаписывает значение.
+- **`DELETE /profiles/{profile_id}/links/{provider}/`** 🔒 → `200`, пусто. Удаление несуществующей ссылки — тоже `200`.
 
 Оба требуют владения профилем либо прав `profile:update` + `user:update`.
+
+⚠️ Переименование: сущность называлась `Contact` (таблица `contacts`, поле `ProfileDTO.contacts`,
+пути `/profiles/{id}/contacts/` и `/profiles/{id}/{provider}/delete/`). Теперь это `ProfileLink`
+(таблица `profile_links`, поле `ProfileDTO.links`, пути выше). Старые пути не отвечают.
+
+### 4.7 Контакты: модель и общие правила
+
+Адресная книга (`/contacts`) — это Telegram-подобные контакты, а не соц-ссылки профиля из 4.6.
+Все эндпоинты 🔒 и всегда работают со **своей** книгой: владелец берётся из access-токена,
+`owner_id` в запросе не передаётся.
+
+```ts
+interface UserContactDTO {
+  owner_id: number;
+  contact_id: number;                 // user_id контакта, он же profile.id
+
+  first_name: string | null;          // локальное имя, видно только владельцу
+  last_name: string | null;
+
+  source: 1 | 2 | 3 | 4;              // 1 import, 2 username, 3 invite, 4 manual
+  is_mutual: boolean;                 // контакт добавил владельца в ответ
+  is_favorite: boolean;
+
+  created_at: string;                 // ISO 8601
+  updated_at: string;
+
+  profile: ContactProfileDTO | null;  // null, если профиля ещё нет
+}
+
+interface ContactProfileDTO {
+  id: number;                         // === user_id, поле называется как в ProfileDTO
+  username: string | null;
+  display_name: string | null;
+  avatars: Record<"32"|"64"|"256"|"512", Record<"jpg"|"webp"|"avif", string>>;
+}
+```
+
+Ограничения (`app/profiles/config.py`): 5000 контактов на пользователя, локальное имя ≤ 64 символов,
+500 записей в батче импорта, 5 импортов за 10 минут, 5000 новых идентификаторов в сутки.
+
+### 4.8 `GET /contacts/` 🔒 — список с курсором и дельта-синком
+
+Query (`GetContactsRequest`): `limit=100` (1..500), `after_contact_id?: number`, `updated_after?: string` (ISO 8601).
+
+**Response `200`** — не `PageResult`, а собственный курсорный DTO:
+
+```ts
+interface ContactListDTO {
+  contacts: UserContactDTO[];
+  has_next: boolean;
+  next_contact_id: number | null;   // передать в after_contact_id за следующей страницей
+  version: string | null;           // ISO 8601, приходит ТОЛЬКО когда has_next=false
+}
+```
+
+Порядок — по возрастанию `contact_id`, стабильный.
+
+**Дельта-синк.** Дочитав список до конца (`has_next=false`), клиент сохраняет `version`. При следующем
+запуске он шлёт её в `updated_after` и получает только изменившиеся строки. Сравнение нестрогое (`>=`),
+поэтому граничные записи могут прийти повторно — их нужно применять upsert'ом по `contact_id`.
+**Удаления через дельту не приходят**: строка просто исчезает из таблицы. Полный список стоит
+перечитывать целиком по значимым событиям (переустановка, вход на новом устройстве, раз в N дней).
+
+### 4.9 `POST /contacts/` 🔒 — добавить контакт
+
+```ts
+// Request (AddContactRequest): нужен ровно один из user_id / username
+{
+  user_id?: number;
+  username?: string;                  // без "@"
+  first_name?: string;                // ≤ 64
+  last_name?: string;                 // ≤ 64
+}
+```
+
+**Response `201`**: `UserContactDTO`.
+
+Поведение и ошибки:
+
+- Цель обязана иметь профиль, иначе `404 NOT_FOUND_CONTACT_TARGET`. Профиль появляется по верификации
+  пользователя (см. 4.1), так что неверифицированного добавить не получится.
+- `username` сравнивается регистронезависимо, `source` в ответе будет `2`; при добавлении по `user_id` — `4`.
+- Повторный вызов не создаёт дубликат, а обновляет локальное имя.
+- Если контакт уже добавил владельца, обе строки пары получают `is_mutual=true` в одной транзакции.
+- `400 SELF_CONTACT_NOT_ALLOWED`, `409 CONTACT_BLOCKED`, `409 CONTACT_LIMIT_EXCEEDED`.
+- Ни `user_id`, ни `username` не переданы → `422` (валидация схемы).
+
+### 4.10 `PATCH /contacts/{user_id}/` и `DELETE /contacts/{user_id}/` 🔒
+
+```ts
+// PATCH Request (UpdateContactRequest) — все поля необязательны
+{ first_name?: string | null; last_name?: string | null; is_favorite?: boolean }
+```
+
+`PATCH` → `200` с `UserContactDTO`. Локальное имя и `is_favorite` — приватные пометки владельца,
+доменных событий они не порождают и другой стороне не видны.
+
+`DELETE` → `204` без тела. Удаление снимает `is_mutual` у встречной строки.
+Обоих нет в книге → `404 NOT_FOUND_CONTACT`.
+
+### 4.11 `POST /contacts/import/` 🔒 — импорт адресной книги
+
+Лимит частоты: 5 запросов за 10 минут (обычный `429` FastAPI, см. 0.14). Поддерживает заголовок
+`Idempotency-Key`: повтор с тем же ключом вернёт сохранённый результат, а параллельный повтор — `409 IDEMPOTENCY_CONFLICT`.
+
+```ts
+// Request (ImportContactsRequest), 1..500 записей
+{
+  contacts: Array<{ email: string; first_name?: string; last_name?: string }>;
+}
+```
+
+```ts
+// Response (ImportContactsResultDTO)
+{
+  status: "done" | "queued";
+  accepted: number;                  // сколько записей приняли
+  matched: number;                   // из них нашли зарегистрированных пользователей
+  pending: number;                   // отложили до регистрации владельца адреса
+  invalid: number;                   // не распознали как email
+  contacts: UserContactDTO[];        // только при status="done"
+}
+```
+
+- До 100 записей — синхронно, `200` и `status: "done"`.
+- Больше 100 — `202` и `status: "queued"`, `matched/pending/invalid` равны нулю, `contacts` пуст.
+  Итог придёт WS-событием `contacts_import_completed` (см. 4.13).
+- Email нормализуется (trim + lowercase) и хешируется HMAC-SHA256 с серверным pepper. Сырой адрес
+  не сохраняется, поиска по нему нет (см. 0.19).
+- Свой собственный адрес и заблокированные пользователи в контакты не попадают, в `matched` не считаются.
+- Неизвестные адреса складываются в «ожидание»: когда владелец такого email подтвердит регистрацию,
+  контакт появится сам, а клиент увидит его при следующем дельта-синке.
+- Ошибки: `409 CONTACT_LIMIT_EXCEEDED`, `429 IDENTIFIER_QUOTA_EXCEEDED` (в конверте ошибки, в отличие
+  от rate-limit'а), `422` при батче больше 500 записей или пустом списке.
+
+### 4.12 `GET /contacts/search/` 🔒 — поиск
+
+Query (`SearchContactsRequest`): `query: string` (1..150), `limit=50` (1..50).
+
+Два режима, выбираются по первому символу:
+
+- `query` начинается с `@` → **точный** поиск по `username` среди всех пользователей, регистр не важен.
+  Результат — 0 или 1 запись.
+- иначе → **префиксный** поиск только внутри своих контактов, по `display_name` профиля и по
+  локальным `first_name`/`last_name`. Префикс короче 2 символов даёт пустой список.
+
+```ts
+interface ContactSearchDTO { items: ContactSearchItemDTO[] }
+
+interface ContactSearchItemDTO {
+  user_id: number;
+  profile: ContactProfileDTO | null;  // null, если профиль удалён
+  contact: UserContactDTO | null;     // не null → пользователь уже в адресной книге
+}
+```
+
+Признак «уже в контактах» — это `contact !== null`; локальное имя лежит там же,
+в `contact.first_name` / `contact.last_name`.
+
+Поиска по email нет: сервер хранит только хеши (см. 0.19).
+
+### 4.13 Блокировки и WS-событие импорта
+
+- **`GET /contacts/blocked/`** 🔒 — query `limit=100` (1..500), `after_target_id?: number`.
+
+```ts
+interface BlockedListDTO {
+  blocked: Array<{
+    target_id: number;
+    created_at: string;
+    profile: ContactProfileDTO | null;
+  }>;
+  has_next: boolean;
+  next_target_id: number | null;
+}
+```
+
+- **`POST /contacts/{user_id}/block/`** 🔒 → `204`. Повторная блокировка — тоже `204`, ничего не меняет.
+  Блокировка себя → `400 SELF_CONTACT_NOT_ALLOWED`. Контакт при блокировке не удаляется.
+- **`DELETE /contacts/{user_id}/block/`** 🔒 → `204`, в том числе если блокировки не было.
+
+Проверка «отправитель заблокирован» на стороне чатов — этап 2, сейчас блок-лист только хранится и отдаётся.
+
+**WS-событие `contacts_import_completed`** приходит по обычному соединению `/chats/ws/` (раздел 6),
+подписка на канал не нужна:
+
+```ts
+{
+  type: "contacts_import_completed",
+  channel: "<owner_id>",
+  ts: string,                        // ISO 8601
+  payload: {
+    owner_id: number;
+    accepted: number;
+    matched: number;
+    pending: number;
+    invalid: number;
+  }
+}
+```
+
 
 ## 5. Чаты — REST
 
@@ -1089,6 +1317,12 @@ gateway), поэтому один и тот же кадр может прийт�
 | `ws.pong` | `{ type: "ws.pong", payload: {} }` | Ответ на клиентский `{"op": "ping"}` |
 | `ws.ping` | `{ type: "ws.ping", connection_id: string, ts }` ⚠️ без обёртки `payload` | Проактивный heartbeat-пинг от сервера, раз в `heartbeat_interval` сек |
 | `ws.error` | { type: "ws.error", code: "BAD_COMMAND" \| "BAD_FRAME" \| "NOT_CHAT_MEMBER", detail: string, ts: string } ⚠️ без payload | `subscribe`/`resume` на чат, где отправитель не состоит (или забанен) или Нераспарсенная/невалидная команда от клиента |
+
+#### События не из модуля chats
+
+| `type` | Форма | Когда |
+|---|---|---|
+| `contacts_import_completed` | `{ type, channel: "<owner_id>", payload: { owner_id, accepted, matched, pending, invalid }, ts }` | Дочитан фоновый импорт адресной книги (`POST /contacts/import/`, ответ 202). Подписка на канал не требуется, событие адресное. Подробности — 4.11 и 4.13. |
 
 ### 6.5 Практическая схема работы для Flutter-клиента
 

@@ -9,9 +9,9 @@ from app.core.api.schemas import ORJSONResponse
 from app.core.db.repository import PageResult
 from app.core.mediators.base import BaseMediator
 from app.core.services.auth.depends import CurrentUserJWTData
-from app.profiles.commands.profiles.add_contact import AddContactToProfileCommand
+from app.profiles.commands.profiles.add_link import AddLinkToProfileCommand
 from app.profiles.commands.profiles.get_or_create import GetOrCreateProfileCommand
-from app.profiles.commands.profiles.remove_contact import RemoveContactToProfileCommand
+from app.profiles.commands.profiles.remove_link import RemoveLinkFromProfileCommand
 from app.profiles.commands.profiles.update import UpdateProfileCommand
 from app.profiles.commands.profiles.update_avatar import UpdateProfileAvatarCommand
 from app.profiles.dtos.profiles import AvatarPresign, ProfileDTO
@@ -20,7 +20,7 @@ from app.profiles.queries.profiles.get_by_id import GetProfileByIdQuery
 from app.profiles.queries.profiles.get_list import GetProfilesQuery
 from app.profiles.queries.profiles.get_url import GetAvatrProfileUrlQuery
 from app.profiles.schemas.profiles.requests import (
-    AddContactProfileRequest,
+    AddProfileLinkRequest,
     AvatarPreSignUrlRequest,
     AvatarUploadCompleteRequest,
     GetProfilesRequest,
@@ -51,7 +51,9 @@ async def get_or_create(
     user_jwt_data: CurrentUserJWTData,
 ) -> ProfileDTO:
     return await mediator.handle_command(
-        GetOrCreateProfileCommand(user_jwt_data=user_jwt_data)
+        GetOrCreateProfileCommand(
+            user_id=int(user_jwt_data.id), username=user_jwt_data.username
+        )
     )
 
 @router.put(
@@ -93,7 +95,6 @@ async def get_profile(
 ) -> ProfileDTO:
     return await mediator.handle_query(GetProfileByIdQuery(profile_id, user_jwt_data=user_jwt_data))
 
-# Avatar
 @router.post(
     "/avatar/presign/",
     status_code=status.HTTP_200_OK,
@@ -130,19 +131,18 @@ async def upload_avatar_complete(
     )
     return ORJSONResponse("OK")
 
-# Contacts
 @router.post(
-    "/{profile_id}/contacts/",
+    "/{profile_id}/links/",
     status_code=status.HTTP_200_OK,
 )
-async def add_contact_profile(
+async def add_link_profile(
     profile_id: int,
-    profile_request: AddContactProfileRequest,
+    profile_request: AddProfileLinkRequest,
     mediator: FromDishka[BaseMediator],
     user_jwt_data: CurrentUserJWTData
 ) -> None:
     await mediator.handle_command(
-        AddContactToProfileCommand(
+        AddLinkToProfileCommand(
             profile_id=profile_id,
             provider=profile_request.provider,
             contact=profile_request.contact,
@@ -151,19 +151,19 @@ async def add_contact_profile(
     )
 
 @router.delete(
-    "/{profile_id}/{provide_contact}/delete/",
+    "/{profile_id}/links/{provider}/",
     status_code=status.HTTP_200_OK,
 )
-async def remove_contact_profile(
+async def remove_link_profile(
     profile_id: int,
-    provide_contact: str,
+    provider: str,
     mediator: FromDishka[BaseMediator],
     user_jwt_data: CurrentUserJWTData
 ) -> None:
     await mediator.handle_command(
-        RemoveContactToProfileCommand(
+        RemoveLinkFromProfileCommand(
             profile_id=profile_id,
-            provider=provide_contact,
+            provider=provider,
             user_jwt_data=user_jwt_data
         )
     )

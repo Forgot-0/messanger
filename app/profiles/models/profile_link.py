@@ -9,8 +9,14 @@ if TYPE_CHECKING:
     from app.profiles.models.profile import Profile
 
 
-class Contact(BaseModel, DateMixin):
-    __tablename__ = "contacts"
+class ProfileLink(BaseModel, DateMixin):
+    """Ссылка на внешний профиль пользователя: github, telegram, сайт и т.п.
+
+    Это не контакт из адресной книги — те живут в user_contacts
+    (app/profiles/models/contacts.py).
+    """
+
+    __tablename__ = "profile_links"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     provider: Mapped[str] = mapped_column(String(30))
@@ -21,7 +27,7 @@ class Contact(BaseModel, DateMixin):
         nullable=False, index=True
     )
 
-    profile: Mapped[Profile] = relationship("Profile", back_populates="contacts")
+    profile: Mapped[Profile] = relationship("Profile", back_populates="links")
 
     __table_args__ = (
         UniqueConstraint("profile_id", "provider", name="unique_profile_provider"),

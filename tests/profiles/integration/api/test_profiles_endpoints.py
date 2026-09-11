@@ -319,9 +319,9 @@ class TestUpdateProfileEndpoint:
 @pytest.mark.integration
 @pytest.mark.profiles
 @pytest.mark.asyncio
-class TestContactEndpoints:
+class TestProfileLinkEndpoints:
 
-    async def test_owner_adds_a_contact(
+    async def test_owner_adds_a_link(
         self,
         client: AsyncClient,
         user_jwt: UserJWTData,
@@ -331,7 +331,7 @@ class TestContactEndpoints:
         headers = create_auth_headers(user_jwt)
 
         response = await client.post(
-            api_path(f"profiles/{persisted_profile.id}/contacts/"),
+            api_path(f"profiles/{persisted_profile.id}/links/"),
             json={"provider": "github", "contact": "https://github.com/me"},
             headers=headers,
         )
@@ -340,10 +340,10 @@ class TestContactEndpoints:
         profile = await client.get(
             api_path(f"profiles/{persisted_profile.id}/"), headers=headers
         )
-        providers = {c["provider"] for c in profile.json()["contacts"]}
+        providers = {c["provider"] for c in profile.json()["links"]}
         assert "github" in providers
 
-    async def test_stranger_cannot_add_a_contact(
+    async def test_stranger_cannot_add_a_link(
         self,
         client: AsyncClient,
         make_user_jwt,
@@ -353,36 +353,36 @@ class TestContactEndpoints:
         stranger = make_user_jwt(id="7303", username="nosy")
 
         response = await client.post(
-            api_path(f"profiles/{persisted_profile.id}/contacts/"),
+            api_path(f"profiles/{persisted_profile.id}/links/"),
             json={"provider": "github", "contact": "https://github.com/evil"},
             headers=create_auth_headers(stranger),
         )
 
         assert response.status_code == 403
 
-    async def test_owner_removes_a_contact(
+    async def test_owner_removes_a_link(
         self,
         client: AsyncClient,
         user_jwt: UserJWTData,
         create_auth_headers,
-        persisted_profile_contact,
+        persisted_profile_links,
     ) -> None:
-        profile = await persisted_profile_contact([
+        profile = await persisted_profile_links([
             ("github", "https://github.com/me"),
             ("telegram", "https://t.me/me"),
         ])
         headers = create_auth_headers(user_jwt)
 
         response = await client.delete(
-            api_path(f"profiles/{profile.id}/github/delete/"), headers=headers
+            api_path(f"profiles/{profile.id}/links/github/"), headers=headers
         )
         assert response.status_code == 200
 
         remaining = await client.get(api_path(f"profiles/{profile.id}/"), headers=headers)
-        providers = {c["provider"] for c in remaining.json()["contacts"]}
+        providers = {c["provider"] for c in remaining.json()["links"]}
         assert providers == {"telegram"}
 
-    async def test_removing_a_missing_contact_is_not_an_error(
+    async def test_removing_a_missing_link_is_not_an_error(
         self,
         client: AsyncClient,
         user_jwt: UserJWTData,
@@ -390,19 +390,19 @@ class TestContactEndpoints:
         persisted_profile: Profile,
     ) -> None:
         response = await client.delete(
-            api_path(f"profiles/{persisted_profile.id}/github/delete/"),
+            api_path(f"profiles/{persisted_profile.id}/links/github/"),
             headers=create_auth_headers(user_jwt),
         )
 
         assert response.status_code == 200
 
-    async def test_contact_endpoints_require_authentication(
+    async def test_link_endpoints_require_authentication(
         self,
         client: AsyncClient,
         persisted_profile: Profile,
     ) -> None:
         response = await client.post(
-            api_path(f"profiles/{persisted_profile.id}/contacts/"),
+            api_path(f"profiles/{persisted_profile.id}/links/"),
             json={"provider": "github", "contact": "x"},
         )
 

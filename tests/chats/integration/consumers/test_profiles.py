@@ -2,7 +2,6 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-from faststream.exceptions import SubscriberNotFound
 from faststream.kafka import KafkaBroker
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -124,10 +123,6 @@ class TestProfileProjectionConsumer:
         consumer_broker: KafkaBroker,
         profile_projection_repository: ChatUserProfileRepository,
     ) -> None:
-        # Подписчик отбирает события фильтром по заголовку. В проде не подошедшее
-        # сообщение FastStream логирует как SubscriberNotFound и пропускает,
-        # в TestKafkaBroker — пробрасывает наружу.
-        with pytest.raises(SubscriberNotFound):
-            await self.publish(consumer_broker, profile_message("profiles.profile.deleted"))
+        await self.publish(consumer_broker, profile_message("profiles.contact.added"))
 
         assert await profile_projection_repository.get_by_id(USER_ID) is None

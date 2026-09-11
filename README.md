@@ -765,17 +765,20 @@ async def handle(
 В топик приходят **все** события модуля-издателя, поэтому подписчик обязан отсеять чужие. Два рабочих способа:
 
 ```python
-# 1. Ветвление внутри обработчика (DictEventDTO) — как в app/auth/consumers/user.py.
-#    Подходит, когда в топике заведомо есть события других типов:
-#    сообщение просто игнорируется, без ошибок в логах.
+# 1. Ветвление внутри обработчика (DictEventDTO) — так сделаны все подписчики
+#    репозитория (app/auth/consumers/user.py, app/chats/consumers/profiles.py,
+#    app/profiles/consumers/user.py). Чужое сообщение просто игнорируется,
+#    без ошибок в логах и без пустых веток.
 if event.event_name != CreatedUserEvent.get_name():
     return
 
-# 2. Фильтр подписчика — как в app/chats/consumers/profiles.py.
+payload = CreatedUserPayload.model_validate(event.payload)
+
+# 2. Фильтр подписчика.
 @subscriber(filter=lambda msg: msg.headers.get("event_name") in SOME_EVENT_NAMES)
 ```
 
-У фильтра есть цена: сообщение, не подошедшее ни под один фильтр, FastStream логирует как `SubscriberNotFound` (уровень ERROR) и пропускает. Если в топике постоянно есть события мимо фильтра — берите первый вариант.
+У фильтра есть цена: сообщение, не подошедшее ни под один фильтр, FastStream логирует как `SubscriberNotFound` (уровень ERROR) и пропускает, поэтому к нему приходится добавлять ещё и пустую ветку по умолчанию. Если в топике постоянно есть события мимо фильтра — берите первый вариант; в этом репозитории он и используется.
 
 **Живой пример.** `app/auth/consumers/user.py` слушает топик `auth` в группе `send-verify-email`, отбирает `auth.user.created`, проверяет идемпотентность и вызывает `SendVerifyEventHandler` — так после регистрации пользователю уходит письмо с кодом подтверждения.
 

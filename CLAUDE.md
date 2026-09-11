@@ -74,7 +74,9 @@ HTTP route (app/<module>/routes/v1/*.py)
   `message_brokers/` (Kafka), `middlewares/`, `services/` (auth/JWT/RBAC, mail, media, queues, storage, idempotency),
   `websocket/` (manager, presence, keys), `metrics.py`, `models.py`, `routers.py` (`/health`), `tasks.py`.
 - `app/auth` — **эталонный модуль**. Пользователи, сессии, JWT, Argon2, OAuth (Google/Yandex/GitHub), RBAC.
-- `app/profiles` — профили пользователей, аватары, контакты.
+- `app/profiles` — профили пользователей, аватары, ссылки на внешние профили (`profile_links`)
+  и адресная книга: контакты, блок-лист, слепые идентификаторы (`/contacts`).
+  Профиль и идентификатор заводит консьюмер `app/profiles/consumers/user.py` по `auth.user.verified`.
 - `app/chats` — самый крупный модуль: чаты, участники, сообщения, вложения, реакции, read receipts, звонки, WS.
 - `app/notifications` — устройства, уведомления, offline-push через Firebase.
 
@@ -111,6 +113,8 @@ HTTP route (app/<module>/routes/v1/*.py)
 |---|---|
 | `auth.user.created`, `auth.user.verified`, `auth.session.created`, `auth.session.suspicious` | auth |
 | `profiles.profile.created`, `profiles.profile.updated` | profiles |
+| `profiles.contact.added`, `profiles.contact.removed` | profiles |
+| `profiles.user.blocked`, `profiles.user.unblocked` | profiles |
 | `chats.chat.created`, `chats.chat.updated`, `chats.chat.deleted` | chats |
 | `chats.member.added`, `chats.member.kicked`, `chats.member.banned`, `chats.member.left` | chats |
 | `chats.message.sent`, `chats.message.readed`, `chats.message.modified`, `chats.message.deleted` | chats |
@@ -121,7 +125,7 @@ HTTP route (app/<module>/routes/v1/*.py)
 ## Таблицы БД
 
 `users`, `user_permissions`, `user_roles`, `roles`, `permissions`, `role_permissions`, `sessions`, `oauth_accounts`,
-`profiles`, `contacts`,
+`profiles`, `profile_links`, `user_contacts`, `user_identifiers`, `pending_contacts`, `blocked_users`,
 `chats`, `chat_members`, `chat_member_bans`, `chat_roles`, `chat_user_profiles`, `messages`, `message_attachments`,
 `message_reactions`, `message_reaction_counters`, `read_receipts`,
 `notifications`, `user_device_tokens`,
@@ -145,6 +149,14 @@ HTTP route (app/<module>/routes/v1/*.py)
     `SECRET_KEY`, `JWT_SECRET_KEY`, `POSTGRES_*`, `REDIS_HOST`, `BROKER_URL`.
 11. **OpenAPI/Swagger отдаётся только в `local`/`testing`** — в проде `openapi_url=None`.
 12. **Python 3.14** (`requires-python = ">=3.14,<3.15"`); используется `uuid7` из stdlib и синтаксис дженериков PEP 695.
+13. **Статические пути объявляются до параметризованных.** `/contacts/blocked/`, объявленный после
+    `/contacts/{user_id}/`, уедет в параметризованный роут и вернёт 422.
+14. **Идентификаторы адресной книги хранятся только как HMAC** (`user_identifiers`, `pending_contacts`).
+    Pepper — `CONTACT_IDENTIFIER_PEPPER` в `.env`, в проде пустым быть не может. Ротации нет:
+    сырые email/телефоны нигде не лежат, смена pepper обесценивает обе таблицы.
+15. **Чужие события топика отсеиваются ветвлением по `event_name` внутри подписчика** (`DictEventDTO`
+    плюс `model_validate` payload'а). Фильтр `@subscriber(filter=...)` требует ещё и пустой ветки
+    по умолчанию, иначе FastStream пишет `SubscriberNotFound` уровня ERROR на каждое чужое сообщение.
 
 ## Команды
 

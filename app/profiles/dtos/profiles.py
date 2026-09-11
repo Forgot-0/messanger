@@ -2,7 +2,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict
 
-from app.profiles.dtos.contacts import ContactDTO
+from app.profiles.dtos.profile_links import ProfileLinkDTO
 
 
 class ProfileDTO(BaseModel):
@@ -13,7 +13,7 @@ class ProfileDTO(BaseModel):
     bio: str | None
     date_birthday: date | None
     skills: set[str]
-    contacts: list[ContactDTO]
+    links: list[ProfileLinkDTO]
 
     model_config = ConfigDict(from_attributes=True)
 

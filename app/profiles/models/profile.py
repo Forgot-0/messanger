@@ -11,7 +11,7 @@ from app.core.db.base_model import BaseModel, DateMixin, SoftDeleteMixin
 from app.core.events.event import BaseEvent
 from app.profiles.config import profile_config
 from app.profiles.exceptions import TooLongBioError, TooLongDisplayNameError, TooLongSkillNameError
-from app.profiles.models.contact import Contact
+from app.profiles.models.profile_link import ProfileLink
 
 
 class SizeAvatar(int, Enum):
@@ -83,7 +83,7 @@ class Profile(BaseModel, DateMixin, SoftDeleteMixin):
 
     skills: Mapped[list[str]] = mapped_column(ARRAY(String(profile_config.MAX_LEN_SKILL_NAME)))
 
-    contacts: Mapped[list[Contact]] = relationship(
+    links: Mapped[list[ProfileLink]] = relationship(
         back_populates="profile",
         cascade="all, delete-orphan"
     )
@@ -96,7 +96,7 @@ class Profile(BaseModel, DateMixin, SoftDeleteMixin):
         bio: str | None,
         skills: set[str] | None = None,
         date_birthday: date | None=None,
-        contacts: list[Contact] | None=None,
+        links: list[ProfileLink] | None=None,
     ) -> Profile:
         instance = cls(
             id=user_id,
@@ -109,9 +109,9 @@ class Profile(BaseModel, DateMixin, SoftDeleteMixin):
         instance.change_bio(bio)
         instance.update_skills(skills or set())
 
-        instance.contacts = []
-        if contacts:
-            instance.contacts = contacts
+        instance.links = []
+        if links:
+            instance.links = links
 
         instance.register_event(
             ProfileCreated(
@@ -185,21 +185,21 @@ class Profile(BaseModel, DateMixin, SoftDeleteMixin):
 
         self.skills = [skill.lower() for skill in skills]
 
-    def add_contact(self, provider: str, contact: str) -> None:
-        for cont in self.contacts:
-            if provider == cont.provider:
-                cont.contact = contact
+    def add_link(self, provider: str, contact: str) -> None:
+        for link in self.links:
+            if provider == link.provider:
+                link.contact = contact
                 return
 
-        self.contacts.append(
-            Contact(
+        self.links.append(
+            ProfileLink(
                 provider=provider,
                 contact=contact
             )
         )
 
-    def remove_contact(self, provider: str) -> None:
-        self.contacts = [c for c in self.contacts if c.provider != provider]
+    def remove_link(self, provider: str) -> None:
+        self.links = [link for link in self.links if link.provider != provider]
 
     def update_avatar(self, avatar_s3_keys: dict) -> None:
         self.avatars = avatar_s3_keys

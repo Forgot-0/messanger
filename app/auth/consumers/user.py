@@ -1,5 +1,3 @@
-import logging
-
 from dishka.integrations.faststream import FromDishka, inject
 from faststream.kafka import KafkaRouter
 from pydantic import BaseModel
@@ -9,8 +7,6 @@ from app.auth.events.users.created import SendVerifyEventHandler
 from app.auth.models.user import CreatedUserEvent
 from app.core.consumers.event import TypedEventDTO
 from app.core.consumers.idempotency import EventIdempotencyGuard
-
-logger = logging.getLogger(__name__)
 
 router = KafkaRouter()
 

@@ -75,7 +75,7 @@ class TestSendVerifyConsumer:
         mock_mail_service: MockMailService,
     ) -> None:
         message = created_user_message(standard_user)
-        message["event_name"] = "auth.user.verified"
+        message["event_name"] = "auth.session.created"
 
         await self.publish(consumer_broker, message)
 

@@ -69,6 +69,7 @@ from tests.mocks import (
     MockMailService,
     RecordingEventBus,
 )
+from tests.profiles.providers import ProfilesIntegrationProvider
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -333,7 +334,9 @@ async def di_container(
         def get_message_broker(self) -> BaseMessageBroker:
             return FakeMessageBroker()
 
-    container = create_container(TestProvider(), ChatsIntegrationProvider())
+    container = create_container(
+        TestProvider(), ChatsIntegrationProvider(), ProfilesIntegrationProvider()
+    )
     try:
         yield container
     finally:

@@ -1,5 +1,3 @@
-import logging
-
 from dishka.integrations.faststream import FromDishka, inject
 from faststream.kafka import KafkaRouter
 
@@ -8,7 +6,6 @@ from app.chats.services.delivery_router import ChatDeliveryRouter
 from app.core.consumers.event import DictEventDTO
 from app.core.consumers.idempotency import EventIdempotencyGuard
 
-logger = logging.getLogger(__name__)
 
 router = KafkaRouter()
 

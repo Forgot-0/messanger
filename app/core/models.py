@@ -9,8 +9,9 @@ from app.auth.models.user import User, UserPermissions
 from app.auth.models.permission import Permission, RolePermissions
 from app.auth.models.role import Role, UserRoles
 
-from app.profiles.models.contact import Contact
+from app.profiles.models.profile_link import ProfileLink
 from app.profiles.models.profile import Profile
+from app.profiles.models.contacts import BlockedUser, PendingContact, UserContact, UserIdentifier
 
 from app.chats.models.attachment import MessageAttachment
 from app.chats.models.chat import Chat
