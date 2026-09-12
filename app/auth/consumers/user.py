@@ -48,7 +48,8 @@ async def send_verify_on_user_created(
         raise
 
 
-@subscriber()
-@inject
-async def pass_() -> None:
+@subscriber
+async def pass_(
+    event
+) -> None:
     return

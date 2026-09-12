@@ -47,7 +47,7 @@ class ResetPasswordCommandHandler(BaseCommandHandler[ResetPasswordCommand, None]
             raise PasswordMismatchError
 
         user.password_reset(self.hash_service.hash_password(command.password))
-        await self.token_repository.invalidate_token(token=command.token)
+        await self.token_repository.invalidate_token(token=hash_token)
         await self.token_repository.add_user(user.id, expiration=timedelta(days=auth_config.REFRESH_TOKEN_EXPIRE_DAYS))
 
         await self.event_bus.publish(user.pull_events())

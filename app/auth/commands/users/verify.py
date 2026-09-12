@@ -39,7 +39,7 @@ class VerifyCommandHandler(BaseCommandHandler[VerifyCommand, None]):
             raise NotFoundUserError(user_by=user_id, user_field="id")
 
         user.verify()
-        await self.token_repository.invalidate_token(command.token)
+        await self.token_repository.invalidate_token(hash_token)
         await self.user_repository.update(user)
         await self.event_bus.publish(user.pull_events())
         await self.session.commit()

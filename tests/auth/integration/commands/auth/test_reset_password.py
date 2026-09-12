@@ -80,7 +80,7 @@ class TestResetPasswordCommand:
 
         new_password = "NewPassword123!"
         command = ResetPasswordCommand(
-            token=hashed_token,
+            token=reset_token,
             password=new_password,
             password_repeat=new_password,
         )
@@ -121,7 +121,7 @@ class TestResetPasswordCommand:
         )
 
         command = ResetPasswordCommand(
-            token=hashed_token,
+            token=reset_token,
             password="NewPassword123!",
             password_repeat="DifferentPassword123!",
         )
@@ -146,7 +146,7 @@ class TestResetPasswordCommand:
 
         new_password = "NewPassword123!"
         command = ResetPasswordCommand(
-            token=hashed_token,
+            token=reset_token,
             password=new_password,
             password_repeat=new_password,
         )

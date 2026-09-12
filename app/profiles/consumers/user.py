@@ -9,7 +9,6 @@ from app.profiles.commands.contacts.register_identifier import RegisterUserIdent
 from app.profiles.commands.profiles.get_or_create import GetOrCreateProfileCommand
 from app.profiles.config import profile_config
 
-
 router = KafkaRouter()
 subscriber = router.subscriber(
     profile_config.USER_TOPIC,
@@ -46,3 +45,9 @@ async def on_user_verified(
             group=profile_config.USER_VERIFIED_GROUP_ID, event_id=event.event_id
         )
         raise
+
+@subscriber
+async def pass_(
+    event
+) -> None:
+    return

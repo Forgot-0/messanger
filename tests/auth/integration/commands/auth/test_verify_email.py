@@ -75,7 +75,7 @@ class TestVerifyEmailCommand:
             expiration=timedelta(minutes=15),
         )
 
-        command = VerifyCommand(token=hashed_token)
+        command = VerifyCommand(token=verify_token)
         await handler.handle(command)
 
         verified_user = await user_repository.get_by_id(unverified_user.id)

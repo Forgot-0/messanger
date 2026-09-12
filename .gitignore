@@ -127,3 +127,4 @@ yarn-error.log*
 # loadtests/ (см. loadtests/README.md) — manifest.json генерируется loadtests/seed.py,
 # в репозиторий не кладём (содержит id реально созданных в БД тестовых пользователей/чатов)
 /loadtests/data/
+access_token.py

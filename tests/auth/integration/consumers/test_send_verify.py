@@ -1,22 +1,29 @@
-from uuid import uuid4
+import hashlib
+from uuid import UUID, uuid4
 
 import pytest
 from faststream.kafka import KafkaBroker
 
 from app.auth.config import auth_config
+from app.auth.consumers.user import CreatedUserPayload
 from app.auth.models.user import CreatedUserEvent, User
 from app.auth.repositories.session import TokenBlacklistRepository
+from app.core.consumers.event import TypedEventDTO
 from app.core.utils import now_utc
 from tests.mocks import MockMailService
 
 
-def created_user_message(user: User, event_id: str | None = None) -> dict:
-    return {
-        "event_id": event_id or str(uuid4()),
-        "event_name": CreatedUserEvent.get_name(),
-        "created_at": now_utc().isoformat(),
-        "payload": {"email": user.email, "username": user.username},
-    }
+def created_user_message(user: User, event_id: UUID | None = None) -> dict:
+    return TypedEventDTO[CreatedUserPayload](
+        event_name=CreatedUserEvent.get_name(),
+        event_id=event_id or uuid4(),
+        created_at=now_utc(),
+        payload=CreatedUserPayload(
+            email=user.email,
+            username=user.username
+        )
+    ).model_dump(mode="json")
+
 
 
 @pytest.mark.integration
@@ -53,7 +60,9 @@ class TestSendVerifyConsumer:
         await self.publish(consumer_broker, created_user_message(standard_user))
 
         token = mock_mail_service.sent_emails[0]["template"].token
-        assert await token_blacklist_repository.is_valid_token(token) == standard_user.id
+        assert await token_blacklist_repository.is_valid_token(
+            hashlib.sha256(token.encode()).hexdigest()
+        ) == standard_user.id
 
     async def test_duplicate_delivery_sends_one_email(
         self,

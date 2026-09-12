@@ -8,7 +8,6 @@ from app.core.consumers.event import TypedEventDTO
 from app.core.consumers.idempotency import EventIdempotencyGuard
 from app.core.mediators.base import BaseMediator
 
-
 router = KafkaRouter()
 
 subscriber = router.subscriber(
@@ -63,7 +62,9 @@ async def route_profile_delivery_event(
         )
         raise
 
-@subscriber()
-@inject
-async def pass_() -> None:
+@subscriber
+async def pass_(
+    event
+) -> None:
     return
+

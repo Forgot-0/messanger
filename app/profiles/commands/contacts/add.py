@@ -17,7 +17,6 @@ from app.profiles.exceptions import (
     SelfContactError,
 )
 from app.profiles.models.contacts import ContactSource, UserContact
-from app.profiles.models.profile import Profile
 from app.profiles.repositories.contacts import BlockedUserRepository, ContactRepository
 from app.profiles.repositories.profiles import ProfileRepository
 from app.profiles.services.contact_access import check_contact_owner
@@ -109,7 +108,7 @@ class AddContactCommandHandler(BaseCommandHandler[AddContactCommand, UserContact
         )
 
         contact = await self.contact_repository.get(command.owner_id, profile.id, with_profile=True)
-        
+
         if contact is None:
             raise NotFoundContactError(contact_id=profile.id)
 

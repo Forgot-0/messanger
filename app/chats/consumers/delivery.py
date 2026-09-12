@@ -6,7 +6,6 @@ from app.chats.services.delivery_router import ChatDeliveryRouter
 from app.core.consumers.event import DictEventDTO
 from app.core.consumers.idempotency import EventIdempotencyGuard
 
-
 router = KafkaRouter()
 
 
