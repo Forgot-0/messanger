@@ -64,7 +64,7 @@ async def route_profile_delivery_event(
 
 @subscriber
 async def pass_(
-    event
+    _event
 ) -> None:
     return
 

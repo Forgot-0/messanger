@@ -2,11 +2,12 @@ from dishka.integrations.faststream import FromDishka, inject
 from faststream.kafka import KafkaRouter
 from pydantic import BaseModel
 
+from app.auth.commands.users.send_verify import SendVerifyCommand
 from app.auth.config import auth_config
-from app.auth.events.users.created import SendVerifyEventHandler
 from app.auth.models.user import CreatedUserEvent
 from app.core.consumers.event import TypedEventDTO
 from app.core.consumers.idempotency import EventIdempotencyGuard
+from app.core.mediators.base import BaseMediator
 
 router = KafkaRouter()
 
@@ -24,7 +25,7 @@ class CreatedUserPayload(BaseModel):
 @inject
 async def send_verify_on_user_created(
     event: TypedEventDTO[CreatedUserPayload],
-    send_verify: FromDishka[SendVerifyEventHandler],
+    mediator: FromDishka[BaseMediator],
     idempotency_guard: FromDishka[EventIdempotencyGuard],
 ) -> None:
     if not await idempotency_guard.try_acquire(
@@ -33,12 +34,9 @@ async def send_verify_on_user_created(
         return
 
     try:
-        await send_verify(
-            CreatedUserEvent(
+        await mediator.handle_command(
+            SendVerifyCommand(
                 email=event.payload.email,
-                username=event.payload.username,
-                event_id=event.event_id,
-                created_at=event.created_at,
             )
         )
     except Exception:
@@ -50,6 +48,6 @@ async def send_verify_on_user_created(
 
 @subscriber
 async def pass_(
-    event
+    _event
 ) -> None:
     return

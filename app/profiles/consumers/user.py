@@ -48,6 +48,6 @@ async def on_user_verified(
 
 @subscriber
 async def pass_(
-    event
+    _event
 ) -> None:
     return

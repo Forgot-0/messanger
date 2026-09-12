@@ -1,4 +1,4 @@
-from dishka import Provider, Scope, decorate, provide
+from dishka import Provider, Scope, decorate, provide, provide_all
 
 from app.core.events.event import EventRegistry
 from app.core.mediators.base import CommandRegistry, QueryRegistry
@@ -42,31 +42,42 @@ from app.profiles.services.identifier_hasher import IdentifierHasher
 class ProfileModuleProvider(Provider):
     scope = Scope.REQUEST
 
-    profile_repository = provide(ProfileRepository)
-    contact_repository = provide(ContactRepository)
-    contact_identifier_repository = provide(ContactIdentifierRepository)
-    blocked_user_repository = provide(BlockedUserRepository)
+    repositories = provide_all(
+        ProfileRepository,
+        ContactRepository,
+        ContactIdentifierRepository,
+        BlockedUserRepository
+    )
 
     @provide(scope=Scope.APP)
     def identifier_hasher(self) -> IdentifierHasher:
         return IdentifierHasher(pepper=profile_config.CONTACT_IDENTIFIER_PEPPER)
 
+    handlers = provide_all(
+        CreateProfileCommandHanler,
+        UpdateProfileCommandHandler,
+        UpdateProfileAvatarCommandHandler,
+        ProccessAvatarCommandHandler,
+        AddLinkToProfileCommandHandler,
+        RemoveLinkFromProfileCommandHandler,
+        GetOrCreateProfileCommandHanler,
+        AddContactCommandHandler,
+        RemoveContactCommandHandler,
+        UpdateContactCommandHandler,
+        ImportContactsCommandHandler,
+        RegisterUserIdentifierCommandHandler,
+        BlockUserCommandHandler,
+        UnblockUserCommandHandler,
 
-    create_profile_handler = provide(CreateProfileCommandHanler)
-    update_profile_handler = provide(UpdateProfileCommandHandler)
-    update_avatar_profile_handler = provide(UpdateProfileAvatarCommandHandler)
-    process_avatar_handler = provide(ProccessAvatarCommandHandler)
-    add_link_profile_handler = provide(AddLinkToProfileCommandHandler)
-    remove_link_profile_handler = provide(RemoveLinkFromProfileCommandHandler)
-    get_or_create_provider = provide(GetOrCreateProfileCommandHanler)
+        GetProfileByIdQueryHandler,
+        GetProfilesQueryHandler,
+        GetAvatrProfileUrlQueryHandler,
+        GetContactsQueryHandler,
+        SearchContactsQueryHandler,
+        GetBlockedUsersQueryHandler
 
-    add_contact_handler = provide(AddContactCommandHandler)
-    remove_contact_handler = provide(RemoveContactCommandHandler)
-    update_contact_handler = provide(UpdateContactCommandHandler)
-    import_contacts_handler = provide(ImportContactsCommandHandler)
-    register_identifier_handler = provide(RegisterUserIdentifierCommandHandler)
-    block_user_handler = provide(BlockUserCommandHandler)
-    unblock_user_handler = provide(UnblockUserCommandHandler)
+    )
+
 
     @decorate
     def register_profile_command_handlers(self, command_registry: CommandRegistry) -> CommandRegistry:
@@ -120,13 +131,6 @@ class ProfileModuleProvider(Provider):
     @decorate
     def register_profile_event_handlers(self, event_registry: EventRegistry) -> EventRegistry:
         return event_registry
-
-    get_by_id_profile_handler = provide(GetProfileByIdQueryHandler)
-    get_profiles_handler = provide(GetProfilesQueryHandler)
-    get_upload_url_avatra_handler = provide(GetAvatrProfileUrlQueryHandler)
-    get_contacts_handler = provide(GetContactsQueryHandler)
-    search_contacts_handler = provide(SearchContactsQueryHandler)
-    get_blocked_users_handler = provide(GetBlockedUsersQueryHandler)
 
     @decorate
     def register_profile_query_handlers(self, query_registry: QueryRegistry) -> QueryRegistry:

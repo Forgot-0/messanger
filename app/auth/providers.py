@@ -1,4 +1,4 @@
-from dishka import Provider, Scope, alias, decorate, provide
+from dishka import Provider, Scope, alias, decorate, provide, provide_all
 from passlib.context import CryptContext
 from redis.asyncio import Redis
 
@@ -36,7 +36,6 @@ from app.auth.commands.users.send_reset_password import SendResetPasswordCommand
 from app.auth.commands.users.send_verify import SendVerifyCommand, SendVerifyCommandHandler
 from app.auth.commands.users.verify import VerifyCommand, VerifyCommandHandler
 from app.auth.config import auth_config
-from app.auth.events.users.created import SendVerifyEventHandler
 from app.auth.queries.auth.get_by_token import GetByAccessTokenQuery, GetByAccessTokenQueryHandler
 from app.auth.queries.auth.oauth import GetUserOAuthAccountsQuery, GetUserOAuthAccountsQueryHandler
 from app.auth.queries.auth.verify import VerifyTokenQuery, VerifyTokenQueryHandler
@@ -65,12 +64,13 @@ from app.core.services.auth.rbac import RBACManagerInterface
 class AuthModuleProvider(Provider):
     scope = Scope.REQUEST
 
-    # repository
-    user_repository = provide(UserRepository)
-    token_repository = provide(SessionRepository)
-    role_repository = provide(RoleRepository)
-    permission_repository = provide(PermissionRepository)
-    oauth_repository = provide(OauthAccountRepository)
+    repositories = provide_all(
+        UserRepository,
+        SessionRepository,
+        RoleRepository,
+        PermissionRepository,
+        OauthAccountRepository,
+    )
 
     @provide(scope=Scope.APP)
     def token_blacklist(self, redis: Redis) -> TokenBlacklistRepository:
@@ -172,34 +172,42 @@ class AuthModuleProvider(Provider):
 
     rbac_manager_port = alias(source=AuthRBACManager, provides=RBACManagerInterface)
 
-    session_manager = provide(SessionManager)
-    oauth_manager = provide(OAuthManager)
+    handlers = provide_all(
+        SessionManager,
+        OAuthManager,
 
-    register_user_handler = provide(RegisterCommandHandler)
-    reset_password_handler = provide(ResetPasswordCommandHandler)
-    send_reset_password_handler = provide(SendResetPasswordCommandHandler)
-    send_verify_handler = provide(SendVerifyCommandHandler)
-    verify_handler = provide(VerifyCommandHandler)
+        RegisterCommandHandler,
+        ResetPasswordCommandHandler,
+        SendResetPasswordCommandHandler,
+        SendVerifyCommandHandler,
+        VerifyCommandHandler,
+        LoginCommandHandler,
+        LogoutCommandHandler,
+        RefreshTokenCommandHandler,
+        CreateOAuthAuthorizeUrlCommandHandler,
+        ProcessOAuthCallbackCommandHandler,
+        CreateRoleCommandHandler,
+        RoleUpdateCommandHandler,
+        AssignRoleCommandHandler,
+        RemoveRoleCommandHandler,
+        AddPermissionRoleCommandHandler,
+        DeletePermissionRoleCommandHandler,
+        CreatePermissionCommandHandler,
+        DeletePermissionCommandHandler,
+        AddPermissionToUserCommandHandler,
+        DeletePermissionToUserCommandHandler,
+        UserDeactivateSessionCommandHandler,
 
-    login_handler = provide(LoginCommandHandler)
-    logout_handler = provide(LogoutCommandHandler)
-    refresh_handler = provide(RefreshTokenCommandHandler)
-    oauth_url = provide(CreateOAuthAuthorizeUrlCommandHandler)
-    callback_oauth = provide(ProcessOAuthCallbackCommandHandler)
+        VerifyTokenQueryHandler,
+        GetListUserQueryHandler,
+        GetByAccessTokenQueryHandler,
+        GetListPermissionsQueryHandler,
+        GetListRolesQueryHandler,
+        GetListSessionsUserQueryHandler,
+        GetListSessionQueryHandler,
+        GetUserOAuthAccountsQueryHandler
 
-    create_role_handler = provide(CreateRoleCommandHandler)
-    update_role_handler = provide(RoleUpdateCommandHandler)
-    assign_role_handler = provide(AssignRoleCommandHandler)
-    remove_role_handler = provide(RemoveRoleCommandHandler)
-    add_permission_role_handler = provide(AddPermissionRoleCommandHandler)
-    remove_permission_role_handler = provide(DeletePermissionRoleCommandHandler)
-
-    create_permission_handler = provide(CreatePermissionCommandHandler)
-    delete_permission_handler = provide(DeletePermissionCommandHandler)
-    add_permission_to_user_handler = provide(AddPermissionToUserCommandHandler)
-    delete_permission_to_user_handler = provide(DeletePermissionToUserCommandHandler)
-
-    deactivate_session_handler = provide(UserDeactivateSessionCommandHandler)
+    )
 
     @decorate
     def register_auth_command_handlers(self, command_registry: CommandRegistry) -> CommandRegistry:
@@ -230,19 +238,6 @@ class AuthModuleProvider(Provider):
 
         command_registry.register_command(UserDeactivateSessionCommand, UserDeactivateSessionCommandHandler)
         return command_registry
-
-    # Вызывается из app/auth/consumers/user.py по событию auth.user.created
-    send_verify_email = provide(SendVerifyEventHandler)
-
-    # query
-    get_jwt_data = provide(VerifyTokenQueryHandler)
-    get_list_user_query_handler = provide(GetListUserQueryHandler)
-    get_user_by_access_token_query_handler = provide(GetByAccessTokenQueryHandler)
-    get_permissions_query_handler = provide(GetListPermissionsQueryHandler)
-    get_roles_query_handler = provide(GetListRolesQueryHandler)
-    get_list_user_sessions = provide(GetListSessionsUserQueryHandler)
-    get_list_sessions = provide(GetListSessionQueryHandler)
-    get_user_oauth_accounts = provide(GetUserOAuthAccountsQueryHandler)
 
     @decorate
     def register_auth_query_handlers(self, query_registry: QueryRegistry) -> QueryRegistry:

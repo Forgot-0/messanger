@@ -34,8 +34,10 @@ from app.notifications.services.push.firebase.service import FirebaseAdminPushSe
 class NotificationModuleProvider(Provider):
     scope = Scope.REQUEST
 
-    notification_repository = provide(NotificationRepository)
-    device_repository = provide(DeviceRepository)
+    repositories = provide_all(
+        NotificationRepository,
+        DeviceRepository
+    )
 
     handlers = provide_all(
         MarkNotificationAsReadCommandHandler,
