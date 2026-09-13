@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING, Protocol, overload
 
 from redis.asyncio import Redis
 
@@ -16,6 +16,11 @@ from app.core.services.storage.service import StorageService
 
 if TYPE_CHECKING:
     from app.chats.dtos.attachments import AttachmentDTO
+
+
+class AvatarHolder(Protocol):
+    avatar_s3_key: str | None
+    avatar_url: str | None
 
 
 SCRIPT_SLOW_MODE = """
@@ -79,7 +84,7 @@ class MessageService:
             for attachment in message.attachments:
                 attachments_by_key[attachment.s3_key] = attachment
 
-        await self.attach_profile_urls(profiles)
+        await self.image_urls(profiles)
 
         if not attachments_by_key:
             return message_list[0] if isinstance(messages, MessageDTO) else message_list
@@ -98,10 +103,10 @@ class MessageService:
 
         return message_list[0] if isinstance(messages, MessageDTO) else message_list
 
-    async def attach_profile_urls(
-        self, profiles: Iterable[ChatProfileDTO | None]
+    async def image_urls(
+        self, profiles: Iterable[AvatarHolder | None]
     ) -> None:
-        by_key: dict[str, list[ChatProfileDTO]] = {}
+        by_key: dict[str, list[AvatarHolder]] = {}
         for profile in profiles:
             if profile is None or not profile.avatar_s3_key:
                 continue

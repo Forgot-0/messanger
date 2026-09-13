@@ -30,6 +30,18 @@ target_metadata = BaseModel.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
+EXPRESSION_INDEXES = frozenset({
+    "ix_messages_content_fts_simple",  # d4f2a91c60b7
+})
+
+
+def include_object(
+    object_: object, name: str | None, type_: str, reflected: bool, compare_to: object
+) -> bool:
+    if type_ == "index" and name in EXPRESSION_INDEXES:
+        return False
+    return True
+
 # Set the SQLAlchemy URL.
 config.set_main_option("sqlalchemy.url", str(app_config.postgres_url))
 
@@ -52,6 +64,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -59,7 +72,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+    )
 
     with context.begin_transaction():
         context.run_migrations()

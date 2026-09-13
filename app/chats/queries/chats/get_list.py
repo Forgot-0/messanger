@@ -100,7 +100,7 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
                 draft=member.draft,
             ))
 
-        await self.message_service.attach_profile_urls(profiles)
+        await self.message_service.image_urls(profiles)
 
         return ListChats(
             has_next=len(rows) > limit,

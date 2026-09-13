@@ -10,12 +10,16 @@ from app.chats.commands.chats.join import JoinChatCommand
 from app.chats.commands.chats.leave import LeaveChatCommand
 from app.chats.commands.chats.update import UpdateChatCommand
 from app.chats.commands.chats.update_state import UpdateChatStateCommand
+from app.chats.config import chat_config
 from app.chats.dtos.chats import ChatDetailDTO, ChatDTO, ChatStateDTO, ListChats
+from app.chats.dtos.search import MessageSearchDTO
 from app.chats.queries.chats.get_detail import GetChatDetailQuery
 from app.chats.queries.chats.get_list import GetListChatUserQuery
+from app.chats.queries.messages.search import SearchMessagesQuery
 from app.chats.schemas.rest import (
     CreateChatRequest,
     GetListUserChatsRequest,
+    SearchMessagesRequest,
     UpdateChatRequest,
     UpdateChatStateRequest,
 )
@@ -71,6 +75,28 @@ async def create_chat(
     )
     return chat
 
+@router.get(
+    "/messages/search/",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.MESSAGE_SEARCH_RATE_LIMIT_TIMES,
+        seconds=chat_config.MESSAGE_SEARCH_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def search_messages(
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+    get_request: Annotated[SearchMessagesRequest, Query()],
+) -> MessageSearchDTO:
+    return await mediator.handle_query(
+        SearchMessagesQuery(
+            user_jwt_data=user_jwt_data,
+            q=get_request.q,
+            chat_id=get_request.chat_id,
+            limit=get_request.limit,
+            last_message_id=get_request.last_message_id,
+        )
+    )
 
 @router.get(
     "/{chat_id}/",

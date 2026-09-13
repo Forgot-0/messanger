@@ -51,6 +51,20 @@ class GetListUserChatsRequest(BaseModel):
     archived: bool = Field(default=False)
 
 
+class SearchMessagesRequest(BaseModel):
+    q: str = Field(
+        min_length=chat_config.MESSAGE_SEARCH_MIN_QUERY_LENGTH,
+        max_length=chat_config.MESSAGE_SEARCH_MAX_QUERY_LENGTH,
+    )
+    chat_id: UUID | None = Field(default=None)
+    limit: int = Field(
+        default=chat_config.MESSAGE_SEARCH_LIMIT,
+        ge=1,
+        le=chat_config.MESSAGE_SEARCH_MAX_LIMIT,
+    )
+    last_message_id: UUID | None = Field(default=None)
+
+
 class UpdateChatStateRequest(BaseModel):
     pinned: bool | None = None
     archived: bool | None = None

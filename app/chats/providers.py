@@ -43,6 +43,7 @@ from app.chats.queries.chats.get_members import GetChatMembersQuery, GetChatMemb
 from app.chats.queries.messages.get_context import GetMessageContextQuery, GetMessageContextQueryHandler
 from app.chats.queries.messages.get_detail import GetMessageDetailQuery, GetMessageDetailQueryHandler
 from app.chats.queries.messages.get_list import GetMessagesQuery, GetMessagesQueryHandler
+from app.chats.queries.messages.search import SearchMessagesQuery, SearchMessagesQueryHandler
 from app.chats.queries.reactions.get_list import (
     GetMessageReactionsQuery,
     GetMessageReactionsQueryHandler,
@@ -125,6 +126,7 @@ class ChatModuleProvider(Provider):
         GetMessageDetailQueryHandler,
         GetMessagesQueryHandler,
         GetMessageReactionsQueryHandler,
+        SearchMessagesQueryHandler,
         scope=Scope.REQUEST,
     )
 
@@ -189,6 +191,7 @@ class ChatModuleProvider(Provider):
         query_registry.register_query(GetMessageContextQuery, GetMessageContextQueryHandler)
         query_registry.register_query(GetMessageDetailQuery, GetMessageDetailQueryHandler)
         query_registry.register_query(GetMessagesQuery, GetMessagesQueryHandler)
+        query_registry.register_query(SearchMessagesQuery, SearchMessagesQueryHandler)
         query_registry.register_query(GetMessageReactionsQuery, GetMessageReactionsQueryHandler)
         return query_registry
 

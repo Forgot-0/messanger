@@ -103,6 +103,13 @@ HTTP route (app/<module>/routes/v1/*.py)
   под него есть partial-индекс `ix_chat_members_user_pinned`. В `GET /chats/` пины исключены из
   keyset-тела и приклеиваются отдельным запросом к первой странице; `archived` — отдельный набор.
   `notifications_muted_until` **не** `muted_until`: первый — личный мьют push, второй — модераторский.
+- **Поиск по сообщениям**: `GET /api/v1/chats/messages/search/` — статический путь в
+  `routes/v1/chats.py`, объявлен **выше** `/{chat_id}/`. Postgres FTS по `messages.content`,
+  конфигурация `simple` (смешанные языки, стемминг вреден), последний терм префиксный,
+  tsquery собирается вручную в `app/chats/services/search_query.py`. GIN-индекс
+  `ix_messages_content_fts_simple` создаётся миграцией `d4f2a91c60b7` вручную и исключён из
+  сравнения в `migrations/env.py` (alembic expression-индексы не сравнивает и выписал бы им DROP).
+  Скоуп видимости — join на `chat_members` вызывающего; по `joined_at` намеренно не режем.
 - **Вложения**: двухшаговая загрузка через presigned PUT в SeaweedFS
   (`chat-pending-attachments` → валидация/обработка → `chat-attachments`). Лимиты MIME и размеров — в `config.py`.
 - **Звонки**: LiveKit, выдача room-токена (`ROOM_TOKEN_TTL`, `ROOM_MAX_PARTICIPANTS`).

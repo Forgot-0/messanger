@@ -35,7 +35,7 @@ class GetChatDetailQueryHandler(BaseQueryHandler[GetChatDetailQuery, ChatDetailD
             raise NotChatMemberError(chat_id=str(query.chat_id), user_id=user_id)
 
         member_dtos = [MemberChatDTO.model_validate(item) for item in chat.members]
-        await self.message_service.attach_profile_urls(
+        await self.message_service.image_urls(
             [dto.profile for dto in member_dtos]
         )
 

@@ -218,3 +218,115 @@ class TestChatsHttpEndpoints:
         assert ids_first.isdisjoint(ids_second)
         assert ids_first | ids_second == set(created_ids)
         assert page2["has_next"] is False
+
+
+@pytest.mark.integration
+@pytest.mark.chats
+@pytest.mark.asyncio
+class TestMessageSearchHttpEndpoint:
+    async def test_search_unauthorized(self, client: AsyncClient) -> None:
+        response = await client.get(
+            api_path("chats/messages/search/"), params={"q": "бюджет"}
+        )
+        assert response.status_code == 403
+
+    async def test_static_path_wins_over_the_parametrised_one(
+        self,
+        client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
+    ) -> None:
+        # Если бы роут стоял ниже "/{chat_id}/", "messages" попал бы в UUID-параметр
+        # и ответом было бы 422 — этот тест ровно об этом.
+        response = await client.get(
+            api_path("chats/messages/search/"),
+            params={"q": "бюджет"},
+            headers=create_auth_headers(user_jwt),
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"has_next": False, "items": [], "next_message_id": None}
+
+    async def test_missing_trailing_slash_is_404(
+        self,
+        client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
+    ) -> None:
+        response = await client.get(
+            api_path("chats/messages/search"),
+            params={"q": "бюджет"},
+            headers=create_auth_headers(user_jwt),
+        )
+
+        assert response.status_code == 404
+
+    @pytest.mark.parametrize("params", [{}, {"q": ""}, {"q": "б"}, {"q": "б" * 151}])
+    async def test_invalid_query_is_422(
+        self,
+        client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
+        params: dict,
+    ) -> None:
+        response = await client.get(
+            api_path("chats/messages/search/"),
+            params=params,
+            headers=create_auth_headers(user_jwt),
+        )
+
+        assert response.status_code == 422
+
+    async def test_limit_above_the_maximum_is_422(
+        self,
+        client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
+    ) -> None:
+        response = await client.get(
+            api_path("chats/messages/search/"),
+            params={"q": "бюджет", "limit": 51},
+            headers=create_auth_headers(user_jwt),
+        )
+
+        assert response.status_code == 422
+
+    async def test_finds_a_sent_message_with_chat_preview(
+        self,
+        client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
+    ) -> None:
+        headers = create_auth_headers(user_jwt)
+
+        create_resp = await client.post(
+            api_path("chats/"),
+            json=group_chat_payload(name="Searchable Group"),
+            headers=headers,
+        )
+        chat_id = create_resp.json()["id"]
+
+        await client.post(
+            api_path(f"chats/{chat_id}/messages/"),
+            json=send_text_payload("квартальный бюджет утверждён"),
+            headers=headers,
+        )
+
+        response = await client.get(
+            api_path("chats/messages/search/"),
+            params={"q": "бюдж"},
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert [item["message"]["content"] for item in body["items"]] == [
+            "квартальный бюджет утверждён"
+        ]
+        assert body["items"][0]["chat"] == {
+            "id": chat_id,
+            "type": "group",
+            "name": "Searchable Group",
+            "avatar_url": None,
+            "avatar_s3_key": None,
+        }

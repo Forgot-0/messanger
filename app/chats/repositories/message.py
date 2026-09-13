@@ -2,9 +2,11 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import selectinload
 
+from app.chats.models.chat import Chat
+from app.chats.models.chat_members import ChatMember
 from app.chats.models.message import Message
 from app.core.db.repository import IRepository
 
@@ -122,3 +124,40 @@ class MessageRepository(IRepository[Message]):
         combined = list(older_res.scalars().all()) + list(newer_res.scalars().all())
 
         return combined
+
+    async def search_visible(
+        self,
+        user_id: int,
+        tsquery: str,
+        limit: int,
+        chat_id: UUID | None = None,
+        last_message_id: UUID | None = None,
+    ) -> list[tuple[Message, Chat]]:
+        conditions = [
+            ChatMember.active_criteria(),
+            Message.is_deleted.is_(False),
+            Chat.deleted_at.is_(None),
+            func.to_tsvector("simple", Message.content).op("@@")(
+                func.to_tsquery("simple", tsquery)
+            ),
+        ]
+        if chat_id is not None:
+            conditions.append(Message.chat_id == chat_id)
+        if last_message_id is not None:
+            conditions.append(Message.id < last_message_id)
+
+        stmt = (
+            select(Message, Chat)
+            .join(Chat, Chat.id == Message.chat_id)
+            .join(
+                ChatMember,
+                and_(ChatMember.chat_id == Message.chat_id, ChatMember.user_id == user_id),
+            )
+            .where(*conditions)
+            .options(selectinload(Message.profile))
+            .order_by(Message.id.desc())
+            .limit(limit + 1)
+        )
+
+        result = await self.session.execute(stmt)
+        return list(result.tuples())

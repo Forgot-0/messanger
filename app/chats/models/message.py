@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -141,10 +142,14 @@ class Message(BaseModel, DateMixin):
         lazy="noload",
     )
 
-
     __table_args__ = (
         Index("ix_messages_chat_not_deleted", "chat_id", "seq",
               postgresql_where="is_deleted = false"),
+        Index(
+            "idx_messages_content_tsvector",
+            text("to_tsvector('simple', content)"),
+            postgresql_using="gin",
+        ),
     )
 
     @classmethod

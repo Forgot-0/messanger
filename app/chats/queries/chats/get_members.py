@@ -54,7 +54,7 @@ class GetChatMembersQueryHandler(BaseQueryHandler[GetChatMembersQuery, ListMembe
             ]
 
         member_dtos = [MemberChatDTO.model_validate(member) for member in page]
-        await self.message_service.attach_profile_urls(
+        await self.message_service.image_urls(
             [dto.profile for dto in member_dtos]
         )
 
