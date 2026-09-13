@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from collections.abc import AsyncGenerator, Callable, Generator
 from datetime import timedelta
@@ -14,7 +15,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi_limiter import FastAPILimiter
 from faststream.kafka import KafkaBroker, TestKafkaBroker
 from httpx import ASGITransport, AsyncClient
-from minio import Minio
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
@@ -24,9 +24,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.pool import NullPool
-from testcontainers.community.minio import MinioContainer
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import AsyncRedisContainer
+from testcontainers.core.container import DockerContainer
+from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
 from app.auth.services.oauth_manager import OAuthProviderFactory
 from app.chats.config import chat_config
@@ -45,8 +46,9 @@ from app.core.services.auth.jwt_manager import JWTManager
 from app.core.services.auth.rbac import RBACManagerInterface
 from app.core.services.mail.service import BaseMailService
 from app.core.services.queues.service import QueueService
-from app.core.services.storage.aminio.policy import Policy
-from app.core.services.storage.aminio.service import MinioStorageService
+from app.core.services.storage.aioboto.client import S3Client, s3_client
+from app.core.services.storage.aioboto.service import AioBotoStorageService
+from app.core.services.storage.policy import Policy
 from app.core.services.storage.service import StorageService
 from app.core.utils import now_utc
 from app.init_data import create_first_data
@@ -101,13 +103,51 @@ def redis_container() -> Generator[AsyncRedisContainer]:
         yield redis
 
 
-MINIO_IMAGE = "minio/minio:RELEASE.2025-07-23T15-54-02Z"
+SEAWEEDFS_IMAGE = "chrislusf/seaweedfs:4.46"
+SEAWEEDFS_S3_PORT = 8333
+STORAGE_ACCESS_KEY = "test"
+STORAGE_SECRET_KEY = "test123"  # noqa: S105
 
 
 @pytest.fixture(scope="session")
-def minio_container() -> Generator[MinioContainer]:
-    with MinioContainer(MINIO_IMAGE) as minio:
-        yield minio
+def storage_container() -> Generator[DockerContainer]:
+    identities = json.dumps(
+        {
+            "identities": [
+                {
+                    "name": "test",
+                    "credentials": [
+                        {"accessKey": STORAGE_ACCESS_KEY, "secretKey": STORAGE_SECRET_KEY}
+                    ],
+                    "actions": ["Admin", "Read", "Write", "List", "Tagging"],
+                }
+            ]
+        }
+    )
+    script = (
+        f"printf '%s' '{identities}' > /tmp/s3.json && "
+        f"exec weed server -dir=/data -ip.bind=0.0.0.0 -filer -s3 "
+        f"-s3.port={SEAWEEDFS_S3_PORT} -s3.config=/tmp/s3.json "
+        f"-master.volumeSizeLimitMB=64 -volume.max=0"
+    )
+
+    container = (
+        DockerContainer(SEAWEEDFS_IMAGE)
+        .with_exposed_ports(SEAWEEDFS_S3_PORT)
+        .with_command(["sh", "-c", script])
+        .with_kwargs(entrypoint="")
+        .waiting_for(LogMessageWaitStrategy("Start Seaweed S3 API Server"))
+    )
+
+    with container:
+        yield container
+
+
+@pytest.fixture(scope="session")
+def storage_endpoint(storage_container: DockerContainer) -> str:
+    host = storage_container.get_container_host_ip()
+    port = storage_container.get_exposed_port(SEAWEEDFS_S3_PORT)
+    return f"http://{host}:{port}"
 
 
 TEST_BUCKETS: dict[str, Policy] = {
@@ -119,33 +159,43 @@ TEST_BUCKETS: dict[str, Policy] = {
 }
 
 
-@pytest.fixture(scope="session")
-def storage_service(minio_container: MinioContainer) -> StorageService:
-    host_ip = minio_container.get_container_host_ip()
-    port = minio_container.get_exposed_port(9000)
-    endpoint = f"{host_ip}:{port}"
-
-    client = Minio(
-        endpoint=endpoint,
-        access_key=minio_container.access_key,
-        secret_key=minio_container.secret_key,
-        secure=False,
-    )
-    return MinioStorageService(
+def _build_storage_service(client: S3Client, endpoint: str) -> AioBotoStorageService:
+    return AioBotoStorageService(
         client=client,
-        public_minio=client,
+        public_client=client,
         bucket_policy=dict(TEST_BUCKETS),
+        public_base_url=endpoint,
     )
 
 
 @pytest.fixture(scope="session")
-def minio_client(minio_container: MinioContainer) -> Minio:
-    return Minio(
-        endpoint=f"{minio_container.get_container_host_ip()}:{minio_container.get_exposed_port(9000)}",
-        access_key=minio_container.access_key,
-        secret_key=minio_container.secret_key,
-        secure=False,
+def storage_buckets(storage_endpoint: str) -> None:
+
+    async def _create() -> None:
+        async with _storage_client(storage_endpoint) as client:
+            await _build_storage_service(client, storage_endpoint).ensure_buckets()
+
+    asyncio.run(_create())
+
+
+def _storage_client(endpoint: str):
+    return s3_client(
+        endpoint_url=endpoint,
+        access_key=STORAGE_ACCESS_KEY,
+        secret_key=STORAGE_SECRET_KEY,
+        region="us-east-1",
     )
+
+
+@pytest.fixture
+async def s3_test_client(storage_endpoint: str, storage_buckets: None) -> AsyncGenerator[S3Client]:
+    async with _storage_client(storage_endpoint) as client:
+        yield client
+
+
+@pytest.fixture
+async def storage_service(storage_endpoint: str, s3_test_client: S3Client) -> StorageService:
+    return _build_storage_service(s3_test_client, storage_endpoint)
 
 
 @pytest.fixture(scope="session")

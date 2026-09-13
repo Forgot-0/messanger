@@ -1,13 +1,16 @@
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
+
 from dishka import Provider, Scope, provide
-from minio import Minio
 from redis.asyncio import Redis
 
 from app.core.configs.app import app_config
 from app.core.services.idempotency import IdempotencyStore
 from app.core.services.media.probe.ffprobe import FfprobeMediaProbeService
 from app.core.services.media.service import MediaProbeService
-from app.core.services.storage.aminio.policy import Policy
-from app.core.services.storage.aminio.service import MinioStorageService
+from app.core.services.storage.aioboto.client import s3_client
+from app.core.services.storage.aioboto.service import AioBotoStorageService
+from app.core.services.storage.policy import Policy
 from app.core.services.storage.service import StorageService
 
 
@@ -22,30 +25,38 @@ class CoreProvider(Provider):
         return FfprobeMediaProbeService()
 
     @provide(scope=Scope.APP)
-    def client_storage(self) -> Minio:
-        return Minio(
-            endpoint=app_config.storage_url,
-            access_key=app_config.STORAGE_ACCESS_KEY,
-            secret_key=app_config.STORAGE_SECRET_KEY,
-            secure=False,
-        )
-
-    @provide(scope=Scope.APP)
     def bucket_policy(self) -> dict[str, Policy]:
         return {
             "base": Policy.NONE
         }
 
     @provide(scope=Scope.APP)
-    async def storage_service(self, client: Minio, bucket_policy: dict[str, Policy]) -> StorageService:
-        return MinioStorageService(
-            client=client,
-            public_minio=Minio(
-                endpoint=app_config.STORAGE_PUBLIC_URL,
-                access_key=app_config.STORAGE_ACCESS_KEY,
-                secret_key=app_config.STORAGE_SECRET_KEY,
-                secure=True,
-            ),
-            bucket_policy=bucket_policy
-        )
+    async def storage_service(self, bucket_policy: dict[str, Policy]) -> AsyncIterator[StorageService]:
+        async with AsyncExitStack() as stack:
+            internal = await stack.enter_async_context(
+                s3_client(
+                    endpoint_url=app_config.storage_endpoint_url,
+                    access_key=app_config.STORAGE_ACCESS_KEY,
+                    secret_key=app_config.STORAGE_SECRET_KEY,
+                    region=app_config.STORAGE_REGION,
+                )
+            )
+            public = await stack.enter_async_context(
+                s3_client(
+                    endpoint_url=app_config.storage_public_endpoint_url,
+                    access_key=app_config.STORAGE_ACCESS_KEY,
+                    secret_key=app_config.STORAGE_SECRET_KEY,
+                    region=app_config.STORAGE_REGION,
+                )
+            )
 
+            service = AioBotoStorageService(
+                client=internal,
+                public_client=public,
+                bucket_policy=bucket_policy,
+                public_base_url=app_config.storage_public_endpoint_url,
+                sse_enabled=app_config.STORAGE_SSE,
+            )
+            await service.ensure_buckets()
+
+            yield service

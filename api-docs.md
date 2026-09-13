@@ -75,7 +75,7 @@ Authorization: Bearer <access_token>
 
 По умолчанию везде `application/json`, кроме:
 - `POST /auth/login/` — `application/x-www-form-urlencoded` (см. п. 0.4).
-- `PUT <presigned upload URL>` (S3/MinIO, аватар и вложения чата) — тело запроса, сырые байты файла.
+- `PUT <presigned upload URL>` (S3 (SeaweedFS), аватар и вложения чата) — тело запроса, сырые байты файла.
 
 ### 1.4 Успешный ответ
 
@@ -545,7 +545,7 @@ interface ProfileLinkDTO { profile_id: number; provider: string; contact: string
 }
 ```
 
-**Шаг 2 — `PUT <url>`** напрямую в S3/MinIO, минуя бэкенд. Тело — сырые байты файла целиком, без multipart и без дополнительных полей. Успеть уложиться нужно в 90 секунд от шага 1.
+**Шаг 2 — `PUT <url>`** напрямую в S3 (SeaweedFS), минуя бэкенд. Тело — сырые байты файла целиком, без multipart и без дополнительных полей. Успеть уложиться нужно в 90 секунд от шага 1.
 
 **Шаг 3 — `POST /profiles/avatar/upload_complete/`** 🔒 (лимит 4/5мин)
 ```ts
@@ -1031,9 +1031,9 @@ Array<{
 ```
 Имя файла санитизируется регуляркой `[^\w.\-]` → `_` и обрезается до 200 символов; ключ в S3 — `chats/{chat_id}/{uuid4}/{clean_filename}`.
 
-⚠️ **Presigned PUT из шага 1 указывает не на финальный бакет.** Загрузка идёт в промежуточный бакет `chat-pending-attachments` (`ATTACHMENT_BUCKET_PENDING`). Только после успешной фоновой валидации (шаг 3) файл копируется в `chat-attachments` (`ATTACHMENT_BUCKET`) и удаляется из pending-бакета. Для клиента это прозрачно (просто PUT по выданному URL), но если что-то читает/пишет в S3/MinIO напрямую в обход API — важно не путать эти два бакета.
+⚠️ **Presigned PUT из шага 1 указывает не на финальный бакет.** Загрузка идёт в промежуточный бакет `chat-pending-attachments` (`ATTACHMENT_BUCKET_PENDING`). Только после успешной фоновой валидации (шаг 3) файл копируется в `chat-attachments` (`ATTACHMENT_BUCKET`) и удаляется из pending-бакета. Для клиента это прозрачно (просто PUT по выданному URL), но если что-то читает/пишет в S3 (SeaweedFS) напрямую в обход API — важно не путать эти два бакета.
 
-**Шаг 2 — `PUT <upload_url>`** напрямую в S3/MinIO (минуя бэкенд), `Content-Type: <mime_type файла>`, тело — сырые байты файла целиком. Никакого multipart, никаких дополнительных полей.
+**Шаг 2 — `PUT <upload_url>`** напрямую в S3 (SeaweedFS) (минуя бэкенд), `Content-Type: <mime_type файла>`, тело — сырые байты файла целиком. Никакого multipart, никаких дополнительных полей.
 
 **Шаг 3 — `POST /chats/{chat_id}/attachments/upload-requests/confirm/`**
 ```ts

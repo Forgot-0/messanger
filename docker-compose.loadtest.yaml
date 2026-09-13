@@ -2,7 +2,7 @@
 #
 # Использование:
 #   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml build
-#   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml up -d db redis kafka minio debezium debezium_connector app consumers
+#   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml up -d db redis kafka seaweedfs debezium debezium_connector app consumers
 #   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml run --rm migrations
 #   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml run --rm loadtest-seed
 #   docker compose -f docker-compose.yaml -f docker-compose.loadtest.yaml run --rm loadtest-rest-throughput

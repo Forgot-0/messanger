@@ -64,7 +64,7 @@ from app.chats.services.read_coalescer import ReadReceiptCoalesceQueue
 from app.chats.services.read_flusher import ReadReceiptFlusher
 from app.core.events.event import EventRegistry
 from app.core.mediators.base import CommandRegistry, QueryRegistry
-from app.core.services.storage.aminio.policy import Policy
+from app.core.services.storage.policy import Policy
 
 
 class ChatModuleProvider(Provider):

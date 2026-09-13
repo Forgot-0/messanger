@@ -36,7 +36,7 @@ Backend мессенджера (Telegram-подобного): чаты/груп�
 
 Python 3.14 (`uuid7` берётся из stdlib `uuid`), FastAPI 0.135+, SQLAlchemy 2.0 async + asyncpg,
 PostgreSQL 18 (`wal_level=logical`), Alembic, Dishka, Redis/Valkey, Taskiq (+ taskiq-redis),
-Kafka (продюсер — aiokafka, консьюмеры — FastStream), Debezium 2.7, MinIO (S3),
+Kafka (продюсер — aiokafka, консьюмеры — FastStream), Debezium 2.7, SeaweedFS (S3, клиент — aioboto3),
 pyvips/ffprobe для медиа, LiveKit (звонки), Firebase Admin (push), aiosmtplib + Jinja2 (почта),
 structlog, Prometheus/Grafana/Loki/Vector, pytest + pytest-asyncio + testcontainers,
 ruff/mypy/pylint/pre-commit. Пакетный менеджер — Poetry.
@@ -51,7 +51,7 @@ ruff/mypy/pylint/pre-commit. Пакетный менеджер — Poetry.
 | `scheduler` | `app.tasks:scheduler` (Taskiq) | Периодические задачи, в т.ч. очистка outbox |
 | `migrations` | one-shot | `alembic upgrade head` + `python -m app.init_data` |
 
-Инфраструктура в compose: `db`, `redis`, `kafka`, `minio`, `debezium`, `debezium_connector`.
+Инфраструктура в compose: `db`, `redis`, `kafka`, `seaweedfs`, `debezium`, `debezium_connector`.
 
 ## Слои и поток запроса
 
@@ -71,7 +71,8 @@ HTTP route (app/<module>/routes/v1/*.py)
 - `app/core` — инфраструктура: `api/` (builder, rate_limiter, schemas, filter_mapper),
   `commands.py`/`queries.py` (базовые классы), `configs/`, `consumers/` (DTO событий + `EventIdempotencyGuard`),
   `db/` (base_model, repository, session), `di/`, `events/`, `outbox/`, `filters/`, `log/`, `mediators/`,
-  `message_brokers/` (Kafka), `middlewares/`, `services/` (auth/JWT/RBAC, mail, media, queues, storage, idempotency),
+  `message_brokers/` (Kafka), `middlewares/`, `services/` (auth/JWT/RBAC, mail, media, queues, storage, idempotency;
+  в `storage/` активна реализация `aioboto/` на aioboto3, `aminio/` оставлена как legacy и в DI не подключена),
   `websocket/` (manager, presence, keys), `metrics.py`, `models.py`, `routers.py` (`/health`), `tasks.py`.
 - `app/auth` — **эталонный модуль**. Пользователи, сессии, JWT, Argon2, OAuth (Google/Yandex/GitHub), RBAC.
 - `app/profiles` — профили пользователей, аватары, ссылки на внешние профили (`profile_links`)
@@ -95,7 +96,7 @@ HTTP route (app/<module>/routes/v1/*.py)
 - **Коалесеры**: реакции и read receipts не рассылаются по одной — они склеиваются в окне
   (`REACTIONS_COALESCE_WINDOW_MS`, `READ_RECEIPTS_COALESCE_WINDOW_MS`, по 500 мс) фоновыми задачами
   в процессе `consumers` (`app/chats/tasks/coalescer.py`, `app/chats/tasks/read_coalescer.py`).
-- **Вложения**: двухшаговая загрузка через presigned PUT в MinIO
+- **Вложения**: двухшаговая загрузка через presigned PUT в SeaweedFS
   (`chat-pending-attachments` → валидация/обработка → `chat-attachments`). Лимиты MIME и размеров — в `config.py`.
 - **Звонки**: LiveKit, выдача room-токена (`ROOM_TOKEN_TTL`, `ROOM_MAX_PARTICIPANTS`).
 - Ключи Redis — только через `app/chats/keys.py` и `app/core/websocket/keys.py`, не собирать строки руками.
@@ -157,6 +158,11 @@ HTTP route (app/<module>/routes/v1/*.py)
 15. **Чужие события топика отсеиваются ветвлением по `event_name` внутри подписчика** (`DictEventDTO`
     плюс `model_validate` payload'а). Фильтр `@subscriber(filter=...)` требует ещё и пустой ветки
     по умолчанию, иначе FastStream пишет `SubscriberNotFound` уровня ERROR на каждое чужое сообщение.
+16. **Хранилище — только через `StorageService`.** Активная реализация — `AioBotoStorageService`
+    (`app/core/services/storage/aioboto/`), собирается в `CoreProvider` как APP-scope async-генератор:
+    два aiobotocore-клиента (внутренний и публичный) живут столько же, сколько контейнер.
+    Публичный доступ к бакету даёт bucket policy, которую `ensure_buckets()` применяет на старте,
+    а не identity в конфиге SeaweedFS. Подпись — SigV4, адресация — path-style.
 
 ## Команды
 
@@ -172,7 +178,7 @@ docker network create app-network && docker compose up --build
 docker compose -f docker-compose.yaml -f docker-compose.prod.yaml -f docker-compose.monitoring.yml up -d --build
 ```
 
-Тесты (нужен работающий Docker — testcontainers поднимает Postgres, Redis, MinIO):
+Тесты (нужен работающий Docker — testcontainers поднимает Postgres, Redis, SeaweedFS):
 
 ```bash
 cp .env.test .env && poetry run pytest tests -q
@@ -198,7 +204,7 @@ poetry run alembic revision --autogenerate -m "описание" && poetry run a
 - Swagger: `/docs`, OpenAPI: `/api/v1/openapi.json` (только local/testing)
 - Health: `GET /health`, метрики: `GET /metrics` (у `consumers` — на порту 9002)
 - Kafka Connect REST: `http://localhost:8083` (статус CDC: `/connectors/outbox-connector/status`)
-- MinIO Console: `http://localhost:9001`
+- SeaweedFS: S3 API `http://localhost:8333`, master UI `http://localhost:9333`, filer `http://localhost:8888`
 
 ## Деплой
 

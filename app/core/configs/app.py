@@ -6,6 +6,12 @@ from pydantic_core import MultiHostUrl
 from app.core.configs.base import BaseConfig
 
 
+def _with_scheme(value: str, *, secure: bool) -> str:
+    if value.startswith(("http://", "https://")):
+        return value.rstrip("/")
+    return f"{'https' if secure else 'http'}://{value.rstrip('/')}"
+
+
 class AppConfig(BaseConfig):
     _PRODUCTION_REQUIRED_FIELDS: ClassVar[tuple[str, ...]] = (
         "SECRET_KEY",
@@ -67,15 +73,33 @@ class AppConfig(BaseConfig):
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}"
 
     STORAGE_HOST: str = ""
-    STORAGE_PORT: int = 9000
+    STORAGE_PORT: int = 8333
     STORAGE_ACCESS_KEY: str = ""
     STORAGE_SECRET_KEY: str = ""
     STORAGE_PUBLIC_URL: str = ""
+    STORAGE_REGION: str = "us-east-1"
+    STORAGE_SECURE: bool = False
+    STORAGE_PUBLIC_SECURE: bool = True
+    STORAGE_SSE: bool = False
 
     @computed_field
     @property
     def storage_url(self) -> str:
         return f"{self.STORAGE_HOST}:{self.STORAGE_PORT}"
+
+    @computed_field
+    @property
+    def storage_endpoint_url(self) -> str:
+        """Endpoint the backend itself talks to, inside the private network."""
+        return _with_scheme(self.storage_url, secure=self.STORAGE_SECURE)
+
+    @computed_field
+    @property
+    def storage_public_endpoint_url(self) -> str:
+        """Endpoint that presigned URLs are signed against, reachable by clients."""
+        if not self.STORAGE_PUBLIC_URL:
+            return self.storage_endpoint_url
+        return _with_scheme(self.STORAGE_PUBLIC_URL, secure=self.STORAGE_PUBLIC_SECURE)
 
     BROKER_URL: str = ""
     GROUP_ID: str = ""

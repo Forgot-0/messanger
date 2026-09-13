@@ -27,7 +27,7 @@ Production-ready модульный монолит на FastAPI: асинхро�
 | Message broker | Kafka: продюсер — [aiokafka](https://github.com/aio-libs/aiokafka), консьюмеры — [FastStream](https://faststream.ag2.ai) |
 | Доставка событий | Transactional outbox + CDC: [Debezium](https://debezium.io) 2.7 (Kafka Connect) читает WAL Postgres и роутит `outbox_messages` в топики Kafka |
 | Realtime | WebSocket-gateway поверх Redis Streams (`app/core/websocket`) |
-| Хранилище файлов | [MinIO](https://min.io) (S3-совместимое), обработка медиа — pyvips / ffprobe |
+| Хранилище файлов | [SeaweedFS](https://github.com/seaweedfs/seaweedfs) (S3-совместимое), клиент — [aioboto3](https://github.com/terricain/aioboto3), обработка медиа — pyvips / ffprobe |
 | Почта | [aiosmtplib](https://aiosmtplib.readthedocs.io/en/stable) + Jinja2-шаблоны |
 | Аутентификация | JWT ([pyjwt](https://pyjwt.readthedocs.io)), Argon2 ([argon2-cffi](https://argon2-cffi.readthedocs.io)), OAuth2 (Google, Yandex, GitHub), RBAC |
 | Логирование | [structlog](https://www.structlog.org/en/stable) |
@@ -56,7 +56,7 @@ docker compose up --build
 docker compose -f docker-compose.yaml -f docker-compose.prod.yaml -f docker-compose.monitoring.yml up -d --build
 ```
 
-`docker compose up` поднимает: `db` (Postgres с `infra/postgres/postgresql.conf`), `redis`, `kafka`, `minio`, `debezium` (Kafka Connect), одноразовый `debezium_connector` (регистрирует CDC-коннектор), одноразовый `migrations` (`alembic upgrade head` + `python -m app.init_data`), а затем `app`, `consumers`, `queue_worker` и `scheduler`.
+`docker compose up` поднимает: `db` (Postgres с `infra/postgres/postgresql.conf`), `redis`, `kafka`, `seaweedfs`, `debezium` (Kafka Connect), одноразовый `debezium_connector` (регистрирует CDC-коннектор), одноразовый `migrations` (`alembic upgrade head` + `python -m app.init_data`), а затем `app`, `consumers`, `queue_worker` и `scheduler`.
 
 После запуска:
 
@@ -66,7 +66,7 @@ docker compose -f docker-compose.yaml -f docker-compose.prod.yaml -f docker-comp
 - Health-check: `GET /health`
 - Метрики Prometheus: `GET /metrics` (у процесса `consumers` — на порту `9002`)
 - Kafka Connect REST API: <http://localhost:8083>
-- MinIO Console: <http://localhost:9001>
+- SeaweedFS: S3 API <http://localhost:8333>, master UI <http://localhost:9333>, filer <http://localhost:8888>
 
 Проверить, что CDC-конвейер живой:
 
@@ -221,7 +221,7 @@ messanger/
 │       ├── routers.py   # Агрегирующий роутер v1
 │       └── tasks.py     # register_auth_tasks(broker)
 ├── docker-compose.yaml  # app, consumers, queue_worker, scheduler, migrations,
-│                        # db, redis, kafka, debezium, debezium_connector, minio
+│                        # db, redis, kafka, debezium, debezium_connector, seaweedfs
 └── pyproject.toml
 ```
 
@@ -366,7 +366,7 @@ def create_container(*app_providers: Provider) -> AsyncContainer:
     return make_async_container(*providers, *app_providers)
 ```
 
-`get_core_providers()` (`app/core/di/__init__.py`) собирает инфраструктурные провайдеры: `BrokerProvider`, `DBProvider` (engine/sessionmaker/`AsyncSession`/`OutboxRepository`/`Redis`), `CoreProvider` (MinIO, media-probe, `IdempotencyStore`), `MediatorProvider`, `EventProvider` (`EventRegistry`, `BaseEventBus`, `EventIdempotencyGuard`), `QueueProvider`, `MailProvider`, `AuthServicesProvider`, `CoreWSProvider`.
+`get_core_providers()` (`app/core/di/__init__.py`) собирает инфраструктурные провайдеры: `BrokerProvider`, `DBProvider` (engine/sessionmaker/`AsyncSession`/`OutboxRepository`/`Redis`), `CoreProvider` (S3-клиенты и `StorageService`, media-probe, `IdempotencyStore`), `MediatorProvider`, `EventProvider` (`EventRegistry`, `BaseEventBus`, `EventIdempotencyGuard`), `QueueProvider`, `MailProvider`, `AuthServicesProvider`, `CoreWSProvider`.
 
 Аргумент `*app_providers` — это интеграция конкретного процесса, поэтому один и тот же контейнер работает везде:
 
@@ -400,7 +400,7 @@ async def example(mediator: FromDishka[BaseMediator]):
 
 В подписчиках FastStream и задачах Taskiq — тот же `FromDishka`, но с `@inject` из соответствующей интеграции (`dishka.integrations.faststream` / `dishka.integrations.taskiq`).
 
-**Lifetime scopes:** `APP` — инфраструктура на весь процесс (брокер, Redis, MinIO, менеджеры); `REQUEST` — всё, что живёт в рамках запроса/сообщения (`AsyncSession`, репозитории, хендлеры, `BaseEventBus`).
+**Lifetime scopes:** `APP` — инфраструктура на весь процесс (брокер, Redis, S3-клиенты, менеджеры); `REQUEST` — всё, что живёт в рамках запроса/сообщения (`AsyncSession`, репозитории, хендлеры, `BaseEventBus`).
 
 ---
 
@@ -979,7 +979,18 @@ await mail_service.queue(template=template, email_data=email_data)  # через
 
 ### Storage Service
 
-**Используется:** [MinIO](https://min.io) (S3-compatible) + [minio-py](https://github.com/minio/minio-py)
+**Используется:** [SeaweedFS](https://github.com/seaweedfs/seaweedfs) (S3-compatible) + [aioboto3](https://github.com/terricain/aioboto3)
+
+`StorageService` (`app/core/services/storage/service.py`) — абстракция, реализаций две:
+
+| Реализация | Пакет | Статус |
+|---|---|---|
+| `AioBotoStorageService` | `app/core/services/storage/aioboto/` | активная, полностью асинхронная (aiobotocore) |
+| `MinioStorageService` | `app/core/services/storage/aminio/` | legacy, оставлена для справки и не подключена в DI |
+
+Клиентов два: `client` ходит на внутренний адрес (`STORAGE_HOST:STORAGE_PORT`), `public_client` подписывает
+presigned-ссылки адресом `STORAGE_PUBLIC_URL`, который резолвят клиенты. Адресация — path-style,
+подпись — SigV4; и то и другое обязательно для SeaweedFS.
 
 **Основные методы `StorageService`:**
 
@@ -1013,7 +1024,7 @@ async def upload(file: FastAPIUploadFile, storage: FromDishka[StorageService]):
     return {"file_key": key}
 ```
 
-**Bucket Policies** (`app.core.services.storage.aminio.policy.Policy`):
+**Bucket Policies** (`app.core.services.storage.policy.Policy`):
 
 `NONE` (private) | `GET` | `READ` | `WRITE` | `READ_WRITE`
 
@@ -1024,6 +1035,11 @@ async def upload(file: FastAPIUploadFile, storage: FromDishka[StorageService]):
 def bucket_policy(self) -> dict[str, Policy]:
     return {"base": Policy.NONE}
 ```
+
+Модули дополняют словарь через `@decorate` в своих `providers.py`. На старте
+`AioBotoStorageService.ensure_buckets()` создаёт недостающие бакеты и применяет политики:
+анонимный доступ к SeaweedFS решается именно bucket policy, отдельной `anonymous`-identity
+в `infra/seaweedfs/entrypoint.sh` нет.
 
 Медиа-файлы дополнительно проходят через `MediaProbeService` (`app/core/services/media`, реализация на `ffprobe`) — он определяет реальный тип/длительность/размеры до сохранения.
 

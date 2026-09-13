@@ -13,7 +13,7 @@ services:
     depends_on:
       app:
         condition: service_healthy
-      minio:
+      seaweedfs:
         condition: service_healthy
       grafana:
         condition: service_started

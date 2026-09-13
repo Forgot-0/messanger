@@ -1,9 +1,7 @@
-import io
 from uuid import UUID, uuid4
 
 import pytest
 from dishka import AsyncContainer
-from minio import Minio
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +14,7 @@ from app.chats.models.attachment import AttachmentStatus, AttachmentType, Messag
 from app.chats.models.chat import Chat
 from app.chats.repositories.attachment import AttachmentRepository
 from app.chats.services.attachment_media import AttachmentMediaValidator
+from app.core.services.storage.aioboto.client import S3Client
 from app.core.services.storage.exceptions import ObjectNotFoundError
 from app.core.services.storage.service import StorageService
 from app.core.websocket.manager import ConnectionManager
@@ -27,8 +26,8 @@ PDF_HEADER = b"%PDF-1.4\n"
 TEXT_BYTES = b"totally not a jpeg\n" * 4
 
 
-def put_object(client: Minio, bucket: str, key: str, data: bytes) -> None:
-    client.put_object(bucket, key, io.BytesIO(data), length=len(data))
+async def put_object(client: S3Client, bucket: str, key: str, data: bytes) -> None:
+    await client.put_object(Bucket=bucket, Key=key, Body=data)
 
 
 async def object_exists(storage: StorageService, bucket: str, key: str) -> bool:
@@ -80,7 +79,7 @@ class TestProccessAttachments:
         self,
         repository: AttachmentRepository,
         db_session: AsyncSession,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         chat: Chat,
         *,
         uploader_id: int = 1,
@@ -102,8 +101,8 @@ class TestProccessAttachments:
         await db_session.commit()
 
         if upload:
-            put_object(
-                minio_client,
+            await put_object(
+                s3_test_client,
                 chat_config.ATTACHMENT_BUCKET_PENDING,
                 attachment.s3_key,
                 real_bytes,
@@ -137,10 +136,10 @@ class TestProccessAttachments:
         attachment_repository: AttachmentRepository,
         db_session: AsyncSession,
         storage: StorageService,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         group_chat: Chat,
     ) -> None:
-        slot = await self._slot(attachment_repository, db_session, minio_client, group_chat)
+        slot = await self._slot(attachment_repository, db_session, s3_test_client, group_chat)
 
         await self._run(handler, group_chat, [slot.id])
 
@@ -156,10 +155,10 @@ class TestProccessAttachments:
         attachment_repository: AttachmentRepository,
         db_session: AsyncSession,
         storage: StorageService,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         group_chat: Chat,
     ) -> None:
-        slot = await self._slot(attachment_repository, db_session, minio_client, group_chat)
+        slot = await self._slot(attachment_repository, db_session, s3_test_client, group_chat)
 
         await self._run(handler, group_chat, [slot.id])
 
@@ -180,13 +179,13 @@ class TestProccessAttachments:
         attachment_repository: AttachmentRepository,
         db_session: AsyncSession,
         storage: StorageService,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         group_chat: Chat,
         real_bytes: bytes,
         label: str,
     ) -> None:
         slot = await self._slot(
-            attachment_repository, db_session, minio_client, group_chat, real_bytes=real_bytes
+            attachment_repository, db_session, s3_test_client, group_chat, real_bytes=real_bytes
         )
 
         await self._run(handler, group_chat, [slot.id])
@@ -203,13 +202,13 @@ class TestProccessAttachments:
         attachment_repository: AttachmentRepository,
         db_session: AsyncSession,
         storage: StorageService,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         group_chat: Chat,
     ) -> None:
         slot = await self._slot(
             attachment_repository,
             db_session,
-            minio_client,
+            s3_test_client,
             group_chat,
             declared_size=4,
             real_bytes=JPEG_HEADER,
@@ -225,11 +224,11 @@ class TestProccessAttachments:
         handler: ProccessAttachmentsCommandHandler,
         attachment_repository: AttachmentRepository,
         db_session: AsyncSession,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         group_chat: Chat,
     ) -> None:
         slot = await self._slot(
-            attachment_repository, db_session, minio_client, group_chat, real_bytes=b""
+            attachment_repository, db_session, s3_test_client, group_chat, real_bytes=b""
         )
 
         await self._run(handler, group_chat, [slot.id])
@@ -241,11 +240,11 @@ class TestProccessAttachments:
         handler: ProccessAttachmentsCommandHandler,
         attachment_repository: AttachmentRepository,
         db_session: AsyncSession,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         group_chat: Chat,
     ) -> None:
         slot = await self._slot(
-            attachment_repository, db_session, minio_client, group_chat, upload=False
+            attachment_repository, db_session, s3_test_client, group_chat, upload=False
         )
 
         await self._run(handler, group_chat, [slot.id])
@@ -258,11 +257,11 @@ class TestProccessAttachments:
         attachment_repository: AttachmentRepository,
         db_session: AsyncSession,
         storage: StorageService,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         group_chat: Chat,
     ) -> None:
         slot = await self._slot(
-            attachment_repository, db_session, minio_client, group_chat, uploader_id=2
+            attachment_repository, db_session, s3_test_client, group_chat, uploader_id=2
         )
 
         await self._run(handler, group_chat, [slot.id], user_id=1)
@@ -275,14 +274,14 @@ class TestProccessAttachments:
         handler: ProccessAttachmentsCommandHandler,
         attachment_repository: AttachmentRepository,
         db_session: AsyncSession,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         group_chat: Chat,
     ) -> None:
-        good_one = await self._slot(attachment_repository, db_session, minio_client, group_chat)
+        good_one = await self._slot(attachment_repository, db_session, s3_test_client, group_chat)
         bad = await self._slot(
-            attachment_repository, db_session, minio_client, group_chat, real_bytes=PDF_HEADER
+            attachment_repository, db_session, s3_test_client, group_chat, real_bytes=PDF_HEADER
         )
-        good_two = await self._slot(attachment_repository, db_session, minio_client, group_chat)
+        good_two = await self._slot(attachment_repository, db_session, s3_test_client, group_chat)
 
         await self._run(handler, group_chat, [good_one.id, bad.id, good_two.id])
 
@@ -295,10 +294,10 @@ class TestProccessAttachments:
         handler: ProccessAttachmentsCommandHandler,
         attachment_repository: AttachmentRepository,
         db_session: AsyncSession,
-        minio_client: Minio,
+        s3_test_client: S3Client,
         group_chat: Chat,
     ) -> None:
-        slot = await self._slot(attachment_repository, db_session, minio_client, group_chat)
+        slot = await self._slot(attachment_repository, db_session, s3_test_client, group_chat)
 
         await self._run(handler, group_chat, [slot.id, uuid4()])
 

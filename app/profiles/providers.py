@@ -2,7 +2,7 @@ from dishka import Provider, Scope, decorate, provide, provide_all
 
 from app.core.events.event import EventRegistry
 from app.core.mediators.base import CommandRegistry, QueryRegistry
-from app.core.services.storage.aminio.policy import Policy
+from app.core.services.storage.policy import Policy
 from app.profiles.commands.contacts.add import AddContactCommand, AddContactCommandHandler
 from app.profiles.commands.contacts.block import BlockUserCommand, BlockUserCommandHandler
 from app.profiles.commands.contacts.import_batch import ImportContactsCommand, ImportContactsCommandHandler
