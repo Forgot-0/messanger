@@ -2,12 +2,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from app.chats.config import chat_config
 from app.chats.dtos.chats import ChatDTO, ListChats
 from app.chats.dtos.members import MemberChatDTO
 from app.chats.dtos.messages import MessageDTO, ReadDetail
 from app.chats.dtos.profiles import ChatProfileDTO
 from app.chats.models.read_receipts import ReadReceipt
-from app.chats.repositories.chat import ChatRepository
+from app.chats.repositories.chat import ChatRepository, UserChatRow
 from app.chats.services.messages import MessageService
 from app.chats.services.read_coalescer import PendingReadCursor, ReadReceiptCoalesceQueue
 from app.core.queries import BaseQuery, BaseQueryHandler
@@ -20,6 +21,7 @@ class GetListChatUserQuery(BaseQuery):
     limit: int = 50
     last_chat_id: UUID | None = None
     last_activity_at: datetime | None = None
+    archived: bool = False
 
 
 @dataclass(frozen=True)
@@ -31,21 +33,34 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
     async def handle(self, query: GetListChatUserQuery) -> ListChats:
         limit = min(max(query.limit, 1), 100)
         user_id = int(query.user_jwt_data.id)
+        is_first_page = query.last_activity_at is None or query.last_chat_id is None
+
         rows = await self.chat_repository.get_chats(
             user_id=user_id,
             limit=limit,
             last_activity_at=query.last_activity_at,
             chat_id=query.last_chat_id,
+            archived=query.archived,
         )
         page = rows[:limit]
 
+        pinned: list[UserChatRow] = []
+        if is_first_page:
+            pinned = await self.chat_repository.get_pinned_chats(
+                user_id=user_id,
+                limit=chat_config.MAX_PINNED_CHATS,
+                archived=query.archived,
+            )
+
+        listed = pinned + page
+
         pending = await self.coalesce_queue.peek_many(
-            user_id, [chat.id for chat, *_ in page]
+            user_id, [chat.id for chat, *_ in listed]
         )
 
         chats = []
         profiles: list[ChatProfileDTO | None] = []
-        for chat, member, read, message in page:
+        for chat, member, read, message in listed:
             last_read = self._merge_read_cursor(read, pending.get(chat.id))
             me_dto = MemberChatDTO.model_validate(member)
             last_message = (
@@ -78,6 +93,11 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
                 me=me_dto,
                 last_read=last_read,
                 last_message=last_message,
+                is_pinned=member.is_pinned,
+                pinned_at=member.pinned_at,
+                is_archived=member.is_archived,
+                notifications_muted_until=member.notifications_muted_until,
+                draft=member.draft,
             ))
 
         await self.message_service.attach_profile_urls(profiles)

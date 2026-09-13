@@ -14,6 +14,8 @@ class ChatConfig(BaseConfig):
 
     FAN_OUT_WRITE_THRESHOLD: int = 500
 
+    MAX_PINNED_CHATS: int = 5
+
     MAX_SLOW_MODE_SECONDS: int = 86_400
     CHAT_STAFF_MIN_ROLE_LEVEL: int = 80
     CHAT_EDITOR_MIN_ROLE_LEVEL: int = 80

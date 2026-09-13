@@ -96,6 +96,13 @@ HTTP route (app/<module>/routes/v1/*.py)
 - **Коалесеры**: реакции и read receipts не рассылаются по одной — они склеиваются в окне
   (`REACTIONS_COALESCE_WINDOW_MS`, `READ_RECEIPTS_COALESCE_WINDOW_MS`, по 500 мс) фоновыми задачами
   в процессе `consumers` (`app/chats/tasks/coalescer.py`, `app/chats/tasks/read_coalescer.py`).
+- **Персональное состояние чата** живёт в колонках `chat_members`: `pinned_at`, `archived_at`,
+  `notifications_muted_until`, `draft`, `draft_updated_at`. Меняется только своё membership —
+  `PATCH /api/v1/chats/{chat_id}/state/` (user_id из JWT, RBAC не нужен, нет членства = 404).
+  Лимит пинов — `MAX_PINNED_CHATS = 5`, порядок пинов — `pinned_at DESC` (поля `pin_order` нет),
+  под него есть partial-индекс `ix_chat_members_user_pinned`. В `GET /chats/` пины исключены из
+  keyset-тела и приклеиваются отдельным запросом к первой странице; `archived` — отдельный набор.
+  `notifications_muted_until` **не** `muted_until`: первый — личный мьют push, второй — модераторский.
 - **Вложения**: двухшаговая загрузка через presigned PUT в SeaweedFS
   (`chat-pending-attachments` → валидация/обработка → `chat-attachments`). Лимиты MIME и размеров — в `config.py`.
 - **Звонки**: LiveKit, выдача room-токена (`ROOM_TOKEN_TTL`, `ROOM_MAX_PARTICIPANTS`).
@@ -127,7 +134,8 @@ HTTP route (app/<module>/routes/v1/*.py)
 
 `users`, `user_permissions`, `user_roles`, `roles`, `permissions`, `role_permissions`, `sessions`, `oauth_accounts`,
 `profiles`, `profile_links`, `user_contacts`, `user_identifiers`, `pending_contacts`, `blocked_users`,
-`chats`, `chat_members`, `chat_member_bans`, `chat_roles`, `chat_user_profiles`, `messages`, `message_attachments`,
+`chats`, `chat_members` (+ per-user состояние: `pinned_at`, `archived_at`, `notifications_muted_until`,
+`draft`, `draft_updated_at`), `chat_member_bans`, `chat_roles`, `chat_user_profiles`, `messages`, `message_attachments`,
 `message_reactions`, `message_reaction_counters`, `read_receipts`,
 `notifications`, `user_device_tokens`,
 `outbox_messages`.

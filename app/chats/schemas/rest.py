@@ -48,6 +48,14 @@ class GetListUserChatsRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=100)
     last_chat_id: UUID | None = Field(None)
     last_activity_at: datetime | None =  Field(None)
+    archived: bool = Field(default=False)
+
+
+class UpdateChatStateRequest(BaseModel):
+    pinned: bool | None = None
+    archived: bool | None = None
+    notifications_muted_until: datetime | None = None
+    draft: str | None = Field(default=None, max_length=chat_config.MAX_MESSAGE_LENGTH)
 
 
 

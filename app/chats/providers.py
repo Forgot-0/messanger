@@ -20,6 +20,7 @@ from app.chats.commands.chats.join import JoinChatCommand, JoinChatCommandHandle
 from app.chats.commands.chats.kick import KickMemberCommand, KickMemberCommandHandler
 from app.chats.commands.chats.leave import LeaveChatCommand, LeaveChatCommandHandler
 from app.chats.commands.chats.update import UpdateChatCommand, UpdateChatCommandHandler
+from app.chats.commands.chats.update_state import UpdateChatStateCommand, UpdateChatStateCommandHandler
 from app.chats.commands.messages.delete import DeleteMessageCommand, DeleteMessageCommandHandler
 from app.chats.commands.messages.forward import ForwardMessageCommand, ForwardMessageCommandHandler
 from app.chats.commands.messages.mark_read import MarkAsReadCommand, MarkAsReadCommandHandler
@@ -97,6 +98,7 @@ class ChatModuleProvider(Provider):
         KickMemberCommandHandler,
         LeaveChatCommandHandler,
         UpdateChatCommandHandler,
+        UpdateChatStateCommandHandler,
         DeleteMessageCommandHandler,
         ForwardMessageCommandHandler,
         MarkAsReadCommandHandler,
@@ -160,6 +162,7 @@ class ChatModuleProvider(Provider):
         command_registry.register_command(KickMemberCommand, KickMemberCommandHandler)
         command_registry.register_command(LeaveChatCommand, LeaveChatCommandHandler)
         command_registry.register_command(UpdateChatCommand, UpdateChatCommandHandler)
+        command_registry.register_command(UpdateChatStateCommand, UpdateChatStateCommandHandler)
         command_registry.register_command(DeleteMessageCommand, DeleteMessageCommandHandler)
         command_registry.register_command(ForwardMessageCommand, ForwardMessageCommandHandler)
         command_registry.register_command(MarkAsReadCommand, MarkAsReadCommandHandler)

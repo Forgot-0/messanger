@@ -13,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     and_,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -48,6 +49,17 @@ class ChatMember(BaseModel, DateMixin):
     muted_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     banned_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+
+    notifications_muted_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    draft: Mapped[str | None] = mapped_column(
+        String(chat_config.MAX_MESSAGE_LENGTH), nullable=True, default=None
+    )
+    draft_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+
     permissions_overrides: Mapped[dict[str, bool]] = mapped_column(JSONB, server_default="{}")
 
     chat: Mapped[Chat] = relationship("Chat", back_populates="members", lazy="noload")
@@ -67,6 +79,12 @@ class ChatMember(BaseModel, DateMixin):
         Index("ix_chat_members_user_chat", "user_id", "chat_id"),
         Index("ix_chat_members_chat_active_user", "chat_id", "user_id"),
         Index("ix_chat_members_chat_role_user", "chat_id", "role_id", "user_id"),
+        Index(
+            "ix_chat_members_user_pinned",
+            "user_id",
+            text("pinned_at DESC"),
+            postgresql_where=text("pinned_at IS NOT NULL"),
+        ),
     )
 
 
@@ -109,6 +127,23 @@ class ChatMember(BaseModel, DateMixin):
         else:
             self.muted_until = muted_until
 
+    def set_pinned(self, pinned: bool) -> None:
+        self.pinned_at = now_utc() if pinned else None
+
+    def set_archived(self, archived: bool) -> None:
+        self.archived_at = now_utc() if archived else None
+
+    def mute_notifications(self, muted_until: datetime | None) -> None:
+        if muted_until is None or muted_until <= now_utc():
+            self.notifications_muted_until = None
+        else:
+            self.notifications_muted_until = muted_until
+
+    def set_draft(self, draft: str | None) -> None:
+        cleaned = draft.strip() if draft is not None else None
+        self.draft = cleaned or None
+        self.draft_updated_at = now_utc() if self.draft is not None else None
+
     def effective_permissions(self) -> dict[str, bool]:
         perms = self.role.permissions.copy()
         if self.permissions_overrides:
@@ -132,6 +167,14 @@ class ChatMember(BaseModel, DateMixin):
     @classmethod
     def _is_banned_expression(cls) -> ColumnElement[bool]:
         return and_(cls.banned_until.is_not(None), cls.banned_until > now_utc())
+
+    @property
+    def is_pinned(self) -> bool:
+        return self.pinned_at is not None
+
+    @property
+    def is_archived(self) -> bool:
+        return self.archived_at is not None
 
     @hybrid_property
     def is_muted(self) -> bool:

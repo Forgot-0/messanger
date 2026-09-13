@@ -47,6 +47,8 @@
 | 19 | **Поиска по email нет и не будет.** Идентификаторы адресной книги хранятся только как HMAC-SHA256 с серверным pepper (`user_identifiers`, `pending_contacts`), сырой email в базу не попадает. Сопоставление возможно лишь точным совпадением: клиент шлёт email в `POST /contacts/import/`, сервер сравнивает хеши. `GET /contacts/search/` ищет по `@username` и по префиксу имени, но не по почте. |
 | 20 | **Большой импорт отвечает `202`.** Батч свыше 100 записей уходит в фоновую задачу: тело ответа `{status: "queued", accepted}` без списка контактов, итог приходит WS-событием `contacts_import_completed`. Батч до 100 записей обрабатывается синхронно и отвечает `200` со `status: "done"`. Оба варианта принимают заголовок `Idempotency-Key`. |
 | 21 | **Список контактов — курсорная пагинация, не `PageResult`.** `GET /contacts/` отдаёт `{contacts, has_next, next_contact_id, version}`; `total` нет вообще. `version` приходит **только на последней странице** и является отметкой для дельта-синка: следующий запуск шлёт её в `updated_after` и получает только изменившееся. Удаления через дельту не видны, полный список нужно перечитывать периодически. |
+| 22 | **Запиненные чаты не участвуют в курсоре `GET /chats/`.** Они вырезаны из keyset-тела на **всех** страницах (`ChatMember.pinned_at IS NULL`) и приклеиваются отдельным запросом в начало **первой** страницы (курсор не передан), отсортированные по `pinned_at DESC`. Следствия для клиента: на второй и последующих страницах пинов не будет вообще — это не баг; `has_next`/`next_date`/`next_chat_id` считаются только по непинованной части, поэтому пины в лимит страницы не входят и страница может вернуть до `limit + 5` чатов. Порядок пинов задаётся `pinned_at DESC`, поля `pin_order` нет. |
+| 23 | **В чате два разных «мьюта», и путать их нельзя.** `me.is_muted` (колонка `muted_until`) — **модераторский**: участника заглушил админ, он не может писать. `is_muted_by_me` (колонка `notifications_muted_until`) — **личный мьют уведомлений**, ставится самим пользователем через `PATCH /chats/{chat_id}/state/` и режет только push: WebSocket-доставка замьютившему идёт как обычно, realtime мьют не трогает. |
 
 ---
 
@@ -237,6 +239,7 @@ interface ErrorResponse {
 | `TOO_LONG_CHAT_ROLE_NAME` | 400 | `{ "role_name": string, "max_len": 32 }` |
 | `DIRECT_CHAT_EXISTS` | 409 | `{ "chat_id": string }` |
 | `MEMBER_LIMIT_EXCEEDED` | 400 | `{ "limit": number }` — лимит зависит от типа чата (2/500/1000000/10000000), см. раздел 9 |
+| `PINNED_CHATS_LIMIT_EXCEEDED` | 400 | `{ "limit": 5 }` — попытка запинить шестой чат через `PATCH /chats/{chat_id}/state/`; лимит общий на пользователя, архив считается вместе с основным списком |
 | `MESSAGE_TOO_LONG` | 400 | `{ "length": number, "max_length": 4096 }` |
 | `LIVEKIT_ERROR` | 502 | `{ "reason": string }` |
 | `LIVEKIT_UNAUTHORIZED` | 502 | `{}` |
@@ -798,10 +801,11 @@ interface BlockedListDTO {
 
 | Метод | Путь | Rate limit | Request | Response |
 |---|---|---|---|---|
-| GET | `/chats/` | — | Query `GetListUserChatsRequest {limit=50 (≤100), last_chat_id?: UUID, last_activity_at?: datetime}` — курсорная пагинация | `ListChats` |
+| GET | `/chats/` | — | Query `GetListUserChatsRequest {limit=50 (≤100), last_chat_id?: UUID, last_activity_at?: datetime, archived=false}` — курсорная пагинация | `ListChats` |
 | POST | `/chats/` | 4/5мин | `CreateChatRequest` | `201`, `ChatDTO` |
 | GET | `/chats/{chat_id}/` | — | — | `ChatDetailDTO` |
 | PATCH | `/chats/{chat_id}/` | 4/5мин | `UpdateChatRequest` | `200`, `ChatDTO` |
+| PATCH | `/chats/{chat_id}/state/` | 60/1мин | `UpdateChatStateRequest` | `200`, `ChatStateDTO` — личное состояние чата: пин, архив, мьют уведомлений, черновик |
 | DELETE | `/chats/{chat_id}/` | 4/5мин | — | `204` |
 | POST | `/chats/{chat_id}/join/` | 10/5мин | — | `204` — вступить в публичный чат |
 | POST | `/chats/{chat_id}/leave/` | 4/5мин | — | `204` |
@@ -822,6 +826,18 @@ interface BlockedListDTO {
 }
 // UpdateChatRequest — все поля опциональны, null = не менять
 { name?, description?, is_public?, admin_only?, slow_mode_seconds?, permissions? }
+
+// UpdateChatStateRequest — ВНИМАНИЕ: семантика опциональности здесь ДРУГАЯ, чем у UpdateChatRequest.
+// Поле отсутствует в теле = не менять. Поле передано как null = снять/очистить.
+// Сервер различает эти два случая по составу тела запроса, а не по значению.
+{
+  pinned?: boolean | null;                    // true = закрепить (pinned_at = now), false/null = открепить
+  archived?: boolean | null;                  // true = в архив (archived_at = now), false/null = вернуть в основной список
+  notifications_muted_until?: string | null;  // дата снятия мьюта; null или дата в прошлом = размьютить;
+                                              // «навсегда» выражается далёкой датой
+  draft?: string | null;                      // ≤ 4096 симв., пробелы по краям обрезаются;
+                                              // null или пустая строка = очистить черновик
+}
 ```
 
 ```ts
@@ -832,9 +848,24 @@ interface ChatDTO {
   is_public: boolean; admin_only: boolean; slow_mode_seconds: number;
   permissions: Record<string, boolean>;
   created_by: number; member_count: number; unread_count: number;
-  me: MemberChatDTO | null;         // данные о текущем пользователе как участнике (роль, мьют, бан)
+  me: MemberChatDTO | null;         // данные о текущем пользователе как участнике (роль, МОДЕРАТОРСКИЙ мьют, бан)
   last_read: ReadDetail | null;     // { last_read_message_seq: number, last_read_at: string }
   last_message: MessageDTO | null;  // превью последнего сообщения для списка чатов
+
+  // Личное состояние чата у текущего пользователя — то, что клиент раньше держал
+  // в shared preferences. Живёт в его строке chat_members, переезжает между устройствами.
+  is_pinned: boolean; pinned_at: string | null;
+  is_archived: boolean;
+  notifications_muted_until: string | null;
+  is_muted_by_me: boolean;          // производное от notifications_muted_until (> сейчас), не отдельное поле в БД
+  draft: string | null;
+}
+interface ChatStateDTO {   // ответ PATCH /chats/{id}/state/ — только личное состояние, без самого чата
+  chat_id: string;
+  is_pinned: boolean; pinned_at: string | null;
+  is_archived: boolean; archived_at: string | null;
+  notifications_muted_until: string | null; is_muted_by_me: boolean;
+  draft: string | null; draft_updated_at: string | null;
 }
 interface ChatDetailDTO {   // ответ GET /chats/{id}/ — отличается от ChatDTO: вместо unread_count/me/last_read/last_message даёт полный список участников
   id: string; seq_counter: number; last_activity_at: string | null;
@@ -855,6 +886,14 @@ interface ReadDetail { last_read_message_seq: number; last_read_at: string }
 ```
 
 ⚠️ **Курсор списка чатов двусоставной**: для следующей страницы нужно передать **оба** значения — `last_activity_at = next_date` и `last_chat_id = next_chat_id` (сортировка `last_activity_at DESC, id DESC`, второй ключ разрешает коллизии по времени).
+
+⚠️ **`archived` делит список на два независимых набора.** `archived=false` (по умолчанию) — основной список, архив скрыт целиком; `archived=true` — **только** архив. Промежуточного «всё сразу» нет, курсор у наборов свой.
+
+⚠️ **Пины и курсор.** Запиненные чаты вырезаны из keyset-тела на всех страницах и отдаются отдельным запросом в начале **первой** страницы (когда курсор не передан), в порядке `pinned_at DESC`. Поэтому первая страница может содержать до `limit + 5` элементов, а `has_next`/`next_date`/`next_chat_id` считаются только по непинованной части — пины в курсор не попадают и на следующих страницах не повторяются. Пин и архив независимы: у набора `archived=true` свои пины, которые точно так же едут в начале его первой страницы. Лимит — 5 закреплённых чатов на пользователя (общий на оба набора), шестой пин отвечает `400 PINNED_CHATS_LIMIT_EXCEEDED`.
+
+⚠️ **`me.is_muted` и `is_muted_by_me` — разные вещи.** Первое — модераторский мьют (админ запретил писать, поле `muted_until`), второе — личный мьют уведомлений самого пользователя (`notifications_muted_until`). Личный мьют вырезает пользователя только из offline-сигнала на push; WS-события в замьюченном чате приходят как обычно, счётчик `unread_count` тоже считается как обычно.
+
+Ошибки `PATCH /chats/{chat_id}/state/`: `404 NOT_FOUND_CHAT` (чат не существует **или** нет своего membership — отдельного 403 здесь нет, факт членства не раскрывается), `400 PINNED_CHATS_LIMIT_EXCEEDED`, `422` на `draft` длиннее 4096 символов. Прав в чате команда не требует: скоуп — только своё membership, `user_id` берётся из JWT и в теле не передаётся.
 
 Ошибки: `400 MEMBER_LIMIT_EXCEEDED` (для direct — если `member_ids.length != 1`), `400 SLOW_MODE_OUT_OF_RANGE`, `403 CHAT_ACCESS_DENIED/NOT_CHAT_MEMBER`, `404 NOT_FOUND_CHAT`.
 

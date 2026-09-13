@@ -9,10 +9,16 @@ from app.chats.commands.chats.delete import DeleteChatCommand
 from app.chats.commands.chats.join import JoinChatCommand
 from app.chats.commands.chats.leave import LeaveChatCommand
 from app.chats.commands.chats.update import UpdateChatCommand
-from app.chats.dtos.chats import ChatDetailDTO, ChatDTO, ListChats
+from app.chats.commands.chats.update_state import UpdateChatStateCommand
+from app.chats.dtos.chats import ChatDetailDTO, ChatDTO, ChatStateDTO, ListChats
 from app.chats.queries.chats.get_detail import GetChatDetailQuery
 from app.chats.queries.chats.get_list import GetListChatUserQuery
-from app.chats.schemas.rest import CreateChatRequest, GetListUserChatsRequest, UpdateChatRequest
+from app.chats.schemas.rest import (
+    CreateChatRequest,
+    GetListUserChatsRequest,
+    UpdateChatRequest,
+    UpdateChatStateRequest,
+)
 from app.core.api.rate_limiter import ConfigurableRateLimiter
 from app.core.mediators.base import BaseMediator
 from app.core.services.auth.depends import CurrentUserJWTData
@@ -35,6 +41,7 @@ async def list_my_chats(
             limit=get_request.limit,
             last_chat_id=get_request.last_chat_id,
             last_activity_at=get_request.last_activity_at,
+            archived=get_request.archived,
         )
     )
 
@@ -103,6 +110,30 @@ async def update_chat(
         )
     )
     return chat
+
+
+@router.patch(
+    "/{chat_id}/state/",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(ConfigurableRateLimiter(times=60, seconds=60))]
+)
+async def update_chat_state(
+    chat_id: UUID,
+    payload: UpdateChatStateRequest,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> ChatStateDTO:
+    return await mediator.handle_command(
+        UpdateChatStateCommand(
+            chat_id=chat_id,
+            user_jwt_data=user_jwt_data,
+            provided=frozenset(payload.model_fields_set),
+            pinned=payload.pinned,
+            archived=payload.archived,
+            notifications_muted_until=payload.notifications_muted_until,
+            draft=payload.draft,
+        )
+    )
 
 
 @router.delete(

@@ -106,11 +106,11 @@ def build_reaction_ws_dto(event: DictEventDTO) -> ReactionUpdateWSDTO:
     )
 
 
-def chunks(items: Iterable[int], size: int) -> Iterator[list[int]]:
+def chunks[T](items: Iterable[T], size: int) -> Iterator[list[T]]:
     if size <= 0:
         raise ValueError("size must be greater than zero")
 
-    batch: list[int] = []
+    batch: list[T] = []
 
     for item in items:
         batch.append(item)

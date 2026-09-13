@@ -25,7 +25,7 @@ from app.chats.metrics import (
     DELIVERY_ROUTER_STREAM_ENTRIES,
 )
 from app.chats.models.chat import ChatFanoutStrategy
-from app.chats.repositories.chat import ChatRepository
+from app.chats.repositories.chat import ChatRepository, DeliveryMember
 from app.chats.repositories.message import MessageRepository
 from app.chats.schemas.ws import WSEventType
 from app.chats.services.messages import MessageService
@@ -33,6 +33,7 @@ from app.chats.services.reaction_coalescer import ReactionCoalesceQueue
 from app.core.configs.app import app_config
 from app.core.consumers.event import DictEventDTO
 from app.core.message_brokers.base import BaseMessageBroker
+from app.core.utils import now_utc
 from app.core.websocket.dtos import DeliveryData, DeliveryDTO
 from app.core.websocket.keys import WebsocketKeys
 
@@ -135,16 +136,17 @@ class ChatDeliveryRouter:
         with_offline_signal = ws_event.event_name in OFFLINE_SIGNAL_EVENT_NAMES
         offline_user_ids: list[int] = []
 
-        async for member_ids in self.chat_repository.iter_member_ids(
+        async for members in self.chat_repository.iter_delivery_members(
             chat_id=ws_event.chat_id,
             batch_size=chat_config.DELIVERY_ROUTER_MEMBER_BATCH_SIZE,
         ):
-            for lookup_batch in chunks(member_ids, chat_config.DELIVERY_ROUTER_ROUTE_LOOKUP_BATCH_SIZE):
+            for member_batch in chunks(members, chat_config.DELIVERY_ROUTER_ROUTE_LOOKUP_BATCH_SIZE):
+                lookup_batch = [member.user_id for member in member_batch]
                 routes = await self._lookup_online_routes(lookup_batch)
 
                 if with_offline_signal:
                     offline_user_ids.extend(
-                        self._offline_recipients(ws_event, lookup_batch, routes)
+                        self._offline_recipients(ws_event, unmuted(member_batch), routes)
                     )
 
                 await self._enqueue_gateway_deliveries(
@@ -350,6 +352,15 @@ class ChatDeliveryRouter:
             pipe.srem(WebsocketKeys.user_route_key(user_id), route)
         with contextlib.suppress(Exception):
             await pipe.execute()
+
+
+def unmuted(members: Iterable[DeliveryMember]) -> list[int]:
+    now = now_utc()
+    return [
+        member.user_id
+        for member in members
+        if member.notifications_muted_until is None or member.notifications_muted_until <= now
+    ]
 
 
 def parse_active_subscription_route(route: str) -> ActiveSubscriptionRoute | None:

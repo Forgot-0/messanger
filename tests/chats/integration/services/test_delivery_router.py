@@ -1,13 +1,16 @@
 import asyncio
 import json
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
 from redis.asyncio import Redis
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats.config import chat_config
 from app.chats.models.chat import Chat
+from app.chats.models.chat_members import ChatMember
 from app.chats.models.message import Message
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.message import MessageRepository
@@ -54,6 +57,30 @@ def delivery_router(
         coalesce_queue=coalesce_queue,
         broker=broker,
     )
+
+
+def _message_sent_event(chat: Chat, message: Message, sender_id: int) -> DictEventDTO:
+    return chat_event(
+        "chats.message.sent",
+        {
+            "chat_id": str(chat.id),
+            "message_id": str(message.id),
+            "seq": message.seq,
+            "sender_id": sender_id,
+            "message_type": "text",
+        },
+    )
+
+
+async def _mute_notifications(
+    db_session: AsyncSession, chat: Chat, user_id: int, until: datetime
+) -> None:
+    await db_session.execute(
+        update(ChatMember)
+        .where(ChatMember.chat_id == chat.id, ChatMember.user_id == user_id)
+        .values(notifications_muted_until=until)
+    )
+    await db_session.commit()
 
 
 def chat_event(event_name: str, payload: dict) -> DictEventDTO:
@@ -165,6 +192,61 @@ class TestChatDeliveryRouter:
         assert signal.message_id == message.id
         # 2 онлайн, автор пуш себе не получает — остаётся только третий участник.
         assert signal.offline_user_ids == [3]
+
+    async def test_muted_members_are_cut_from_the_offline_push_signal(
+        self,
+        delivery_router: ChatDeliveryRouter,
+        broker: FakeMessageBroker,
+        db_session: AsyncSession,
+        create_group_chat,
+        create_message,
+        user_jwt: UserJWTData,
+        go_online,
+    ) -> None:
+        chat: Chat = await create_group_chat(members=[2, 3, 4], name="Muted fanout")
+        message: Message = await create_message(chat, user_jwt, "ping")
+        await _mute_notifications(db_session, chat, user_id=3, until=now_utc() + timedelta(hours=1))
+        # Истёкший мьют не считается — участник обязан остаться в сигнале.
+        await _mute_notifications(db_session, chat, user_id=4, until=now_utc() - timedelta(hours=1))
+        await go_online(2)
+
+        await delivery_router.route_broker_message(
+            _message_sent_event(chat, message, sender_id=int(user_jwt.id))
+        )
+
+        assert len(broker.sent_data) == 1
+        _key, topic, data = broker.sent_data[0]
+        assert topic == "chats.offline-delivery"
+        # Оффлайн были 3 и 4, но у 3 мьют — пуш уходит только четвёртому.
+        assert OfflineEventDTO.model_validate(data).offline_user_ids == [4]
+
+    async def test_mute_does_not_touch_ws_delivery(
+        self,
+        delivery_router: ChatDeliveryRouter,
+        broker: FakeMessageBroker,
+        db_session: AsyncSession,
+        create_group_chat,
+        create_message,
+        user_jwt: UserJWTData,
+        go_online,
+        delivered_frames,
+    ) -> None:
+        chat: Chat = await create_group_chat(members=[2], name="Muted realtime")
+        message: Message = await create_message(chat, user_jwt, "ping")
+        await _mute_notifications(db_session, chat, user_id=2, until=now_utc() + timedelta(hours=1))
+        await go_online(2)
+
+        await delivery_router.route_broker_message(
+            _message_sent_event(chat, message, sender_id=int(user_jwt.id))
+        )
+
+        # Мьют — это про уведомления, realtime замьютивший получает как обычно.
+        frames = await delivered_frames()
+        assert len(frames) == 1
+        assert frames[0]["type"] == "new_message"
+        assert frames[0]["delivery"]["recipients"] == [2]
+        # Все оффлайн-получатели отфильтрованы — сигнала на push нет вовсе.
+        assert broker.sent_data == []
 
     async def test_kicked_member_is_notified_after_leaving_the_chat(
         self,

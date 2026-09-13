@@ -1,9 +1,10 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
+from typing import NamedTuple
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.orm import aliased, contains_eager, selectinload
 
 from app.chats.exceptions import NotFoundChatError
@@ -13,6 +14,16 @@ from app.chats.models.message import Message
 from app.chats.models.profile import ChatUserProfile
 from app.chats.models.read_receipts import ReadReceipt
 from app.core.db.repository import CacheRepository, IRepository
+
+# Форма строки: outerjoin даёт None в двух последних слотах, но типы колонок
+# в самом Select их не знают — отсюда две записи одного и того же кортежа.
+UserChatRow = tuple[Chat, ChatMember, ReadReceipt | None, Message | None]
+UserChatStmtRow = tuple[Chat, ChatMember, ReadReceipt, Message]
+
+
+class DeliveryMember(NamedTuple):
+    user_id: int
+    notifications_muted_until: datetime | None
 
 
 @dataclass
@@ -176,12 +187,12 @@ class ChatRepository(IRepository[Chat], CacheRepository):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def iter_member_ids(
+    async def iter_delivery_members(
         self,
         chat_id: UUID,
         batch_size: int = 2_000,
         role_ids: set[int] | None = None,
-    ) -> AsyncIterator[list[int]]:
+    ) -> AsyncIterator[list[DeliveryMember]]:
         last_user_id = -1
         while True:
             conditions = [
@@ -193,29 +204,30 @@ class ChatRepository(IRepository[Chat], CacheRepository):
                 conditions.append(ChatMember.role_id.in_(role_ids))
 
             stmt = (
-                select(ChatMember.user_id)
+                select(ChatMember.user_id, ChatMember.notifications_muted_until)
                 .where(*conditions)
                 .order_by(ChatMember.user_id.asc())
                 .limit(batch_size)
             )
             result = await self.session.execute(stmt)
-            user_ids = list(result.scalars().all())
-            if not user_ids:
+            members = [
+                DeliveryMember(user_id=int(user_id), notifications_muted_until=muted_until)
+                for user_id, muted_until in result.tuples()
+            ]
+            if not members:
                 break
-            yield [int(uid) for uid in user_ids]
-            last_user_id = int(user_ids[-1])
+            yield members
+            last_user_id = members[-1].user_id
 
-    async def get_chats(
-        self,
-        user_id: int,
-        limit: int,
-        last_activity_at: datetime | None = None,
-        chat_id: UUID | None = None,
-    ) -> list[tuple[Chat, ChatMember, ReadReceipt | None, Message | None]]:
+    def _user_chats_stmt(self, user_id: int, archived: bool) -> Select[UserChatStmtRow]:
         author_profile = aliased(ChatUserProfile, name="author_profile")
         member_profile = aliased(ChatUserProfile, name="member_profile")
 
-        stmt = (
+        archived_condition = (
+            ChatMember.archived_at.is_not(None) if archived else ChatMember.archived_at.is_(None)
+        )
+
+        return (
             select(Chat, ChatMember, ReadReceipt, Message)
             .join(
                 ChatMember,
@@ -241,10 +253,24 @@ class ChatRepository(IRepository[Chat], CacheRepository):
             ).where(
                 ChatMember.user_id == user_id,
                 ChatMember.active_criteria(),
+                archived_condition,
                 Chat.deleted_at.is_(None),
-            ).order_by(
-                Chat.last_activity_at.desc().nullslast(), Chat.id.desc()
-            ).limit(limit + 1)
+            )
+        )
+
+    async def get_chats(
+        self,
+        user_id: int,
+        limit: int,
+        last_activity_at: datetime | None = None,
+        chat_id: UUID | None = None,
+        archived: bool = False,
+    ) -> list[UserChatRow]:
+        stmt = (
+            self._user_chats_stmt(user_id, archived)
+            .where(ChatMember.pinned_at.is_(None))
+            .order_by(Chat.last_activity_at.desc().nullslast(), Chat.id.desc())
+            .limit(limit + 1)
         )
 
         if last_activity_at is not None and chat_id is not None:
@@ -260,3 +286,32 @@ class ChatRepository(IRepository[Chat], CacheRepository):
 
         result = await self.session.execute(stmt)
         return list(result.tuples())
+
+    async def get_pinned_chats(
+        self,
+        user_id: int,
+        limit: int,
+        archived: bool = False,
+    ) -> list[UserChatRow]:
+        stmt = (
+            self._user_chats_stmt(user_id, archived)
+            .where(ChatMember.pinned_at.is_not(None))
+            .order_by(ChatMember.pinned_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.tuples())
+
+    async def count_pinned_chats(self, user_id: int) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(ChatMember)
+            .join(Chat, Chat.id == ChatMember.chat_id)
+            .where(
+                ChatMember.user_id == user_id,
+                ChatMember.pinned_at.is_not(None),
+                Chat.deleted_at.is_(None),
+            )
+        )
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one())

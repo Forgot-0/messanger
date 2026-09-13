@@ -461,3 +461,19 @@ class InvalidChatRoleError(ApplicationError):
     @property
     def detail(self) -> dict:
         return {"role_id": self.role_id}
+
+
+@dataclass(kw_only=True)
+class PinnedChatsLimitExceededError(ApplicationError):
+    limit: int = chat_config.MAX_PINNED_CHATS
+
+    code: str = "PINNED_CHATS_LIMIT_EXCEEDED"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return f"Pinned chats limit reached ({self.limit})"
+
+    @property
+    def detail(self) -> dict:
+        return {"limit": self.limit}
