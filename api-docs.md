@@ -817,6 +817,7 @@ interface BlockedListDTO {
 |---|---|---|---|
 | `/chats` | `routes/v1/chats.py` | `chats` | ✅ |
 | `/chats/messages/search/` | `routes/v1/chats.py` (статический путь выше `/{chat_id}/`) | `chats` | ✅ |
+| `/chats/reactions/catalog/` | `routes/v1/chats.py` (статический путь выше `/{chat_id}/`) | `chats` | ✅ |
 | `/chats/{chat_id}/members` | `routes/v1/members.py` | `chat-members` | ✅ |
 | `/chats/{chat_id}/messages` | `routes/v1/messages.py` | `chat-messages` | ✅ |
 | `/chats/{chat_id}` | `routes/v1/attachments.py` | `chat-attachments` | ✅ |
@@ -1283,6 +1284,8 @@ interface LiveKitParticipantsDTO { identity: string; name: string; state: number
 
 `{emoji}` — path-параметр, строка 1..32, **обязательно URL-encoded** (`👍` → `%F0%9F%91%8D`).
 
+Каталог допустимых эмодзи лежит вне этого префикса — `GET /chats/reactions/catalog/` (5.7.7).
+
 #### 5.7.2 Семантика (Telegram-like)
 
 - Пользователь может поставить **несколько** разных эмодзи на одно сообщение — до `MAX_REACTIONS_PER_USER_PER_MESSAGE = 3`.
@@ -1290,7 +1293,7 @@ interface LiveKitParticipantsDTO { identity: string; name: string; state: number
 - `DELETE .../reactions/{emoji}/` — снимает конкретный эмодзи. Снятие отсутствующего — no-op, `204`.
 - `PUT .../reactions/` с телом `{ "reactions": ["👍","🔥"] }` — **полная замена** набора пользователя (как `messages.sendReaction` в Telegram). Пустой список = снять всё.
 - Каждое результирующее изменение публикует **ровно одно** событие `chats.message.reaction_updated` на сообщение — со снимком всех групп (не дельтой).
-- Разрешён только курированный каталог эмодзи (`app/chats/reactions/catalog.py`, ~73 шт.). Плюс настройки чата (5.7.5).
+- Разрешён только курированный каталог эмодзи — `chat_config.DEFAULT_REACTIONS` (`app/chats/config.py`; отдельного файла `app/chats/reactions/catalog.py` в репозитории нет). По умолчанию 73 эмодзи, но `ChatConfig` наследует `BaseSettings` с `env_file=".env"`, поэтому `DEFAULT_REACTIONS` **переопределяется переменной окружения и зависит от стенда** — не зашивайте список в клиент, читайте его из `GET /chats/reactions/catalog/` (5.7.7). Плюс настройки чата (5.7.5).
 
 #### 5.7.3 Ответ GET
 
@@ -1370,6 +1373,41 @@ interface MessageReactionsDTO {
 
 Обработка: заменить группы реакций у локального сообщения `message_id` на `reaction.groups`. `reacted_by_me` в этом событии не персонализируется — клиент трекает свой выбор оптимистично (или сверяется через GET). После переподключения актуальные реакции для видимых сообщений приходят в `ws.history` / перезапросом списка сообщений.
 
+#### 5.7.7 Каталог реакций 🆕
+
+`GET /api/v1/chats/reactions/catalog/` — отдаёт тот самый каталог, по которому бэкенд валидирует
+эмодзи. Нужен, чтобы клиент не зашивал список в код и не узнавал о расхождении по `INVALID_REACTION`.
+
+| Метод | Путь | Авторизация | Rate limit | Response |
+|---|---|---|---|---|
+| GET | `/chats/reactions/catalog/` | Bearer, как у остальных роутов `chats` | — | `200`, `ReactionsCatalogDTO`; `304` при совпавшем `If-None-Match` |
+
+```ts
+interface ReactionsCatalogDTO {
+  emojis: string[];                          // порядок значимый — в нём же рисуется пикер
+  max_reactions_per_user_per_message: number;
+  max_distinct_reactions_per_message: number;
+  max_reaction_length: number;
+  version: string;                           // стабильный хеш от emojis, он же ETag
+}
+```
+
+**Кеширование.** Ответ несёт `ETag: "<version>"` и `Cache-Control: private, max-age=<REACTIONS_CATALOG_CACHE_TTL>`
+(по умолчанию 300 с). Клиент дёргает эндпоинт на каждом холодном старте, поэтому сохраняйте `version`
+и присылайте его следующим запросом в `If-None-Match` — при совпадении придёт `304` с пустым телом
+и тем же `ETag`, и распаковывать каталог заново не нужно. `version` считается как обрезанный SHA-256
+от `emojis`, то есть стабилен между воркерами и перезапусками и меняется ровно тогда, когда меняется
+список (например, после правки `DEFAULT_REACTIONS` в `.env` стенда).
+
+**Каталог глобальный, подмножество чата — в `ChatDTO`.** Этот эндпоинт ничего не знает про конкретный
+чат: он отдаёт общий для стенда список. Ограничения чата приходят в `ChatDTO` / `ChatDetailDTO` полями
+`reactions_mode` и `allowed_reactions` (5.7.5). Правило для клиента:
+
+- `reactions_mode = "all"` — пикер = `emojis`;
+- `reactions_mode = "some"` — пикер = `emojis` ∩ `allowed_reactions` (пересечение, а не `allowed_reactions`
+  как есть: в белом списке чата может остаться эмодзи, выпавшее из каталога стенда, — бэкенд отвергнет его
+  с `INVALID_REACTION`);
+- `reactions_mode = "none"` — реакции в чате выключены, пикер не показываем.
 
 ## 6. Чаты — WebSocket
 

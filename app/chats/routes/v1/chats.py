@@ -2,7 +2,7 @@ from typing import Annotated
 from uuid import UUID
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from app.chats.commands.chats.create import CreateChatCommand
 from app.chats.commands.chats.delete import DeleteChatCommand
@@ -12,10 +12,12 @@ from app.chats.commands.chats.update import UpdateChatCommand
 from app.chats.commands.chats.update_state import UpdateChatStateCommand
 from app.chats.config import chat_config
 from app.chats.dtos.chats import ChatDetailDTO, ChatDTO, ChatStateDTO, ListChats
+from app.chats.dtos.reactions import ReactionsCatalogDTO
 from app.chats.dtos.search import MessageSearchDTO
 from app.chats.queries.chats.get_detail import GetChatDetailQuery
 from app.chats.queries.chats.get_list import GetListChatUserQuery
 from app.chats.queries.messages.search import SearchMessagesQuery
+from app.chats.queries.reactions.get_catalog import GetReactionsCatalogQuery
 from app.chats.schemas.rest import (
     CreateChatRequest,
     GetListUserChatsRequest,
@@ -97,6 +99,38 @@ async def search_messages(
             last_message_id=get_request.last_message_id,
         )
     )
+
+@router.get(
+    "/reactions/catalog/",
+    status_code=status.HTTP_200_OK,
+    response_model=ReactionsCatalogDTO,
+)
+async def get_reactions_catalog(
+    request: Request,
+    response: Response,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> ReactionsCatalogDTO | Response:
+    catalog: ReactionsCatalogDTO = await mediator.handle_query(
+        GetReactionsCatalogQuery(user_jwt_data=user_jwt_data)
+    )
+
+    etag = f'"{catalog.version}"'
+    cache_control = f"private, max-age={chat_config.REACTIONS_CATALOG_CACHE_TTL}"
+    headers = {"ETag": etag, "Cache-Control": cache_control}
+
+    if_none_match = request.headers.get("if-none-match")
+    if (
+        if_none_match and
+        any(
+            tag == "*" or tag.removeprefix("W/") == etag
+            for tag in map(str.strip, if_none_match.split(","))
+        )
+    ):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+    response.headers.update(headers)
+    return catalog
 
 @router.get(
     "/{chat_id}/",

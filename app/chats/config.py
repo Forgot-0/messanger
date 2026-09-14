@@ -115,6 +115,8 @@ class ChatConfig(BaseConfig):
     RATE_LIMIT_REACTIONS_PER_SECOND: int = 10
     MAX_REACTION_LENGTH: int = 32
 
+    REACTIONS_CATALOG_CACHE_TTL: int = 300
+
     REACTION_RECENT_USERS_LIMIT: int = 3
     REACTIONS_INCLUDE_RECENT_USERS: bool = True
 
@@ -134,8 +136,7 @@ class ChatConfig(BaseConfig):
     )
 
     PROFILE_PROJECTION_GROUP_ID: str = "profile_projection"
-    # Из топика profiles проекции нужны только эти события, остальное (контакты,
-    # блокировки) подписчик пропускает.
+
     PROFILE_PROJECTION_EVENTS: frozenset[str] = frozenset({
         "profiles.profile.created",
         "profiles.profile.updated",
