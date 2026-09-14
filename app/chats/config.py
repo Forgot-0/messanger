@@ -16,6 +16,8 @@ class ChatConfig(BaseConfig):
 
     MAX_PINNED_CHATS: int = 5
 
+    CHAT_MEMBERS_PREVIEW_LIMIT: int = 3
+
     MESSAGE_SEARCH_MIN_QUERY_LENGTH: int = 2
     MESSAGE_SEARCH_MAX_QUERY_LENGTH: int = 150
     MESSAGE_SEARCH_LIMIT: int = 30

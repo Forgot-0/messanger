@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.chats.dtos.members import MemberChatDTO
 from app.chats.dtos.messages import MessageDTO, ReadDetail
+from app.chats.dtos.profiles import ChatProfileDTO
 from app.chats.models.chat import ChatReactionsMode, ChatType
 from app.core.utils import now_utc
 
@@ -48,7 +49,9 @@ class ChatDTO(MutedByMeMixin):
     last_read: ReadDetail | None = Field(default=None)
     last_message: MessageDTO | None = Field(default=None)
 
-    # Персональное состояние чата — берётся из ChatMember текущего пользователя.
+    peer: ChatProfileDTO | None = Field(default=None)
+    members_preview: list[ChatProfileDTO] = Field(default_factory=list)
+
     is_pinned: bool = False
     pinned_at: datetime | None = None
     is_archived: bool = False
@@ -58,8 +61,6 @@ class ChatDTO(MutedByMeMixin):
 
 
 class ChatStateDTO(MutedByMeMixin):
-    """Ответ PATCH /chats/{chat_id}/state/ — персональное состояние чата."""
-
     chat_id: UUID
     is_pinned: bool
     pinned_at: datetime | None

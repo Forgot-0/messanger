@@ -1,8 +1,12 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 
 import pytest
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.chats.models.chat import Chat, ChatType
 from app.chats.models.message import Message
@@ -20,6 +24,32 @@ from app.core.websocket.keys import WebsocketKeys
 from tests.chats.integration.mock import StubLiveKitService
 
 GATEWAY_ID = "gw-test"
+
+
+@pytest.fixture
+def count_sql(db_engine: AsyncEngine):
+    """Считает SQL-запросы, ушедшие в Postgres внутри блока.
+
+    Нужен там, где важно не количество строк, а отсутствие N+1: число запросов
+    обязано остаться фиксированным при росте размера страницы.
+    """
+
+    @contextmanager
+    def _count() -> Iterator[list[str]]:
+        statements: list[str] = []
+
+        def _on_execute(
+            conn: Any, cursor: Any, statement: str, *_args: Any, **_kwargs: Any
+        ) -> None:
+            statements.append(statement)
+
+        event.listen(db_engine.sync_engine, "before_cursor_execute", _on_execute)
+        try:
+            yield statements
+        finally:
+            event.remove(db_engine.sync_engine, "before_cursor_execute", _on_execute)
+
+    return _count
 
 
 @pytest.fixture

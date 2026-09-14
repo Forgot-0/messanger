@@ -1,10 +1,21 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import NamedTuple
 from uuid import UUID
 
-from sqlalchemy import Select, and_, func, or_, select, update
+from sqlalchemy import (
+    UUID as SAUUID,
+    Select,
+    and_,
+    column,
+    func,
+    or_,
+    select,
+    true,
+    update,
+    values,
+)
 from sqlalchemy.orm import aliased, contains_eager, selectinload
 
 from app.chats.exceptions import NotFoundChatError
@@ -15,8 +26,6 @@ from app.chats.models.profile import ChatUserProfile
 from app.chats.models.read_receipts import ReadReceipt
 from app.core.db.repository import CacheRepository, IRepository
 
-# Форма строки: outerjoin даёт None в двух последних слотах, но типы колонок
-# в самом Select их не знают — отсюда две записи одного и того же кортежа.
 UserChatRow = tuple[Chat, ChatMember, ReadReceipt | None, Message | None]
 UserChatStmtRow = tuple[Chat, ChatMember, ReadReceipt, Message]
 
@@ -24,6 +33,12 @@ UserChatStmtRow = tuple[Chat, ChatMember, ReadReceipt, Message]
 class DeliveryMember(NamedTuple):
     user_id: int
     notifications_muted_until: datetime | None
+
+
+class ChatCounterpart(NamedTuple):
+    chat_id: UUID
+    user_id: int
+    profile: ChatUserProfile | None
 
 
 @dataclass
@@ -315,3 +330,45 @@ class ChatRepository(IRepository[Chat], CacheRepository):
         )
         result = await self.session.execute(stmt)
         return int(result.scalar_one())
+
+    async def get_chat_counterparts(
+        self,
+        user_id: int,
+        chat_ids: Sequence[UUID],
+        per_chat: int,
+    ) -> dict[UUID, list[ChatCounterpart]]:
+        if not chat_ids:
+            return {}
+
+        wanted = values(
+            column("chat_id", SAUUID(as_uuid=True)), name="wanted"
+        ).data([(chat_id,) for chat_id in chat_ids])
+
+        counterpart = (
+            select(ChatMember.user_id)
+            .where(
+                ChatMember.chat_id == wanted.c.chat_id,
+                ChatMember.user_id != user_id,
+                ChatMember.active_criteria(),
+            )
+            .order_by(ChatMember.user_id.asc())
+            .limit(per_chat)
+            .lateral("counterpart")
+        )
+
+        stmt = (
+            select(wanted.c.chat_id, counterpart.c.user_id, ChatUserProfile)
+            .select_from(wanted)
+            .join(counterpart, true())
+            .outerjoin(ChatUserProfile, ChatUserProfile.user_id == counterpart.c.user_id)
+            .order_by(wanted.c.chat_id, counterpart.c.user_id)
+        )
+
+        result = await self.session.execute(stmt)
+
+        counterparts: dict[UUID, list[ChatCounterpart]] = {}
+        for chat_id, member_id, profile in result.tuples():
+            counterparts.setdefault(chat_id, []).append(
+                ChatCounterpart(chat_id=chat_id, user_id=member_id, profile=profile)
+            )
+        return counterparts

@@ -103,6 +103,13 @@ HTTP route (app/<module>/routes/v1/*.py)
   под него есть partial-индекс `ix_chat_members_user_pinned`. В `GET /chats/` пины исключены из
   keyset-тела и приклеиваются отдельным запросом к первой странице; `archived` — отдельный набор.
   `notifications_muted_until` **не** `muted_until`: первый — личный мьют push, второй — модераторский.
+- **Кто в чате для списка**: `GET /chats/` отдаёт `ChatDTO.peer` (только direct) и
+  `members_preview` (только group/supergroup, лимит `CHAT_MEMBERS_PREVIEW_LIMIT = 3`).
+  Оба набираются одним `ChatRepository.get_chat_counterparts` на всю страницу — LATERAL с
+  `LIMIT` внутрь `chat_members`, а не оконная функция: `row_number() OVER (PARTITION BY chat_id)`
+  читает партицию целиком и на супергруппе в 1 млн участников стоит 153 мс против 0.2 мс.
+  Профили собеседников подмешиваются в тот же список, что идёт в `MessageService.image_urls`, —
+  второго прохода по presign быть не должно.
 - **Поиск по сообщениям**: `GET /api/v1/chats/messages/search/` — статический путь в
   `routes/v1/chats.py`, объявлен **выше** `/{chat_id}/`. Postgres FTS по `messages.content`,
   конфигурация `simple` (смешанные языки, стемминг вреден), последний терм префиксный,

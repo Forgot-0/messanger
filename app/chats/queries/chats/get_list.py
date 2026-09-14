@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -7,12 +8,19 @@ from app.chats.dtos.chats import ChatDTO, ListChats
 from app.chats.dtos.members import MemberChatDTO
 from app.chats.dtos.messages import MessageDTO, ReadDetail
 from app.chats.dtos.profiles import ChatProfileDTO
+from app.chats.models.chat import ChatType
 from app.chats.models.read_receipts import ReadReceipt
-from app.chats.repositories.chat import ChatRepository, UserChatRow
+from app.chats.repositories.chat import ChatCounterpart, ChatRepository, UserChatRow
 from app.chats.services.messages import MessageService
 from app.chats.services.read_coalescer import PendingReadCursor, ReadReceiptCoalesceQueue
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
+
+# У direct'а нет ни name, ни avatar — рисовать диалог нечем без собеседника.
+# У группы есть и то и другое, но список лиц в строке привычнее.
+# У канала ростер не превью, а подписчики — там это поле бессмысленно.
+_PEER_CHAT_TYPES = frozenset({ChatType.DIRECT})
+_PREVIEW_CHAT_TYPES = frozenset({ChatType.GROUP, ChatType.SUPERGROUP})
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -54,8 +62,17 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
 
         listed = pinned + page
 
-        pending = await self.coalesce_queue.peek_many(
-            user_id, [chat.id for chat, *_ in listed]
+        pending, counterparts = await asyncio.gather(
+            self.coalesce_queue.peek_many(user_id, [chat.id for chat, *_ in listed]),
+            self.chat_repository.get_chat_counterparts(
+                user_id=user_id,
+                chat_ids=[
+                    chat.id
+                    for chat, *_ in listed
+                    if chat.type in _PEER_CHAT_TYPES or chat.type in _PREVIEW_CHAT_TYPES
+                ],
+                per_chat=chat_config.CHAT_MEMBERS_PREVIEW_LIMIT,
+            ),
         )
 
         chats = []
@@ -67,9 +84,23 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
                 MessageDTO.model_validate(message) if message is not None else None
             )
 
+            chat_counterparts = counterparts.get(chat.id, [])
+            peer = (
+                self._counterpart_profile(chat_counterparts[0])
+                if chat.type in _PEER_CHAT_TYPES and chat_counterparts
+                else None
+            )
+            members_preview = (
+                [self._counterpart_profile(c) for c in chat_counterparts]
+                if chat.type in _PREVIEW_CHAT_TYPES
+                else []
+            )
+
             profiles.append(me_dto.profile)
             if last_message is not None:
                 profiles.append(last_message.profile)
+            profiles.append(peer)
+            profiles.extend(members_preview)
 
             chats.append(ChatDTO(
                 id=chat.id,
@@ -93,6 +124,8 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
                 me=me_dto,
                 last_read=last_read,
                 last_message=last_message,
+                peer=peer,
+                members_preview=members_preview,
                 is_pinned=member.is_pinned,
                 pinned_at=member.pinned_at,
                 is_archived=member.is_archived,
@@ -108,6 +141,13 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
             next_date=page[-1][0].last_activity_at if len(rows) > limit and page else None,
             next_chat_id=page[-1][0].id if len(rows) > limit and page else None,
         )
+
+    @staticmethod
+    def _counterpart_profile(counterpart: ChatCounterpart) -> ChatProfileDTO:
+        if counterpart.profile is not None:
+            return ChatProfileDTO.model_validate(counterpart.profile)
+
+        return ChatProfileDTO(user_id=counterpart.user_id)
 
     @staticmethod
     def _merge_read_cursor(
