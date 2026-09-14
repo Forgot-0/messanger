@@ -14,6 +14,7 @@ from app.profiles.commands.profiles.get_or_create import GetOrCreateProfileComma
 from app.profiles.commands.profiles.remove_link import RemoveLinkFromProfileCommand
 from app.profiles.commands.profiles.update import UpdateProfileCommand
 from app.profiles.commands.profiles.update_avatar import UpdateProfileAvatarCommand
+from app.profiles.config import profile_config
 from app.profiles.dtos.profiles import AvatarPresign, ProfileDTO
 from app.profiles.exceptions import NotFoundProfileError
 from app.profiles.queries.profiles.get_by_id import GetProfileByIdQuery
@@ -32,14 +33,27 @@ router = APIRouter(route_class=DishkaRoute)
 
 @router.get(
     "/",
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
+    dependencies=[
+        Depends(
+            ConfigurableRateLimiter(
+                times=profile_config.PROFILE_SEARCH_RATE_TIMES,
+                seconds=profile_config.PROFILE_SEARCH_RATE_SECONDS,
+            )
+        )
+    ],
 )
 async def get_profiles(
     mediator: FromDishka[BaseMediator],
+    user_jwt_data: CurrentUserJWTData,
     params: Annotated[GetProfilesRequest, Query(...)]
 ) -> PageResult[ProfileDTO]:
     return await mediator.handle_query(
-        GetProfilesQuery(params.to_profile_filter())
+        GetProfilesQuery(
+            params.to_profile_filter(),
+            viewer_id=int(user_jwt_data.id),
+            query=params.q,
+        )
     )
 
 @router.get(

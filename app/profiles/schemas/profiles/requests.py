@@ -1,9 +1,10 @@
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.api.filter_mapper import FilterMapper
 from app.core.filters.pagination import Pagination
+from app.profiles.config import profile_config
 from app.profiles.filters.profiles import ProfileFilter
 
 
@@ -23,6 +24,12 @@ class ProfileUpdateRequest(BaseModel):
 
 
 class GetProfilesRequest(BaseModel):
+    q: str | None = Field(
+        default=None,
+        max_length=profile_config.PROFILE_SEARCH_MAX_QUERY,
+        description="Поиск по username ИЛИ display_name. Не комбинируется с username/display_name.",
+    )
+
     username: str | None = None
     display_name: str | None = None
     skills: list[str] | None = None
@@ -31,6 +38,23 @@ class GetProfilesRequest(BaseModel):
     page_size: int = Field(20, ge=1, le=100)
 
     sort: str | None = Field(default=None, examples=["created_at:desc,username:asc"])
+
+    @model_validator(mode="after")
+    def validate_search_query(self) -> GetProfilesRequest:
+        if self.q is None:
+            return self
+
+        if self.username is not None or self.display_name is not None:
+            raise ValueError("q must not be combined with username or display_name")
+
+        query = self.q.strip()
+        if len(query) < profile_config.PROFILE_SEARCH_MIN_QUERY:
+            raise ValueError(
+                f"q must be at least {profile_config.PROFILE_SEARCH_MIN_QUERY} characters long"
+            )
+
+        self.q = query
+        return self
 
     def to_profile_filter(self) -> ProfileFilter:
         profile_filter = ProfileFilter(

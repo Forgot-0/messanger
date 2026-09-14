@@ -65,18 +65,20 @@ class TestGetOrCreateMyProfile:
         response = await client.get(api_path("profiles/my/"))
         assert response.status_code in (401, 403)
 
-    async def test_new_profile_appears_in_the_public_list(
+    async def test_new_profile_appears_in_the_list(
         self,
         client: AsyncClient,
         user_jwt: UserJWTData,
         create_auth_headers,
     ) -> None:
-        before = await client.get(api_path("profiles/"))
+        headers = create_auth_headers(user_jwt)
+
+        before = await client.get(api_path("profiles/"), headers=headers)
         assert before.json()["total"] == 0
 
-        await client.get(api_path("profiles/my/"), headers=create_auth_headers(user_jwt))
+        await client.get(api_path("profiles/my/"), headers=headers)
 
-        after = await client.get(api_path("profiles/"))
+        after = await client.get(api_path("profiles/"), headers=headers)
         assert after.json()["total"] == 1
 
 
@@ -137,12 +139,25 @@ class TestGetProfileById:
 @pytest.mark.asyncio
 class TestProfilesList:
 
-    async def test_list_is_public(
+    async def test_list_requires_authentication(
         self,
         client: AsyncClient,
         persisted_profile: Profile,
     ) -> None:
         response = await client.get(api_path("profiles/"))
+
+        assert response.status_code in (401, 403)
+
+    async def test_list_is_returned_to_an_authenticated_caller(
+        self,
+        client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
+        persisted_profile: Profile,
+    ) -> None:
+        response = await client.get(
+            api_path("profiles/"), headers=create_auth_headers(user_jwt)
+        )
 
         assert response.status_code == 200
         assert response.json()["total"] == 1
@@ -150,6 +165,8 @@ class TestProfilesList:
     async def test_list_is_paginated(
         self,
         client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
         db_session,
     ) -> None:
         db_session.add_all([
@@ -165,8 +182,13 @@ class TestProfilesList:
         ])
         await db_session.commit()
 
-        first = await client.get(api_path("profiles/"), params={"page": 1, "page_size": 2})
-        second = await client.get(api_path("profiles/"), params={"page": 2, "page_size": 2})
+        headers = create_auth_headers(user_jwt)
+        first = await client.get(
+            api_path("profiles/"), params={"page": 1, "page_size": 2}, headers=headers
+        )
+        second = await client.get(
+            api_path("profiles/"), params={"page": 2, "page_size": 2}, headers=headers
+        )
 
         assert first.json()["total"] == 5
         assert len(first.json()["items"]) == 2
@@ -174,13 +196,24 @@ class TestProfilesList:
         ids_second = {p["id"] for p in second.json()["items"]}
         assert ids_first.isdisjoint(ids_second)
 
-    async def test_page_size_over_the_limit_is_rejected(self, client: AsyncClient) -> None:
-        response = await client.get(api_path("profiles/"), params={"page_size": 500})
+    async def test_page_size_over_the_limit_is_rejected(
+        self,
+        client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
+    ) -> None:
+        response = await client.get(
+            api_path("profiles/"),
+            params={"page_size": 500},
+            headers=create_auth_headers(user_jwt),
+        )
         assert response.status_code == 422
 
     async def test_username_filter_narrows_the_list(
         self,
         client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
         db_session,
     ) -> None:
         db_session.add_all([
@@ -195,7 +228,11 @@ class TestProfilesList:
         ])
         await db_session.commit()
 
-        response = await client.get(api_path("profiles/"), params={"username": "findme"})
+        response = await client.get(
+            api_path("profiles/"),
+            params={"username": "findme"},
+            headers=create_auth_headers(user_jwt),
+        )
 
         assert response.json()["total"] == 1
 
