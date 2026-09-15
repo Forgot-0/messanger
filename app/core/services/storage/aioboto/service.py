@@ -178,16 +178,26 @@ class AioBotoStorageService(StorageService):
         except ClientError as exc:
             raise self._translate(exc, bucket_name, file_key) from exc
 
-    async def download_range(self, bucket_name: str, file_key: str, offset: int, length: int) -> bytes:
+    async def download_range(
+        self,
+        bucket_name: str,
+        file_key: str,
+        offset: int,
+        length: int,
+        stat: ObjectStat | None = None,
+    ) -> bytes:
         if length <= 0:
             return b""
 
+        params: dict[str, Any] = {
+            "Bucket": bucket_name,
+            "Key": file_key,
+            "Range": f"bytes={offset}-{offset + length - 1}",
+        }
+        self._pin(params, stat)
+
         try:
-            response = await self.client.get_object(
-                Bucket=bucket_name,
-                Key=file_key,
-                Range=f"bytes={offset}-{offset + length - 1}",
-            )
+            response = await self.client.get_object(**params)
             stream = response["Body"]
             async with stream:
                 return await stream.read()
@@ -274,12 +284,7 @@ class AioBotoStorageService(StorageService):
         stat: ObjectStat | None,
     ) -> AsyncIterator[bytes]:
         params: dict[str, Any] = {"Bucket": bucket_name, "Key": file_key}
-
-        if stat is not None:
-            if stat.version_id is not None:
-                params["VersionId"] = stat.version_id
-            elif stat.etag:
-                params["IfMatch"] = self._quote_etag(stat.etag)
+        self._pin(params, stat)
 
         read = 0
         try:
@@ -307,6 +312,15 @@ class AioBotoStorageService(StorageService):
     def _quote_etag(etag: str) -> str:
         return etag if etag.startswith('"') else f'"{etag}"'
 
+    @classmethod
+    def _pin(cls, params: dict[str, Any], stat: ObjectStat | None) -> None:
+        if stat is None:
+            return
+        if stat.version_id is not None:
+            params["VersionId"] = stat.version_id
+        elif stat.etag:
+            params["IfMatch"] = cls._quote_etag(stat.etag)
+
     @staticmethod
     def _code(exc: ClientError) -> str:
         error = exc.response.get("Error") or {}
@@ -319,6 +333,11 @@ class AioBotoStorageService(StorageService):
             return ObjectNotFoundError(bucket_name=bucket_name, file_key=file_key)
         if code in _PRECONDITION_CODES:
             return ObjectChangedError(bucket_name=bucket_name, file_key=file_key)
+
+        logger.warning(
+            "Unmapped storage error",
+            extra={"bucket_name": bucket_name, "file_key": file_key, "s3_code": code},
+        )
         return StorageError()
 
     def get_public_url_object(self, bucket: str, file_key: str) -> str:

@@ -180,7 +180,13 @@ HTTP route (app/<module>/routes/v1/*.py)
 15. **Чужие события топика отсеиваются ветвлением по `event_name` внутри подписчика** (`DictEventDTO`
     плюс `model_validate` payload'а). Фильтр `@subscriber(filter=...)` требует ещё и пустой ветки
     по умолчанию, иначе FastStream пишет `SubscriberNotFound` уровня ERROR на каждое чужое сообщение.
-16. **Хранилище — только через `StorageService`.** Активная реализация — `AioBotoStorageService`
+16. **Всё, что читается из pending-бакета после `get_stat`, пиннится этим же `stat`.**
+    Presigned PUT живёт весь свой TTL и допускает повторную запись, поэтому между валидацией
+    и промоушеном объект можно подменить. `download_range`/`download_to_path`/`download_bytes`
+    принимают `stat=`, `copy_object` — `source_stat=`; они переводятся в `IfMatch`/`CopySourceIfMatch`
+    (SeaweedFS их соблюдает — см. тесты в `tests/chats/integration/commands/attachments/test_proccess.py`).
+    Без пиннинга проверки размера и magic-bytes относятся к байтам, которых в бакете уже нет.
+17. **Хранилище — только через `StorageService`.** Активная реализация — `AioBotoStorageService`
     (`app/core/services/storage/aioboto/`), собирается в `CoreProvider` как APP-scope async-генератор:
     два aiobotocore-клиента (внутренний и публичный) живут столько же, сколько контейнер.
     Публичный доступ к бакету даёт bucket policy, которую `ensure_buckets()` применяет на старте,
@@ -227,6 +233,10 @@ poetry run alembic revision --autogenerate -m "описание" && poetry run a
 - Health: `GET /health`, метрики: `GET /metrics` (у `consumers` — на порту 9002)
 - Kafka Connect REST: `http://localhost:8083` (статус CDC: `/connectors/outbox-connector/status`)
 - SeaweedFS: S3 API `http://localhost:8333`, master UI `http://localhost:9333`, filer `http://localhost:8888`
+- Консоль SeaweedFS (аналог MinIO Console: бакеты, браузер объектов, состояние кластера) —
+  сервис `seaweedfs_admin`, `http://127.0.0.1:23646`, логин/пароль из `SEAWEEDFS_ADMIN_USER` /
+  `SEAWEEDFS_ADMIN_PASSWORD`. Наружу не публикуется, на прод ходить через
+  `ssh -L 23646:localhost:23646 <user>@<host>`.
 
 ## Деплой
 

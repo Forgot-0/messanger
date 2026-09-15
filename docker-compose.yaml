@@ -139,6 +139,39 @@ services:
           cpus: "1"
           memory: 1G
 
+  seaweedfs_admin:
+    image: chrislusf/seaweedfs:4.46
+    container_name: seaweedfs_admin
+    command:
+      - admin
+      - -ip=0.0.0.0
+      - -port=23646
+      - -master=seaweedfs:9333
+      - -dataDir=/data
+      - -adminUser=${SEAWEEDFS_ADMIN_USER:-admin}
+      - -adminPassword=${SEAWEEDFS_ADMIN_PASSWORD:?SEAWEEDFS_ADMIN_PASSWORD is required}
+    ports:
+      - "127.0.0.1:23646:23646"
+    volumes:
+      - seaweedfs_admin_data:/data
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f -o /dev/null http://127.0.0.1:23646/login || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
   db:
     image: postgres:18.3
     container_name: db
@@ -321,6 +354,7 @@ volumes:
   kafka_data:
   kafka_secrets:
   seaweedfs_data:
+  seaweedfs_admin_data:
 
 
 networks:

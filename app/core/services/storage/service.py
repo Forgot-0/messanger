@@ -44,7 +44,14 @@ class StorageService(ABC):
         ...
 
     @abstractmethod
-    async def download_range(self, bucket_name: str, file_key: str, offset: int, length: int) -> bytes:
+    async def download_range(
+        self,
+        bucket_name: str,
+        file_key: str,
+        offset: int,
+        length: int,
+        stat: ObjectStat | None = None,
+    ) -> bytes:
         ...
 
     @abstractmethod

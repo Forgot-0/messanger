@@ -12,8 +12,9 @@ from app.chats.schemas.ws import AttachmentSuccessPayload, WSEventType
 from app.chats.services.attachment_media import AttachmentMediaValidator
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.services.media.exceptions import MediaProbeUnavailableError
-from app.core.services.storage.exceptions import StorageError
+from app.core.services.storage.exceptions import ObjectChangedError, ObjectNotFoundError, StorageError
 from app.core.services.storage.service import StorageService
+from app.core.utils import now_utc
 from app.core.websocket.dtos import DeliveryData, DeliveryDTO
 from app.core.websocket.manager import ConnectionManager
 
@@ -43,7 +44,9 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
         )
 
         failed_tokens: list[str] = []
+        processed_tokens: list[str] = []
         for slot in slots:
+            processed_tokens.append(str(slot.id))
             try:
                 if slot.uploader_id != command.user_id:
                     raise AccessDeniedChatError(chat_id=str(slot.chat_id), requester_id=command.user_id)
@@ -66,6 +69,7 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                     file_key=slot.s3_key,
                     offset=0,
                     length=MAGIC_HEADER_BYTES,
+                    stat=stat,
                 )
                 mime_type = magic.from_buffer(data, mime=True)
 
@@ -103,12 +107,20 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                     file_key_from=slot.s3_key,
                     bucket_to=chat_config.ATTACHMENT_BUCKET,
                     file_key_to=slot.s3_key,
-                )
-                await self.storage_service.delete_file(
-                    bucket_name=chat_config.ATTACHMENT_BUCKET_PENDING,
-                    file_key=slot.s3_key,
+                    source_stat=stat,
                 )
                 slot.mark_proccesed()
+
+                try:
+                    await self.storage_service.delete_file(
+                        bucket_name=chat_config.ATTACHMENT_BUCKET_PENDING,
+                        file_key=slot.s3_key,
+                    )
+                except StorageError:
+                    logger.warning(
+                        "Failed to drop the promoted object from the pending bucket",
+                        extra={"slot_id": str(slot.id), "s3_key": slot.s3_key},
+                    )
 
             except AttachmentMediaValidationError as exc:
                 logger.warning(
@@ -119,6 +131,33 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                         "reason": exc.reason.value,
                         "limit": exc.limit,
                         "detected": exc.detected,
+                        "error_class": "permanent",
+                    },
+                )
+                slot.mark_error()
+                failed_tokens.append(str(slot.id))
+
+            except ObjectNotFoundError:
+                logger.warning(
+                    "Attachment confirmed but never uploaded",
+                    extra={
+                        "slot_id": str(slot.id),
+                        "attachment_type": slot.attachment_type.value,
+                        "bucket": chat_config.ATTACHMENT_BUCKET_PENDING,
+                        "s3_key": slot.s3_key,
+                        "error_class": "permanent",
+                    },
+                )
+                slot.mark_error()
+                failed_tokens.append(str(slot.id))
+
+            except ObjectChangedError:
+                logger.warning(
+                    "Attachment changed between validation and promotion",
+                    extra={
+                        "slot_id": str(slot.id),
+                        "attachment_type": slot.attachment_type.value,
+                        "s3_key": slot.s3_key,
                         "error_class": "permanent",
                     },
                 )
@@ -148,7 +187,7 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
         await self.session.commit()
 
         try:
-            successful_tokens = [t for t in command.upload_tokens if t not in failed_tokens]
+            successful_tokens = [t for t in processed_tokens if t not in failed_tokens]
             if successful_tokens:
                 await self.connection_manager.send_user_payload(
                     event=DeliveryDTO(
@@ -163,8 +202,18 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                             require_subscription=False,
                             recipients=[command.user_id],
                         ),
-                        ts=slot.created_at.isoformat()
+                        ts=now_utc().isoformat(),
                     )
+                )
+            unknown_tokens = [t for t in command.upload_tokens if t not in processed_tokens]
+            if unknown_tokens:
+                logger.warning(
+                    "Attachment confirm referenced unknown upload tokens",
+                    extra={
+                        "user_id": command.user_id,
+                        "chat_id": command.chat_id,
+                        "unknown": unknown_tokens,
+                    },
                 )
             if failed_tokens:
                 logger.warning(

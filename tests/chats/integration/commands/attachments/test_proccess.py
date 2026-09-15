@@ -15,8 +15,9 @@ from app.chats.models.chat import Chat
 from app.chats.repositories.attachment import AttachmentRepository
 from app.chats.services.attachment_media import AttachmentMediaValidator
 from app.core.services.storage.aioboto.client import S3Client
-from app.core.services.storage.exceptions import ObjectNotFoundError
+from app.core.services.storage.exceptions import ObjectNotFoundError, StorageError
 from app.core.services.storage.service import StorageService
+from app.core.websocket.dtos import DeliveryDTO
 from app.core.websocket.manager import ConnectionManager
 from app.core.websocket.presence import PresenceService
 from tests.chats.integration.conftest import GATEWAY_ID
@@ -302,3 +303,77 @@ class TestProccessAttachments:
         await self._run(handler, group_chat, [slot.id, uuid4()])
 
         assert await self._status(attachment_repository, slot.id) is AttachmentStatus.SUCCESS
+
+    async def test_object_swapped_after_validation_is_not_promoted(
+        self,
+        handler: ProccessAttachmentsCommandHandler,
+        attachment_repository: AttachmentRepository,
+        db_session: AsyncSession,
+        storage: StorageService,
+        s3_test_client: S3Client,
+        group_chat: Chat,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The presigned PUT URL stays valid for its whole TTL, so the uploader can
+        replace the object after the magic-byte check and before the promotion.
+        Only the revision that was validated may reach the main bucket."""
+        slot = await self._slot(attachment_repository, db_session, s3_test_client, group_chat)
+        original = storage.download_range
+
+        async def swap_after_sniffing(*args: object, **kwargs: object) -> bytes:
+            data = await original(*args, **kwargs)  # type: ignore[arg-type]
+            await put_object(
+                s3_test_client,
+                chat_config.ATTACHMENT_BUCKET_PENDING,
+                slot.s3_key,
+                PDF_HEADER * 8,
+            )
+            return data
+
+        monkeypatch.setattr(storage, "download_range", swap_after_sniffing)
+
+        await self._run(handler, group_chat, [slot.id])
+
+        assert await self._status(attachment_repository, slot.id) is AttachmentStatus.ERROR
+        assert not await object_exists(storage, chat_config.ATTACHMENT_BUCKET, slot.s3_key)
+
+    async def test_failed_pending_cleanup_keeps_the_attachment(
+        self,
+        handler: ProccessAttachmentsCommandHandler,
+        attachment_repository: AttachmentRepository,
+        db_session: AsyncSession,
+        storage: StorageService,
+        s3_test_client: S3Client,
+        group_chat: Chat,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Dropping the pending copy is cleanup: the file is already in its final
+        bucket, so a failure there must not lose the attachment."""
+        slot = await self._slot(attachment_repository, db_session, s3_test_client, group_chat)
+
+        async def failing_delete(*args: object, **kwargs: object) -> bool:
+            raise StorageError
+
+        monkeypatch.setattr(storage, "delete_file", failing_delete)
+
+        await self._run(handler, group_chat, [slot.id])
+
+        assert await self._status(attachment_repository, slot.id) is AttachmentStatus.SUCCESS
+        assert await object_exists(storage, chat_config.ATTACHMENT_BUCKET, slot.s3_key)
+
+    async def test_only_tokens_backed_by_a_slot_are_reported_as_uploaded(
+        self,
+        handler: ProccessAttachmentsCommandHandler,
+        group_chat: Chat,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        sent: list[DeliveryDTO] = []
+
+        async def capture(_self: ConnectionManager, event: DeliveryDTO) -> None:
+            sent.append(event)
+
+        monkeypatch.setattr(ConnectionManager, "send_user_payload", capture)
+
+        await self._run(handler, group_chat, [uuid4(), uuid4()])
+
+        assert sent == []
