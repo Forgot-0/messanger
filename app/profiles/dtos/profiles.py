@@ -7,6 +7,7 @@ from app.profiles.dtos.profile_links import ProfileLinkDTO
 
 class ProfileDTO(BaseModel):
     id: int
+    username: str
     avatars: dict[int, dict[str, str]]
     specialization: str | None
     display_name: str | None
