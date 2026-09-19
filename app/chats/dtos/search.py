@@ -7,8 +7,6 @@ from app.chats.models.chat import ChatType
 
 
 class SearchChatPreviewDTO(BaseModel):
-    """Минимум про чат, чтобы отрисовать строку результата без второго запроса."""
-
     id: UUID
     type: ChatType
     name: str | None = None
@@ -25,8 +23,6 @@ class MessageSearchItemDTO(BaseModel):
 
 
 class MessageSearchDTO(BaseModel):
-    """Курсорная страница — по образцу ListChats, has_next реальное поле."""
-
     has_next: bool
     items: list[MessageSearchItemDTO]
     next_message_id: UUID | None = None

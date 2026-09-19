@@ -6,8 +6,6 @@ class ProfileIdempotencyScope(StrEnum):
 
 
 class ContactKeys:
-    """Единственное место, где собираются ключи Redis модуля profiles."""
-
     _NAMESPACE = "profiles:v1:"
 
     @staticmethod

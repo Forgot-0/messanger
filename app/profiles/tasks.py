@@ -12,7 +12,7 @@ from app.core.websocket.dtos import DeliveryData, DeliveryDTO
 from app.core.websocket.manager import ConnectionManager
 from app.profiles.commands.contacts.import_batch import ImportContactEntry, ImportContactsCommand
 from app.profiles.commands.profiles.proccess_avatar import ProccessAvatarCommand
-from app.profiles.dtos.contacts import ImportCompletedPayload
+from app.profiles.dtos.contacts import ImportCompletedPayload, ImportContactsResultDTO
 from app.profiles.keys import ContactWSEventType
 
 logger = logging.getLogger(__name__)
@@ -48,9 +48,6 @@ class AvatarUploadTask(BaseTask):
 
 @dataclass
 class ContactsImportTask(BaseTask):
-    """Долгий импорт адресной книги: HTTP уже ответил 202, результат
-    доезжает до клиента WS-событием."""
-
     __task_name__ = "profiles.contacts.import"
 
     @staticmethod
@@ -61,7 +58,7 @@ class ContactsImportTask(BaseTask):
         mediator: FromDishka[BaseMediator],
         connection_manager: FromDishka[ConnectionManager],
     ) -> None:
-        result = await mediator.handle_command(
+        result: ImportContactsResultDTO = await mediator.handle_command(
             ImportContactsCommand(
                 owner_id=owner_id,
                 entries=[

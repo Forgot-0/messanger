@@ -124,6 +124,9 @@ class MessageService:
                 profile.avatar_url = url
 
     async def get_attachmnent_url_by_key(self, s3_key: str) -> str:
+        if "http" in s3_key:
+            return s3_key
+
         key = f"attachment:{s3_key}"
         url = await self.redis.get(key)
         if url is None:
@@ -137,6 +140,9 @@ class MessageService:
         return url # pyright: ignore[reportReturnType]
 
     async def get_chat_profile_url_by_key(self, s3_key: str) -> str:
+        if "http" in s3_key:
+            return s3_key
+
         key = f"chat:profile:{s3_key}"
         url = await self.redis.get(key)
         if url is None:

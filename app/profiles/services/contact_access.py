@@ -9,11 +9,6 @@ def check_contact_owner(
     owner_id: int,
     user_jwt_data: UserJWTData | None,
 ) -> None:
-    """Адресная книга всегда своя: чужую трогает только администратор.
-
-    user_jwt_data is None — вызов изнутри (фоновая задача, консьюмер),
-    туда токен не доезжает, а owner_id уже проверен на входе в HTTP.
-    """
     if user_jwt_data is None:
         return
 

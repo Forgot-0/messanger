@@ -11,13 +11,6 @@ from app.profiles.models.contacts import IdentifierKind
 
 @dataclass(frozen=True, slots=True)
 class IdentifierHasher:
-    """Нормализация и слепое хеширование идентификаторов адресной книги.
-
-    Сырые email и телефоны в базу не попадают: хранится только
-    hmac_sha256(pepper, normalized). Из-за этого поиск по сырому значению
-    невозможен в принципе — только точное совпадение хешей.
-    """
-
     EMAIL_RE: ClassVar[re.Pattern[str]] = re.compile(r"^[^@\s]{1,64}@[^@\s.]+(\.[^@\s.]+)+$")
     NOT_DIGITS_RE: ClassVar[re.Pattern[str]] = re.compile(r"\D+")
 
@@ -34,11 +27,6 @@ class IdentifierHasher:
         return candidate
 
     def normalize_phone(self, raw: str | None) -> str | None:
-        """E.164 без справочника кодов стран: только цифры и ведущий плюс.
-
-        Телефоны как идентификатор пока не заводятся, но схема обязана принять
-        их позже без миграции контактов.
-        """
         if not raw:
             return None
 
