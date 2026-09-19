@@ -28,8 +28,8 @@ from app.profiles.queries.contacts.get_blocked import GetBlockedUsersQuery, GetB
 from app.profiles.queries.contacts.get_list import GetContactsQuery, GetContactsQueryHandler
 from app.profiles.queries.contacts.search import SearchContactsQuery, SearchContactsQueryHandler
 from app.profiles.queries.profiles.get_by_id import GetProfileByIdQuery, GetProfileByIdQueryHandler
+from app.profiles.queries.profiles.get_by_username import GetProfileByUsernameQuery, GetProfileByUsernameQueryHandler
 from app.profiles.queries.profiles.get_list import GetProfilesQuery, GetProfilesQueryHandler
-from app.profiles.queries.profiles.get_url import GetAvatrProfileUrlQuery, GetAvatrProfileUrlQueryHandler
 from app.profiles.repositories.contacts import (
     BlockedUserRepository,
     ContactIdentifierRepository,
@@ -70,8 +70,8 @@ class ProfileModuleProvider(Provider):
         UnblockUserCommandHandler,
 
         GetProfileByIdQueryHandler,
+        GetProfileByUsernameQueryHandler,
         GetProfilesQueryHandler,
-        GetAvatrProfileUrlQueryHandler,
         GetContactsQueryHandler,
         SearchContactsQueryHandler,
         GetBlockedUsersQueryHandler
@@ -139,10 +139,10 @@ class ProfileModuleProvider(Provider):
             GetProfileByIdQuery, GetProfileByIdQueryHandler
         )
         query_registry.register_query(
-            GetProfilesQuery, GetProfilesQueryHandler
+            GetProfileByUsernameQuery, GetProfileByUsernameQueryHandler
         )
         query_registry.register_query(
-            GetAvatrProfileUrlQuery, GetAvatrProfileUrlQueryHandler
+            GetProfilesQuery, GetProfilesQueryHandler
         )
         query_registry.register_query(
             GetContactsQuery, GetContactsQueryHandler

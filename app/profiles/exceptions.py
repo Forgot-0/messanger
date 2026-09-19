@@ -20,6 +20,22 @@ class NotFoundProfileError(ApplicationError):
 
 
 @dataclass(kw_only=True)
+class NotFoundUsernameProfileError(ApplicationError):
+    username: str
+
+    code: str = "NOT_FOUND_PROFILE"
+    status: int = 404
+
+    @property
+    def message(self) -> str:
+        return "Profile not found"
+
+    @property
+    def detail(self) -> dict:
+        return {"username": self.username}
+
+
+@dataclass(kw_only=True)
 class AlreadeExistProfileError(ApplicationError):
     code: str = "ALREADY_EXIST_PROFILE"
     status: int = 409

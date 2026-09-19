@@ -15,14 +15,13 @@ from app.profiles.commands.profiles.remove_link import RemoveLinkFromProfileComm
 from app.profiles.commands.profiles.update import UpdateProfileCommand
 from app.profiles.commands.profiles.update_avatar import UpdateProfileAvatarCommand
 from app.profiles.config import profile_config
-from app.profiles.dtos.profiles import AvatarPresign, ProfileDTO
-from app.profiles.exceptions import NotFoundProfileError
+from app.profiles.dtos.profiles import ProfileDTO
+from app.profiles.exceptions import NotFoundProfileError, NotFoundUsernameProfileError
 from app.profiles.queries.profiles.get_by_id import GetProfileByIdQuery
+from app.profiles.queries.profiles.get_by_username import GetProfileByUsernameQuery
 from app.profiles.queries.profiles.get_list import GetProfilesQuery
-from app.profiles.queries.profiles.get_url import GetAvatrProfileUrlQuery
 from app.profiles.schemas.profiles.requests import (
     AddProfileLinkRequest,
-    AvatarPreSignUrlRequest,
     AvatarUploadCompleteRequest,
     GetProfilesRequest,
     ProfileUpdateRequest,
@@ -96,6 +95,23 @@ async def update_profile(
     )
 
 @router.get(
+    "u/{username}/",
+    status_code=status.HTTP_200_OK,
+    responses={
+        404: create_response(NotFoundUsernameProfileError(username="test"))
+    }
+)
+async def get_profile_by_username(
+    username: str,
+    mediator: FromDishka[BaseMediator],
+) -> ProfileDTO:
+    return await mediator.handle_query(
+        GetProfileByUsernameQuery(
+            username=username
+        )
+    )
+
+@router.get(
     "/{profile_id}/",
     status_code=status.HTTP_200_OK,
     responses={
@@ -108,24 +124,6 @@ async def get_profile(
     mediator: FromDishka[BaseMediator],
 ) -> ProfileDTO:
     return await mediator.handle_query(GetProfileByIdQuery(profile_id, user_jwt_data=user_jwt_data))
-
-@router.post(
-    "/avatar/presign/",
-    status_code=status.HTTP_200_OK,
-    dependencies=[Depends(ConfigurableRateLimiter(times=4, seconds=5*60))]
-)
-async def get_avatar_presign_url(
-    profile_request: AvatarPreSignUrlRequest,
-    mediator: FromDishka[BaseMediator],
-    user_jwt_data: CurrentUserJWTData,
-) -> AvatarPresign:
-    return await mediator.handle_query(
-        GetAvatrProfileUrlQuery(
-            user_id=int(user_jwt_data.id),
-            file_name=profile_request.filename,
-            user_jwt_data=user_jwt_data
-        )
-    )
 
 @router.post(
     "/avatar/upload_complete/",

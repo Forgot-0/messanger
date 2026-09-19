@@ -450,47 +450,6 @@ class TestProfileLinkEndpoints:
 @pytest.mark.profiles
 @pytest.mark.asyncio
 class TestAvatarEndpoints:
-
-    async def test_presign_returns_a_key_scoped_to_the_user(
-        self,
-        client: AsyncClient,
-        user_jwt: UserJWTData,
-        create_auth_headers,
-    ) -> None:
-        response = await client.post(
-            api_path("profiles/avatar/presign/"),
-            json={"filename": "avatar.png"},
-            headers=create_auth_headers(user_jwt),
-        )
-
-        assert response.status_code == 200
-        body = response.json()
-        assert body["file_key"].startswith(f"{user_jwt.id}/")
-        assert_presigned_url(
-            body["url"],
-            bucket=profile_config.PENDING_AVATAR_BUCKET,
-            file_key=body["file_key"],
-        )
-
-    async def test_presign_sanitises_the_filename(
-        self,
-        client: AsyncClient,
-        user_jwt: UserJWTData,
-        create_auth_headers,
-    ) -> None:
-        response = await client.post(
-            api_path("profiles/avatar/presign/"),
-            json={"filename": "../../etc/passwd"},
-            headers=create_auth_headers(user_jwt),
-        )
-
-        assert response.status_code == 200
-        file_key = response.json()["file_key"]
-
-        prefix, _, rest = file_key.partition("/")
-        assert prefix == user_jwt.id
-        assert "/" not in rest
-
     async def test_upload_complete_queues_the_resize_task(
         self,
         client: AsyncClient,
@@ -513,30 +472,3 @@ class TestAvatarEndpoints:
             "user_id": int(user_jwt.id),
             "key_base": f"{user_jwt.id}/avatar.png",
         }
-
-    async def test_presign_is_rate_limited(
-        self,
-        client: AsyncClient,
-        user_jwt: UserJWTData,
-        create_auth_headers,
-    ) -> None:
-        headers = create_auth_headers(user_jwt)
-        payload = {"filename": "avatar.png"}
-
-        statuses = [
-            (await client.post(
-                api_path("profiles/avatar/presign/"), json=payload, headers=headers
-            )).status_code
-            for _ in range(5)
-        ]
-
-        assert statuses[:4] == [200, 200, 200, 200]
-        assert statuses[4] == 429
-
-    async def test_avatar_endpoints_require_authentication(
-        self, client: AsyncClient
-    ) -> None:
-        response = await client.post(
-            api_path("profiles/avatar/presign/"), json={"filename": "a.png"}
-        )
-        assert response.status_code in (401, 403)
