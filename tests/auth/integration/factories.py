@@ -206,11 +206,13 @@ class AuthCommandFactory:
         username: str,
         password: str = "TestPass123!",
         user_agent: str = "Mozilla/5.0",
-        ip_address: str = "127.0.0.1"
+        ip_address: str = "127.0.0.1",
+        device_id: str | None = None,
     ) -> dict[str, Any]:
         return {
             "username": username,
             "password": password,
             "user_agent": user_agent,
-            "ip_address": ip_address
+            "ip_address": ip_address,
+            "device_id": device_id
         }

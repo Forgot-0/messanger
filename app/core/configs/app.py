@@ -35,7 +35,7 @@ class AppConfig(BaseConfig):
 
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = ""
-    BACKEND_CORS_ORIGINS: ClassVar[Annotated[list[str] | str, BeforeValidator(BaseConfig.parse_list)]] = []
+    BACKEND_CORS_ORIGINS: Annotated[list[str] | str, BeforeValidator(BaseConfig.parse_list)] = []
     RATE_LIMITER_ENABLED: bool = True
 
     POSTGRES_SERVER: str = ""
@@ -120,9 +120,9 @@ class AppConfig(BaseConfig):
     LOG_LEVEL: str = "INFO"
     JSON_LOG: bool = True
     PATH_LOG: str | None = ".logs/logs.log"
-    LOG_HANDLERS: ClassVar[Annotated[list[
+    LOG_HANDLERS: Annotated[list[
         Literal["stream", "file"]] | str, BeforeValidator(BaseConfig.parse_list)
-    ]] = ["stream"]
+    ] = ["stream"]
 
     # Auth
     JWT_SECRET_KEY: str = ""

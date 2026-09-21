@@ -14,6 +14,7 @@ from app.auth.dtos.tokens import OAuthData
 from app.auth.exceptions import (
     LinkedAnotherUserOAuthError,
     NotExistProviderOAuthError,
+    OAuthProviderUnavailableError,
     OAuthStateNotFoundError,
 )
 from app.auth.models.oauth import OAuthAccount, OAuthProviderEnum
@@ -359,7 +360,7 @@ class TestProcessOAuthCallback:
         fake_provider.exchange_error = RuntimeError("провайдер недоступен")
         state = await self._state_for(oauth_code_repository, None)
 
-        with pytest.raises(RuntimeError):
+        with pytest.raises(OAuthProviderUnavailableError):
             await handler.handle(self.callback(state))
 
     async def test_unknown_provider_in_the_callback_is_rejected(

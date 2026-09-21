@@ -101,7 +101,7 @@ class AuthModuleProvider(Provider):
     def cookie_manager(self) -> RefreshTokenCookieManager:
         if app_config.ENVIRONMENT != "production":
             return IRefreshTokenCookieManager(
-                SAMESITE="none",
+                SAMESITE="lax",
                 HTTPONLY=False,
                 SECURE=False
             )

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 from app.auth.dtos.tokens import OAuthData
-from app.auth.exceptions import NotExistProviderOAuthError
+from app.auth.exceptions import NotExistProviderOAuthError, OAuthProviderUnavailableError
 from app.auth.services.oauth_providers import OAuthProvider
 
 
@@ -30,7 +30,10 @@ class OAuthManager:
     async def process_callback(self, provider_name: str, code: str) -> OAuthData:
         provider = self.provider_factory.get_provider(provider_name)
 
-        token = await provider.exchange_code_for_token(code)
-        oauth_user = await provider.get_user_info(token.access_token)
+        try:
+            token = await provider.exchange_code_for_token(code)
+            oauth_user = await provider.get_user_info(token.access_token)
+        except:
+            raise OAuthProviderUnavailableError(provider=provider_name)
 
         return oauth_user

@@ -28,7 +28,7 @@ class SendResetPasswordCommandHandler(BaseCommandHandler[SendResetPasswordComman
     async def handle(self, command: SendResetPasswordCommand) -> None:
         user = await self.user_repository.get_by_email(email=command.email)
         if not user:
-            raise NotFoundUserError(user_by=command.email, user_field="email")
+            return
 
         reset_token = secrets.token_urlsafe(4)
         hashed_token = hashlib.sha256(reset_token.encode()).hexdigest()

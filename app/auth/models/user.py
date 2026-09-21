@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -113,7 +114,7 @@ class User(BaseModel, DateMixin, SoftDeleteMixin):
     @classmethod
     def create_oauth(cls, email: str, username: str, roles: set[Role]) -> User:
         return User.create(
-            email, username=username, password_hash=None,
+            email, username=str(uuid4()), password_hash=None,
             roles=roles, is_verified=True
         )
 

@@ -43,12 +43,12 @@ class UserRepository(IRepository[User], CacheRepository):
         return result.scalars().first()
 
     async def get_user_with_roles_by_id(self, user_id: int) -> User | None:
-        query = select(User).options(selectinload(User.roles)).where(User.id == user_id)
+        query = User.select_not_deleted().options(selectinload(User.roles)).where(User.id == user_id)
         results = await self.session.execute(query)
         return results.scalar()
 
     async def get_user_with_permission_by_id(self, user_id: int) -> User | None:
-        query = select(User).options(
+        query = User.select_not_deleted().options(
            selectinload(User.permissions), selectinload(User.roles).selectinload(Role.permissions)
         ).where(User.id == user_id)
         results = await self.session.execute(query)

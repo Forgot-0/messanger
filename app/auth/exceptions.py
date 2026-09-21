@@ -54,6 +54,33 @@ class OAuthStateNotFoundError(ApplicationError):
 
 
 @dataclass(kw_only=True)
+class OAuthProviderUnavailableError(ApplicationError):
+    provider: str
+
+    code: str = "OAUTH_PROVIDER_UNAVAILABLE"
+    status: int = 502
+
+    @property
+    def message(self) -> str:
+        return "OAuth is unavailable for this provider."
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        return {"provider": self.provider}
+
+
+
+@dataclass(kw_only=True)
+class OAuthInactiveError(ApplicationError):
+    code: str = "OAUTH_INACTIVE"
+    status: int = 502
+
+    @property
+    def message(self) -> str:
+        return "OAuth inactive."
+
+
+@dataclass(kw_only=True)
 class LinkedAnotherUserOAuthError(ApplicationError):
     provider: str
 

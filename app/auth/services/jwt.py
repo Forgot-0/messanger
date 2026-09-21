@@ -7,6 +7,8 @@ from app.auth.config import auth_config
 from app.auth.dtos.tokens import TokenGroup, TokenType
 from app.auth.dtos.user import AuthUserJWTData
 from app.auth.exceptions import TokenInBlacklistError
+from app.auth.repositories.permission import PermissionInvalidateRepository
+from app.auth.repositories.role import RoleInvalidateRepository
 from app.auth.repositories.session import TokenBlacklistRepository
 from app.core.services.auth.dto import Token
 from app.core.services.auth.jwt_manager import JWTManager
@@ -16,6 +18,8 @@ from app.core.utils import fromtimestamp, now_utc
 @dataclass
 class AuthJWTManager(JWTManager):
     token_blacklist: TokenBlacklistRepository
+    role_invalidation: RoleInvalidateRepository
+    permission_invalidation: PermissionInvalidateRepository
 
     def generate_payload(self, user_data: AuthUserJWTData, token_type: TokenType) -> dict[str, Any]:
         now = now_utc()
@@ -64,6 +68,18 @@ class AuthJWTManager(JWTManager):
 
         blacklisted_user_date = await self.token_blacklist.get_user_backlist(int(refresh_token.sub))
         if blacklisted_user_date and blacklisted_user_date > token_iat_dt:
+            raise TokenInBlacklistError
+
+        max_invalidation_role = await self.role_invalidation.get_max_invalidation_time(
+            security_user.roles
+        )
+        if max_invalidation_role and max_invalidation_role > token_iat_dt:
+            raise TokenInBlacklistError
+
+        max_invalidation_permission = await self.permission_invalidation.get_max_invalidation_time(
+            security_user.permissions
+        )
+        if max_invalidation_permission and max_invalidation_permission > token_iat_dt:
             raise TokenInBlacklistError
 
         await self.revoke_token(refresh_token)

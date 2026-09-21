@@ -3,7 +3,6 @@ from typing import Annotated
 from dishka import FromDishka
 from dishka.integrations.fastapi import DishkaRoute
 from fastapi import APIRouter, Cookie, Depends, Query, Request, Response, status
-from fastapi.security import OAuth2PasswordRequestForm
 
 from app.auth.commands.auth.auth_url import CreateOAuthAuthorizeUrlCommand
 from app.auth.commands.auth.login import LoginCommand
@@ -16,8 +15,8 @@ from app.auth.commands.users.reset_password import ResetPasswordCommand
 from app.auth.commands.users.send_reset_password import SendResetPasswordCommand
 from app.auth.commands.users.send_verify import SendVerifyCommand
 from app.auth.commands.users.verify import VerifyCommand
-from app.auth.deps import CurrentUserModel
-from app.auth.dtos.tokens import TokenGroup
+from app.auth.deps import ActiveUserModel, AuthCurrentUserJWTData
+from app.auth.dtos.tokens import OAuthAccountDTO, TokenGroup
 from app.auth.exceptions import (
     LinkedAnotherUserOAuthError,
     NotExistProviderOAuthError,
@@ -27,7 +26,9 @@ from app.auth.exceptions import (
     PasswordMismatchError,
     WrongLoginDataError,
 )
+from app.auth.queries.auth.oauth import GetUserOAuthAccountsQuery
 from app.auth.schemas.auth.requests import (
+    OAuth2PasswordRequestFormWithDevice,
     OAuthCallbackQuery,
     ResetPasswordRequest,
     SendResetPasswordCodeRequest,
@@ -61,7 +62,7 @@ router = APIRouter(route_class=DishkaRoute)
 async def login(
     mediator: FromDishka[BaseMediator],
     refresh_cookie_manager: FromDishka[RefreshTokenCookieManager],
-    login_request: Annotated[OAuth2PasswordRequestForm, Depends()],
+    login_request: Annotated[OAuth2PasswordRequestFormWithDevice, Depends()],
     request: Request,
     response: Response
 ) -> AccessTokenResponse:
@@ -69,6 +70,7 @@ async def login(
         LoginCommand(
             username=login_request.username,
             password=login_request.password,
+            device_id=login_request.device_id,
             user_agent=request.headers.get("user-agent", ""),
             ip_address=get_ip_from_request(request)
         )
@@ -131,9 +133,6 @@ async def logout(
     summary="Sending a verification code",
     description="Sends an email verification code. Limit: 3 requests per hour.",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={
-        404: create_response(NotFoundUserError(user_by="test@test.com", user_field="email"))
-    },
     dependencies=[Depends(ConfigurableRateLimiter(times=3, seconds=60*60))],
 )
 async def send_verify_code(
@@ -149,9 +148,6 @@ async def send_verify_code(
     summary="Sending a password reset code",
     description="Sends a password reset code. Limit: 3 requests per hour.",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={
-        404: create_response(NotFoundUserError(user_by="test@test.com", user_field="email"))
-    },
     dependencies=[Depends(ConfigurableRateLimiter(times=3, seconds=60*60))]
 )
 async def send_reset_password_code(
@@ -237,7 +233,7 @@ async def oauth_authorize(
 async def oauth_authorize_connect(
     mediator: FromDishka[BaseMediator],
     provider: str,
-    current_user: CurrentUserModel,
+    current_user: ActiveUserModel,
 ) -> OAuthUrlResponse:
     url: str = await mediator.handle_command(
         CreateOAuthAuthorizeUrlCommand(provider=provider, user_id=current_user.id)
@@ -258,7 +254,8 @@ async def oauth_authorize_connect(
             ]
         ),
         409: create_response(LinkedAnotherUserOAuthError(provider="string"))
-    }
+    },
+    dependencies=[Depends(ConfigurableRateLimiter(times=3, seconds=60*60))]
 )
 async def oauth_callback(
     provider: str,
@@ -280,3 +277,17 @@ async def oauth_callback(
     refresh_cookie_manager.set_refresh_token(response, token_group.refresh_token)
     return AccessTokenResponse(access_token=token_group.access_token)
 
+@router.get(
+    "oauth/",
+    summary="Get list oauth linked",
+    status_code=status.HTTP_200_OK,
+)
+async def get_list_oauth(
+    mediator: FromDishka[BaseMediator],
+    user_jwt_data: AuthCurrentUserJWTData
+) -> list[OAuthAccountDTO]:
+    return await mediator.handle_query(
+        GetUserOAuthAccountsQuery(
+            user_jwt_data=user_jwt_data
+        )
+    )

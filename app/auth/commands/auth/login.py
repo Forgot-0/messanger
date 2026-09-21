@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class LoginCommand(BaseCommand):
     username: str
     password: str
+    device_id: str | None
     user_agent: str
     ip_address: str
 

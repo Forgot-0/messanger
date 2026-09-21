@@ -134,7 +134,7 @@ class OAuthYandex(OAuthProvider):
             username=user_data.get("login"),
         )
 
-
+@dataclass
 class OAuthGithub(OAuthProvider):
     def get_auth_url(self, state: str) -> str:
         params = {

@@ -30,7 +30,7 @@ class SendVerifyCommandHandler(BaseCommandHandler[SendVerifyCommand, None]):
         user = await self.user_repository.get_by_email(email=command.email)
 
         if not user:
-            raise NotFoundUserError(user_by=command.email, user_field="email")
+            return
 
         verify_token = secrets.token_urlsafe(4)
         hashed_token = hashlib.sha256(verify_token.encode()).hexdigest()

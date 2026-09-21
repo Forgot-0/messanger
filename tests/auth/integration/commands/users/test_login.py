@@ -52,7 +52,8 @@ class TestLoginCommand:
             username=standard_user.username,
             password="WrongPassword123!",
             user_agent="Mozilla/5.0",
-            ip_address="127.0.0.1"
+            ip_address="127.0.0.1",
+            device_id=None
         )
 
         with pytest.raises(WrongLoginDataError) as exc_info:
@@ -68,7 +69,8 @@ class TestLoginCommand:
             username="nonexistent@example.com",
             password="TestPass123!",
             user_agent="Mozilla/5.0",
-            ip_address="127.0.0.1"
+            ip_address="127.0.0.1",
+            device_id=None
         )
 
         with pytest.raises(WrongLoginDataError):
@@ -144,7 +146,8 @@ class TestLoginCommand:
             username="oauthuser",
             password="AnyPassword123!",
             user_agent="Mozilla/5.0",
-            ip_address="127.0.0.1"
+            ip_address="127.0.0.1",
+            device_id=None
         )
 
         with pytest.raises(WrongLoginDataError):

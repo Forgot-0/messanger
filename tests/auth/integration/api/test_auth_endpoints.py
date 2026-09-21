@@ -155,7 +155,8 @@ class TestAuthEndpoints:
             api_path("auth/login/"),
             data={
                 "username": standard_user.email,
-                "password": "TestPass123!"
+                "password": "TestPass123!",
+                "device_id": None
             }
         )
 

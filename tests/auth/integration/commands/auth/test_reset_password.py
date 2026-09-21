@@ -46,8 +46,7 @@ class TestSendResetPasswordCommand:
     ) -> None:
         command = SendResetPasswordCommand(email="nonexistent@example.com")
 
-        with pytest.raises(NotFoundUserError):
-            await handler.handle(command)
+        await handler.handle(command)
 
 
 @pytest.mark.integration

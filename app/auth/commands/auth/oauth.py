@@ -9,6 +9,8 @@ from app.auth.exceptions import (
     LinkedAnotherUserOAuthError,
     NotFoundRoleError,
     NotFoundUserError,
+    OAuthInactiveError,
+    OAuthProviderUnavailableError,
     OAuthStateNotFoundError,
 )
 from app.auth.models.oauth import OAuthAccount, OAuthProviderEnum
@@ -29,7 +31,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class ProcessOAuthCallbackCommand(BaseCommand):
     provider: str
-    code: str
+    code: str | None
     state: str
     user_agent: str
     ip_address: str
@@ -48,6 +50,9 @@ class ProcessOAuthCallbackCommandHandler(BaseCommandHandler[ProcessOAuthCallback
     event_bus: BaseEventBus
 
     async def handle(self, command: ProcessOAuthCallbackCommand) -> TokenGroup:
+            if command.code is None:
+                raise OAuthProviderUnavailableError(provider=command.provider)
+
             oauth_data = await self.oauth_manager.process_callback(command.provider, command.code)
             user_id = await self.oauth_code_repository.get_state(command.state)
 
@@ -76,6 +81,9 @@ class ProcessOAuthCallbackCommandHandler(BaseCommandHandler[ProcessOAuthCallback
                     raise NotFoundUserError(user_by=user_id, user_field="id")
 
             elif oauth_account:
+                if oauth_account.is_active is False:
+                    raise OAuthInactiveError
+
                 user = await self.user_repository.get_user_with_permission_by_id(oauth_account.user_id)
 
                 if not user:
@@ -101,10 +109,7 @@ class ProcessOAuthCallbackCommandHandler(BaseCommandHandler[ProcessOAuthCallback
                 )
                 await self.user_repository.create(user)
                 await self.session.flush()
-                user.pull_events()
                 user.verify()
-                await self.event_bus.publish(user.pull_events())
-                await self.session.commit()
 
                 user_id = user.id
                 oauth_account = OAuthAccount(
@@ -131,7 +136,7 @@ class ProcessOAuthCallbackCommandHandler(BaseCommandHandler[ProcessOAuthCallback
                 "OAuth Callback",
                 extra={
                     "provider": command.provider,
-                    "oauth_id": getattr(oauth_account, "id", None),
+                    "oauth_id": oauth_account.id,
                     "user_id": user_id
                 }
             )
