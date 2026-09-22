@@ -23,6 +23,7 @@ from app.auth.repositories.oauth import OauthAccountRepository, OAuthCodeReposit
 from app.auth.repositories.user import UserRepository
 from app.auth.services.jwt import AuthJWTManager
 from app.auth.services.oauth_manager import OAuthProviderFactory
+from tests.auth.integration.factories import UserFactory
 from tests.mocks import FakeOAuthProvider
 
 PROVIDER = "google"
@@ -165,6 +166,65 @@ class TestProcessOAuthCallback:
         with_roles = await user_repository.get_user_with_permission_by_id(created.id)
         assert with_roles is not None
         assert {r.name for r in with_roles.roles} == {"user"}
+
+    async def test_username_is_taken_from_the_provider(
+        self,
+        handler: ProcessOAuthCallbackCommandHandler,
+        oauth_code_repository: OAuthCodeRepository,
+        user_repository: UserRepository,
+        fake_provider: FakeOAuthProvider,
+    ) -> None:
+        fake_provider.user_info = OAuthData(
+            provider_user_id="ext-name", email="named@example.com", username="Иван Петров"
+        )
+        state = await self._state_for(oauth_code_repository, None)
+
+        await handler.handle(self.callback(state))
+
+        created = await user_repository.get_by_email("named@example.com")
+        assert created is not None
+        assert created.username == "Ivan Petrov"
+
+    async def test_username_falls_back_to_the_email_local_part(
+        self,
+        handler: ProcessOAuthCallbackCommandHandler,
+        oauth_code_repository: OAuthCodeRepository,
+        user_repository: UserRepository,
+        fake_provider: FakeOAuthProvider,
+    ) -> None:
+        fake_provider.user_info = OAuthData(
+            provider_user_id="ext-noname", email="ivan.petrov@example.com", username=None
+        )
+        state = await self._state_for(oauth_code_repository, None)
+
+        await handler.handle(self.callback(state))
+
+        created = await user_repository.get_by_email("ivan.petrov@example.com")
+        assert created is not None
+        assert created.username == "ivan.petrov"
+
+    async def test_taken_username_gets_a_suffix(
+        self,
+        handler: ProcessOAuthCallbackCommandHandler,
+        oauth_code_repository: OAuthCodeRepository,
+        user_repository: UserRepository,
+        db_session: AsyncSession,
+        fake_provider: FakeOAuthProvider,
+    ) -> None:
+        db_session.add(UserFactory.create(username="Forgot-0"))
+        await db_session.commit()
+
+        fake_provider.user_info = OAuthData(
+            provider_user_id="ext-dup", email="dup@example.com", username="Forgot-0"
+        )
+        state = await self._state_for(oauth_code_repository, None)
+
+        await handler.handle(self.callback(state))
+
+        created = await user_repository.get_by_email("dup@example.com")
+        assert created is not None
+        assert created.username != "Forgot-0"
+        assert created.username.startswith("Forgot-0-")
 
     async def test_new_user_gets_a_linked_oauth_account(
         self,

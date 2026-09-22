@@ -200,6 +200,8 @@ interface ErrorResponse {
 | `OAUTH_STATE_NOT_FOUND` | 404 | `{ "state": string }` |
 | `LINKED_ANOTHER_USER_OAUTH` | 409 | `{ "provider": string }` |
 | `NOT_EXIST_PROVIDER_OAUTH` | 400 | `{ "provider": string }` — провайдер не `google`/`yandex`/`github` |
+| `OAUTH_EMAIL_NOT_VERIFIED` | 403 | `{ "provider": string }` — провайдер не подтвердил, что почта принадлежит аккаунту |
+| `OAUTH_EMAIL_NOT_PROVIDED` | 400 | `{ "provider": string }` — провайдер не вернул почту |
 | `EMAIL_NOT_CONFIRMED` | 403 | `{ "email": string }` |
 | `TOKEN_IN_BLACKLIST` | 409 | `{}` |
 
@@ -368,7 +370,11 @@ Rate limit: 4 запроса / 5 минут.
    Response `200`: `{ url: string }`.
 3. **`GET /auth/oauth/{provider}/callback/?code=...&state=...`** 🔓 — callback от провайдера (обычно провайдер сам делает редирект браузера сюда; фронтенду нужно перехватить редирект / deep link и переслать `code`+`state`, либо это должно открываться прямо в системном браузере, а моб. приложение ловит финальный deep-link с результатом — конкретная схема зависит от того, как настроен `redirect_uri` у провайдера в конфиге бэкенда, уточнить у бэкенд-команды).
    Response `200`: `AccessTokenResponse` + `Set-Cookie: refresh_token`.
-   Ошибки: `400 NOT_EXIST_PROVIDER_OAUTH`, `404 OAUTH_STATE_NOT_FOUND` / `NOT_FOUND_USER`, `409 LINKED_ANOTHER_USER_OAUTH`.
+   Ошибки: `400 NOT_EXIST_PROVIDER_OAUTH` / `OAUTH_EMAIL_NOT_PROVIDED`, `403 OAUTH_EMAIL_NOT_VERIFIED`, `404 OAUTH_STATE_NOT_FOUND` / `NOT_FOUND_USER`, `409 LINKED_ANOTHER_USER_OAUTH`, `502 OAUTH_PROVIDER_UNAVAILABLE`.
+
+   **Почта должна быть подтверждена у провайдера.** Google обязан вернуть `email_verified`, GitHub — хотя бы один адрес с `verified: true` (неподтверждённый primary пропускается). У Yandex флага подтверждения в API нет: адреса в ответе — собственные адреса аккаунта, проверяется только их наличие.
+
+   **Username при первом входе** берётся у провайдера (Google `name`, Yandex `login`/`display_name`, GitHub `login`): кириллица транслитерируется, недопустимые символы срезаются под тот же набор, что и при регистрации. Если имени нет или после чистки ничего не осталось — берётся локальная часть почты, затем `user`. Занятое имя получает суффикс вида `-a1b2c3`. Почта в username больше не попадает.
 
 ### 3.9 `GET /users/me/` ⚠️ облегчённый ответ
 

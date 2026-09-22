@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, exists, select
 from sqlalchemy.orm import selectinload
 
 from app.auth.filters.users import UserFilter
@@ -37,6 +37,18 @@ class UserRepository(IRepository[User], CacheRepository):
             ).where(User.username == username)
         )
         return result.scalar()
+
+    async def exists_username(self, username: str) -> bool:
+        """Занят ли username в таблице.
+
+        Без фильтра по soft-delete: удалённый пользователь продолжает держать
+        значение под уникальным индексом, так что для подбора свободного имени
+        он тоже «занят».
+        """
+        result = await self.session.execute(
+            select(exists().where(User.username == username))
+        )
+        return bool(result.scalar())
 
     async def get_by_id(self, user_id: int) -> (User | None):
         result = await self.session.execute(User.select_not_deleted().where(User.id == user_id))

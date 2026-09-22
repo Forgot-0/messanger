@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from app.auth.dtos.tokens import OAuthData
 from app.auth.exceptions import NotExistProviderOAuthError, OAuthProviderUnavailableError
 from app.auth.services.oauth_providers import OAuthProvider
+from app.core.exceptions import ApplicationError
 
 
 @dataclass
@@ -33,7 +34,9 @@ class OAuthManager:
         try:
             token = await provider.exchange_code_for_token(code)
             oauth_user = await provider.get_user_info(token.access_token)
-        except:
-            raise OAuthProviderUnavailableError(provider=provider_name)
+        except ApplicationError:
+            raise
+        except Exception as err:
+            raise OAuthProviderUnavailableError(provider=provider_name) from err
 
         return oauth_user

@@ -6,7 +6,6 @@ from datetime import timedelta
 
 from app.auth.config import auth_config
 from app.auth.emails.templates import ResetTokenTemplate
-from app.auth.exceptions import NotFoundUserError
 from app.auth.repositories.session import TokenBlacklistRepository
 from app.auth.repositories.user import UserRepository
 from app.core.commands import BaseCommand, BaseCommandHandler

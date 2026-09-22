@@ -1,14 +1,14 @@
 from dataclasses import dataclass
 
-from app.auth.deps import AuthCurrentUserJWTData
 from app.auth.dtos.tokens import OAuthAccountDTO
+from app.auth.dtos.user import AuthUserJWTData
 from app.auth.repositories.oauth import OauthAccountRepository
 from app.core.queries import BaseQuery, BaseQueryHandler
 
 
 @dataclass(frozen=True)
 class GetUserOAuthAccountsQuery(BaseQuery):
-    user_jwt_data: AuthCurrentUserJWTData
+    user_jwt_data: AuthUserJWTData
 
 
 @dataclass(frozen=True)

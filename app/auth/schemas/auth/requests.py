@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from fastapi import Form
-from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 
 from app.auth.schemas.base import PasswordMixinSchema

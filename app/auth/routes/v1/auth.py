@@ -19,11 +19,13 @@ from app.auth.deps import ActiveUserModel, AuthCurrentUserJWTData
 from app.auth.dtos.tokens import OAuthAccountDTO, TokenGroup
 from app.auth.exceptions import (
     LinkedAnotherUserOAuthError,
+    NoEmailOAuthError,
     NotExistProviderOAuthError,
     NotFoundOrInactiveSessionError,
     NotFoundUserError,
     OAuthStateNotFoundError,
     PasswordMismatchError,
+    UnverifiedEmailOAuthError,
     WrongLoginDataError,
 )
 from app.auth.queries.auth.oauth import GetUserOAuthAccountsQuery
@@ -246,7 +248,13 @@ async def oauth_authorize_connect(
     summary="Callback for OAuth provider",
     status_code=status.HTTP_200_OK,
     responses={
-        400: create_response(NotExistProviderOAuthError(provider="string")),
+        400: create_response(
+            [
+                NotExistProviderOAuthError(provider="string"),
+                NoEmailOAuthError(provider="string"),
+            ]
+        ),
+        403: create_response(UnverifiedEmailOAuthError(provider="string")),
         404: create_response(
             [
                 OAuthStateNotFoundError(state="string"),
@@ -278,7 +286,7 @@ async def oauth_callback(
     return AccessTokenResponse(access_token=token_group.access_token)
 
 @router.get(
-    "oauth/",
+    "/oauth/",
     summary="Get list oauth linked",
     status_code=status.HTTP_200_OK,
 )

@@ -276,3 +276,35 @@ class TokenInBlacklistError(ApplicationError):
     @property
     def message(self) -> str:
         return ""
+
+
+@dataclass(kw_only=True)
+class UnverifiedEmailOAuthError(ApplicationError):
+    provider: str
+
+    code: str = "OAUTH_EMAIL_NOT_VERIFIED"
+    status: int = 403
+
+    @property
+    def message(self) -> str:
+        return "Provider did not confirm that the email belongs to this account"
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        return {"provider": self.provider}
+
+
+@dataclass(kw_only=True)
+class NoEmailOAuthError(ApplicationError):
+    provider: str
+
+    code: str = "OAUTH_EMAIL_NOT_PROVIDED"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "Provider returned no email for this account"
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        return {"provider": self.provider}

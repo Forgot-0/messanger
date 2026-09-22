@@ -22,6 +22,7 @@ from app.auth.repositories.user import UserRepository
 from app.auth.services.jwt import AuthJWTManager
 from app.auth.services.oauth_manager import OAuthManager
 from app.auth.services.session import SessionManager
+from app.auth.services.username import UsernameGenerator
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
 
@@ -47,6 +48,7 @@ class ProcessOAuthCallbackCommandHandler(BaseCommandHandler[ProcessOAuthCallback
     session_manager: SessionManager
     oauth_repository: OauthAccountRepository
     oauth_code_repository: OAuthCodeRepository
+    username_generator: UsernameGenerator
     event_bus: BaseEventBus
 
     async def handle(self, command: ProcessOAuthCallbackCommand) -> TokenGroup:
@@ -104,12 +106,15 @@ class ProcessOAuthCallbackCommandHandler(BaseCommandHandler[ProcessOAuthCallback
 
                 user = User.create_oauth(
                     email=oauth_data.email,
-                    username=oauth_data.email,
+                    username=await self.username_generator.generate(
+                        preferred=oauth_data.username, email=oauth_data.email
+                    ),
                     roles={role }
                 )
                 await self.user_repository.create(user)
                 await self.session.flush()
                 user.verify()
+                await self.event_bus.publish(user.pull_events())
 
                 user_id = user.id
                 oauth_account = OAuthAccount(
