@@ -16,9 +16,6 @@ from app.chats.services.read_coalescer import PendingReadCursor, ReadReceiptCoal
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
 
-# У direct'а нет ни name, ни avatar — рисовать диалог нечем без собеседника.
-# У группы есть и то и другое, но список лиц в строке привычнее.
-# У канала ростер не превью, а подписчики — там это поле бессмысленно.
 _PEER_CHAT_TYPES = frozenset({ChatType.DIRECT})
 _PREVIEW_CHAT_TYPES = frozenset({ChatType.GROUP, ChatType.SUPERGROUP})
 

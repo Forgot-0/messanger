@@ -16,7 +16,7 @@ class MarkAllNotificationsAsReadCommand(BaseCommand):
 
 
 @dataclass(frozen=True)
-class MarkAllNotificationsAsReadCommandHandler(BaseCommandHandler[MarkAllNotificationsAsReadCommand, int]):
+class MarkAllNotificationsAsReadCommandHandler(BaseCommandHandler[MarkAllNotificationsAsReadCommand, None]):
     session: AsyncSession
     notification_repository: NotificationRepository
 
