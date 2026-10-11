@@ -95,7 +95,7 @@ async def update_profile(
     )
 
 @router.get(
-    "u/{username}/",
+    "/u/{username}/",
     status_code=status.HTTP_200_OK,
     responses={
         404: create_response(NotFoundUsernameProfileError(username="test"))

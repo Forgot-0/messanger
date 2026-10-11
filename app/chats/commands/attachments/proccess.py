@@ -73,7 +73,7 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                 )
                 mime_type = magic.from_buffer(data, mime=True)
 
-                if mime_type != slot.mime_type:
+                if mime_type in chat_config.ALL_ALLOWED_MIMES:
                     logger.error(
                         "MIME mismatch for attachment",
                         extra={

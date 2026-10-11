@@ -24,9 +24,9 @@ class ProfileRepository(IRepository[Profile], CacheRepository):
 
     async def get_by_username(self, username: str) -> Profile | None:
         query = select(Profile).where(
-            func.lower(Profile.username) == username.lower(),
+            Profile.username == username,
             Profile.deleted_at.is_(None),
-        )
+        ).options(selectinload(Profile.links))
         result = await self.session.execute(query)
         return result.scalar()
 
