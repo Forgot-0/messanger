@@ -211,11 +211,11 @@ def custom_openapi(app: FastAPI) -> dict[str, Any]:
 def init_app() -> FastAPI:
 
     app = FastAPI(
-        openapi_url=(
-            f"{app_config.API_V1_STR}/openapi.json"
-            if app_config.ENVIRONMENT in ["local", "testing"]
-            else None
-        ),
+        # openapi_url=(
+        #     f"{app_config.API_V1_STR}/openapi.json"
+        #     if app_config.ENVIRONMENT in ["local", "testing"]
+        #     else None
+        # ),
         lifespan=lifespan,
         redirect_slashes=False
     )
