@@ -6,6 +6,7 @@ from app.notifications.commands.devices.create import (
     CreateUserDeviceCommand,
     CreateUserDeviceCommandHandler,
 )
+from app.notifications.commands.devices.delete import DeleteUserDeviceCommand, DeleteUserDeviceCommandHandler
 from app.notifications.commands.notifications.mark_all_read import (
     MarkAllNotificationsAsReadCommand,
     MarkAllNotificationsAsReadCommandHandler,
@@ -46,6 +47,7 @@ class NotificationModuleProvider(Provider):
         PushNotificationCommandHandler,
         GetNotificationsQueryHandler,
         GetUnreadNotificationsCountQueryHandler,
+        DeleteUserDeviceCommandHandler
     )
 
     @provide(scope=Scope.APP)
@@ -76,6 +78,7 @@ class NotificationModuleProvider(Provider):
         )
         command_registry.register_command(CreateUserDeviceCommand, CreateUserDeviceCommandHandler)
         command_registry.register_command(PushNotificationCommand, PushNotificationCommandHandler)
+        command_registry.register_command(DeleteUserDeviceCommand, DeleteUserDeviceCommandHandler)
         return command_registry
 
     @decorate

@@ -31,10 +31,6 @@ class SessionRepository(IRepository[Session]):
         result = await self.session.execute(query)
         return list(result.scalars())
 
-    async def deactivate_user_session(self, user_id: int, device_id: str | None) -> None:
-        stmt = update(Session).where(Session.user_id == user_id, Session.device_id == device_id).values(is_active=False)
-        await self.session.execute(stmt)
-
     async def create(self, session: Session) -> None:
         self.session.add(session)
 

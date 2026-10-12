@@ -24,6 +24,7 @@ class UserDeviceToken(BaseModel, DateMixin):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    did: Mapped[int] = mapped_column(String(128), nullable=False)
     token: Mapped[str] = mapped_column(
         String(512), nullable=False,
         comment="FCM registration token или APNs device token",
@@ -40,19 +41,26 @@ class UserDeviceToken(BaseModel, DateMixin):
 
     __table_args__ = (
         UniqueConstraint("user_id", "token", name="uq_device_token"),
+        UniqueConstraint("user_id", "did", name="uq_device_did"),
         Index("ix_device_tokens_user_active", "user_id", "is_active"),
     )
 
     @classmethod
     def create(
         cls, user_id: int, token: str, platform: PlatformEnum,
-        device_name: str,
+        device_name: str, did: str
     ) -> UserDeviceToken:
         instance = cls(
             user_id=user_id,
             token=token,
             platform=platform,
-            device_name=device_name
+            device_name=device_name,
+            did=did
         )
         return instance
 
+    def activate(self) -> None:
+        self.is_active = True
+
+    def deactivate(self) -> None:
+        self.is_active = False

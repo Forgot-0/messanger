@@ -25,6 +25,17 @@ class NewSessionEvent(BaseEvent):
 
 
 @dataclass(frozen=True)
+class DeactivateSessionEvent(BaseEvent):
+    user_id: int
+    device_id: str
+
+    __event_name__: str = "auth.session.deactivated"
+    
+    def get_partition_key(self) -> str:
+        return str(self.user_id)
+
+
+@dataclass(frozen=True)
 class SuspiciousSessionEvent(BaseEvent):
     user_id: int
     session_id: int
@@ -92,6 +103,12 @@ class Session(BaseModel):
     def deactivate(self) -> None:
         self.is_active = False
         self.last_activity = now_utc()
+        self.register_event(
+            DeactivateSessionEvent(
+                user_id=self.user_id,
+                device_id=self.device_id
+            )
+        )
 
     def online(self) -> None:
         self.last_activity = now_utc()

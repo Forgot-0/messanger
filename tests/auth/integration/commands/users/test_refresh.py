@@ -88,10 +88,15 @@ class TestRefreshTokenCommand:
         tokens = await login_handler.handle(login_command)
 
         token_data = await auth_jwt_manager.validate_token(tokens.refresh_token, token_type=JwtTokenType.REFRESH)
-        await session_repository.deactivate_user_session(
+        session = await session_repository.get_active_by_device(
             user_id=int(token_data.sub),
-            device_id=token_data.did,
+            device_id=token_data.did
         )
+
+        if not session:
+            raise NotFoundOrInactiveSessionError
+
+        session.deactivate()
         await db_session.commit()
 
         refresh_command = RefreshTokenCommand(

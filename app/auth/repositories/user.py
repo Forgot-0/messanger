@@ -39,12 +39,6 @@ class UserRepository(IRepository[User], CacheRepository):
         return result.scalar()
 
     async def exists_username(self, username: str) -> bool:
-        """Занят ли username в таблице.
-
-        Без фильтра по soft-delete: удалённый пользователь продолжает держать
-        значение под уникальным индексом, так что для подбора свободного имени
-        он тоже «занят».
-        """
         result = await self.session.execute(
             select(exists().where(User.username == username))
         )
@@ -68,14 +62,6 @@ class UserRepository(IRepository[User], CacheRepository):
 
     async def create(self, user: User) -> None:
         self.session.add(user)
-
-    async def update(self, user: User) -> None:
-        await self.session.merge(user)
-
-    async def delete_by_id(self, user_id: int) -> None:
-        user = await self.get_by_id(user_id=user_id)
-        if user:
-            user.soft_delete()
 
     def apply_relationship_filters(self, stmt: Select, _filters: UserFilter) -> Select:
 

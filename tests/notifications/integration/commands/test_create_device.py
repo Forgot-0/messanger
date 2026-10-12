@@ -9,7 +9,7 @@ from app.notifications.commands.devices.create import (
     CreateUserDeviceCommand,
     CreateUserDeviceCommandHandler,
 )
-from app.notifications.exceptions import AlreadyExistDeviceTokennError
+from app.notifications.exceptions import AlreadyExistDeviceTokenError
 from app.notifications.models.device import PlatformEnum
 from app.notifications.repositories.devices import DeviceRepository
 
@@ -76,6 +76,7 @@ class TestCreateUserDeviceCommand:
         user_jwt: UserJWTData,
     ) -> None:
         for i in range(3):
+            user_jwt.device_id = str(i)
             await handler.handle(
                 CreateUserDeviceCommand(
                     token=f"fcm-token-{i}",
@@ -102,7 +103,7 @@ class TestCreateUserDeviceCommand:
         )
         await handler.handle(command)
 
-        with pytest.raises(AlreadyExistDeviceTokennError):
+        with pytest.raises(AlreadyExistDeviceTokenError):
             await handler.handle(command)
 
         devices = await device_repository.get_active_by_user_id(int(user_jwt.id))

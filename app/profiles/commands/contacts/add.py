@@ -52,10 +52,9 @@ class AddContactCommandHandler(BaseCommandHandler[AddContactCommand, UserContact
 
         if command.username is not None:
             profile = await self.profile_repository.get_by_username(command.username)
+
         elif command.user_id is not None:
-            profile = (await self.profile_repository.get_by_ids([command.user_id])).get(
-                command.user_id
-            )
+            profile = await self.profile_repository.get_by_id(command.user_id)
 
         if profile is None:
             raise NotFoundContactTargetError(user_id=command.user_id, username=command.username)

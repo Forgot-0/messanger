@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from app.core.configs.base import BaseConfig
 
 
@@ -8,6 +10,12 @@ class NotificationConfig(BaseConfig):
     OFFLINE_PUSH_MAX_CONCURRENCY: int = 32
     FIREBASE_CREDENTIALS_PATH: str = ""
 
+    AUTH_TOPIC: str = "auth"
+    AUTH_GROUP_ID: str = "auth"
+
+    AUTH_LOGOUT_EVENT_NAMES: ClassVar[frozenset[str]] = frozenset({
+        "auth.session.deactivated"
+    })
 
     FIREBASE_APP_NAME: str = "notifications-push"
     FIREBASE_SEND_BATCH_LIMIT: int = 500

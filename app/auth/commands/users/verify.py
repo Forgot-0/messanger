@@ -40,7 +40,6 @@ class VerifyCommandHandler(BaseCommandHandler[VerifyCommand, None]):
 
         user.verify()
         await self.token_repository.invalidate_token(hash_token)
-        await self.user_repository.update(user)
         await self.event_bus.publish(user.pull_events())
         await self.session.commit()
 

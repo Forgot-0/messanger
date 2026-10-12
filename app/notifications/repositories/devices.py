@@ -23,6 +23,15 @@ class DeviceRepository(IRepository[UserDeviceToken], CacheRepository):
         )
         return list(result.scalars().all())
 
+    async def get_device_by_user_did(self, user_id: int, device_id: str) -> UserDeviceToken | None:
+        result = await self.session.execute(
+            select(UserDeviceToken).where(
+                UserDeviceToken.user_id == user_id,
+                UserDeviceToken.did == device_id,
+            )
+        )
+        return result.scalar()
+
     async def get_device_by_user_token(self, user_id: int, token: str) -> UserDeviceToken | None:
         result = await self.session.execute(
             select(UserDeviceToken).where(

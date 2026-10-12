@@ -28,7 +28,7 @@ class UserJWTData(BaseModel):
     roles: list[str]
     permissions: list[str]
     security_level: int
-    device_id: str | None = Field(default=None)
+    device_id: str
 
     @classmethod
     def create_from_token(cls, token_dto: Token) -> Self:

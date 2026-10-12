@@ -23,9 +23,8 @@ class ProfileRepository(IRepository[Profile], CacheRepository):
         return result.scalar()
 
     async def get_by_username(self, username: str) -> Profile | None:
-        query = select(Profile).where(
+        query = Profile.select_not_deleted().where(
             Profile.username == username,
-            Profile.deleted_at.is_(None),
         ).options(selectinload(Profile.links))
         result = await self.session.execute(query)
         return result.scalar()
@@ -80,8 +79,8 @@ class ProfileRepository(IRepository[Profile], CacheRepository):
         if not profile_ids:
             return {}
 
-        query = select(Profile).where(
-            Profile.id.in_(profile_ids), Profile.deleted_at.is_(None)
+        query = Profile.select_not_deleted().where(
+            Profile.id.in_(profile_ids)
         )
         result = await self.session.execute(query)
         return {profile.id: profile for profile in result.scalars().all()}

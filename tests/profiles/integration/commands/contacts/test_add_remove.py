@@ -39,7 +39,7 @@ class TestAddContactCommand:
         dto = await handler.handle(
             AddContactCommand(
                 owner_id=OWNER_ID,
-                user_id=FRIEND_ID,
+                username="friend",
                 first_name="Вася",
                 user_jwt_data=user_jwt,
             )

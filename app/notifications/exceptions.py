@@ -37,10 +37,21 @@ class NotificationAccessDeniedError(ApplicationError):
 
 
 @dataclass(kw_only=True)
-class AlreadyExistDeviceTokennError(ApplicationError):
+class AlreadyExistDeviceTokenError(ApplicationError):
     status: int = 400
     code: str = "ALREADY_EXIST_DEVICE_TOKEN"
 
     @property
     def message(self) -> str:
         return "Device token already exist"
+
+
+@dataclass(kw_only=True)
+class NotFoundUserDeviceError(ApplicationError):
+    status: int = 404
+    code: str = "NOT_FOUND_USER_DEVICE"
+
+    @property
+    def message(self) -> str:
+        return "Device not found"
+

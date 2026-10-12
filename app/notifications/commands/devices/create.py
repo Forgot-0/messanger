@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.services.auth.dto import UserJWTData
-from app.notifications.exceptions import AlreadyExistDeviceTokennError
+from app.notifications.exceptions import AlreadyExistDeviceTokenError
 from app.notifications.models.device import PlatformEnum, UserDeviceToken
 from app.notifications.repositories.devices import DeviceRepository
 
@@ -32,17 +32,18 @@ class CreateUserDeviceCommandHandler(BaseCommandHandler[CreateUserDeviceCommand,
             token=command.token,
         )
         if device and device.is_active:
-            raise AlreadyExistDeviceTokennError
+            raise AlreadyExistDeviceTokenError
 
         if device and device.is_active is False:
-            device.is_active = True
+            device.activate()
 
         else:
             device = UserDeviceToken.create(
                 user_id=int(command.user_jwt_data.id),
                 token=command.token,
                 platform=command.platform,
-                device_name=command.device_name
+                device_name=command.device_name,
+                did=command.user_jwt_data.device_id
             )
 
             await self.device_repository.create(device)
