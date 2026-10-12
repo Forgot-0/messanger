@@ -143,7 +143,7 @@ class TestChatModel:
 
         chat.delete(deleted_by=1)
 
-        assert chat.is_deleted()
+        assert chat.is_deleted
         events = chat.pull_events()
         assert len(events) == 1
         assert isinstance(events[0], DeletedChatEvent)

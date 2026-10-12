@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from redis.asyncio import Redis
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from app.auth.config import auth_config
 from app.auth.models.session import Session

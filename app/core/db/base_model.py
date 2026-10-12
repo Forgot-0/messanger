@@ -49,5 +49,6 @@ class SoftDeleteMixin:
     def soft_delete(self) -> None:
         self.deleted_at = now_utc()
 
+    @property
     def is_deleted(self) -> bool:
         return self.deleted_at is not None

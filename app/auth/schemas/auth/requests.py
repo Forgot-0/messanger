@@ -72,6 +72,9 @@ class VerifyEmailRequest(BaseModel):
 class ResetPasswordRequest(PasswordMixinSchema):
     token: str = Field(..., description="Token for reset password")
 
+class ChangePasswordRequest(PasswordMixinSchema):
+    old_password: str
+
 
 class CallbackRequest(BaseModel):
     code: str

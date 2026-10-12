@@ -8,6 +8,7 @@ from app.auth.commands.permissions.add_permission_user import AddPermissionToUse
 from app.auth.commands.permissions.remove_permission_user import DeletePermissionToUserCommand
 from app.auth.commands.roles.assign_role_to_user import AssignRoleCommand
 from app.auth.commands.roles.remove_role_user import RemoveRoleCommand
+from app.auth.commands.users.delete import DeleteUserCommand
 from app.auth.commands.users.register import RegisterCommand
 from app.auth.deps import ActiveUserModel, AuthCurrentUserJWTData
 from app.auth.dtos.sessions import SessionDTO
@@ -58,6 +59,28 @@ async def register_user(
         id=user.id,
         username=user.username,
         email=user.email
+    )
+
+@router.delete(
+    "/{user_id}/",
+    summary="Delete user",
+    description="Delete user",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        403: create_response(AccessDeniedError(need_permissions={"user:delete", "user:owner"})),
+        404: create_response(NotFoundUserError(user_by=1, user_field="id"))
+    }
+)
+async def delete_user(
+    user_id: int,
+    mediator: FromDishka[BaseMediator],
+    user_jwt_data: AuthCurrentUserJWTData,
+) -> None:
+    await mediator.handle_command(
+        DeleteUserCommand(
+            user_id=user_id,
+            user_jwt_data=user_jwt_data
+        )
     )
 
 @router.get(

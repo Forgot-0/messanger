@@ -40,6 +40,18 @@ class VerifiedUserEvent(BaseEvent):
         return str(self.user_id)
 
 
+@dataclass(frozen=True)
+class DeletedUserEvent(BaseEvent):
+    user_id: int
+    username: str
+    email: str
+
+    __event_name__: str = "auth.user.deleted"
+
+    def get_partition_key(self) -> str:
+        return str(self.user_id)
+
+
 
 class UserPermissions(BaseModel):
     __tablename__ = "user_permissions"
@@ -115,6 +127,16 @@ class User(BaseModel, DateMixin, SoftDeleteMixin):
         return User.create(
             email, username=username, password_hash=None,
             roles=roles, is_verified=True
+        )
+
+    def delete(self) -> None:
+        self.soft_delete()
+        self.register_event(
+            DeletedUserEvent(
+                user_id=self.id,
+                username=self.username,
+                email=self.email
+            )
         )
 
     def add_role(self, role: Role) -> None:

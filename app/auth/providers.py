@@ -30,6 +30,8 @@ from app.auth.commands.sessions.deactivate_session import (
     UserDeactivateSessionCommand,
     UserDeactivateSessionCommandHandler,
 )
+from app.auth.commands.users.change_password import ChangePasswordCommand, ChangePasswordCommandHandler
+from app.auth.commands.users.delete import DeleteUserCommand, DeleteUserCommandHandler
 from app.auth.commands.users.register import RegisterCommand, RegisterCommandHandler
 from app.auth.commands.users.reset_password import ResetPasswordCommand, ResetPasswordCommandHandler
 from app.auth.commands.users.send_reset_password import SendResetPasswordCommand, SendResetPasswordCommandHandler
@@ -179,7 +181,9 @@ class AuthModuleProvider(Provider):
         UsernameGenerator,
 
         RegisterCommandHandler,
+        DeleteUserCommandHandler,
         ResetPasswordCommandHandler,
+        ChangePasswordCommandHandler,
         SendResetPasswordCommandHandler,
         SendVerifyCommandHandler,
         VerifyCommandHandler,
@@ -217,10 +221,12 @@ class AuthModuleProvider(Provider):
         command_registry.register_command(VerifyCommand, VerifyCommandHandler)
         command_registry.register_command(SendVerifyCommand, SendVerifyCommandHandler)
         command_registry.register_command(ResetPasswordCommand, ResetPasswordCommandHandler)
+        command_registry.register_command(ChangePasswordCommand, ChangePasswordCommandHandler)
         command_registry.register_command(SendResetPasswordCommand, SendResetPasswordCommandHandler)
 
         command_registry.register_command(LoginCommand, LoginCommandHandler)
         command_registry.register_command(LogoutCommand, LogoutCommandHandler)
+        command_registry.register_command(DeleteUserCommand, DeleteUserCommandHandler)
         command_registry.register_command(RefreshTokenCommand, RefreshTokenCommandHandler)
 
         command_registry.register_command(CreateOAuthAuthorizeUrlCommand, CreateOAuthAuthorizeUrlCommandHandler)

@@ -11,6 +11,7 @@ from app.auth.commands.auth.oauth import (
     ProcessOAuthCallbackCommand,
 )
 from app.auth.commands.auth.refresh_token import RefreshTokenCommand
+from app.auth.commands.users.change_password import ChangePasswordCommand
 from app.auth.commands.users.reset_password import ResetPasswordCommand
 from app.auth.commands.users.send_reset_password import SendResetPasswordCommand
 from app.auth.commands.users.send_verify import SendVerifyCommand
@@ -30,6 +31,7 @@ from app.auth.exceptions import (
 )
 from app.auth.queries.auth.oauth import GetUserOAuthAccountsQuery
 from app.auth.schemas.auth.requests import (
+    ChangePasswordRequest,
     OAuth2PasswordRequestFormWithDevice,
     OAuthCallbackQuery,
     ResetPasswordRequest,
@@ -146,7 +148,7 @@ async def send_verify_code(
     )
 
 @router.post(
-    "/password-resets/",
+    "/password/send_reset/",
     summary="Sending a password reset code",
     description="Sends a password reset code. Limit: 3 requests per hour.",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -160,27 +162,8 @@ async def send_reset_password_code(
         SendResetPasswordCommand(email=send_reset_password_request.email)
     )
 
-
 @router.post(
-    "/verifications/email/verify/",
-    summary="Email confirmation",
-    description="Confirms the email using the passed token.",
-    status_code=status.HTTP_204_NO_CONTENT,
-    responses={
-        400: create_response(InvalidTokenError()),
-        404: create_response(NotFoundUserError(user_by=1, user_field="id"))
-    },
-    dependencies=[Depends(ConfigurableRateLimiter(times=3, seconds=60*60))]
-)
-async def verify_email(
-    mediator: FromDishka[BaseMediator],
-    verify_email_request: VerifyEmailRequest
-) -> None:
-    await mediator.handle_command(VerifyCommand(token=verify_email_request.token))
-
-
-@router.post(
-    "/password-resets/confirm/",
+    "/password/reset/",
     summary="Reset password",
     description="Resets the password using the token and new password data.",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -202,6 +185,43 @@ async def reset_password(
         )
     )
 
+@router.post(
+    "/password/change/",
+    summary="Sending a password change",
+    description="Sends a password change. Limit: 3 requests per hour.",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(ConfigurableRateLimiter(times=3, seconds=60*60))]
+)
+async def change_password(
+    mediator: FromDishka[BaseMediator],
+    change_password_request: ChangePasswordRequest,
+    user_jwt_data: AuthCurrentUserJWTData
+) -> None:
+    await mediator.handle_command(
+        ChangePasswordCommand(
+            old_password=change_password_request.old_password,
+            new_password=change_password_request.password,
+            new_password_repeat=change_password_request.password_repeat,
+            user_jwt_data=user_jwt_data,
+        )
+    )
+
+@router.post(
+    "/verifications/email/verify/",
+    summary="Email confirmation",
+    description="Confirms the email using the passed token.",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        400: create_response(InvalidTokenError()),
+        404: create_response(NotFoundUserError(user_by=1, user_field="id"))
+    },
+    dependencies=[Depends(ConfigurableRateLimiter(times=3, seconds=60*60))]
+)
+async def verify_email(
+    mediator: FromDishka[BaseMediator],
+    verify_email_request: VerifyEmailRequest
+) -> None:
+    await mediator.handle_command(VerifyCommand(token=verify_email_request.token))
 
 @router.get(
     "/oauth/{provider}/authorize/",
@@ -221,7 +241,6 @@ async def oauth_authorize(
     )
 
     return OAuthUrlResponse(url=url)
-
 
 @router.get(
     "/oauth/{provider}/authorize/connect/",

@@ -30,7 +30,7 @@ class DeactivateSessionEvent(BaseEvent):
     device_id: str
 
     __event_name__: str = "auth.session.deactivated"
-    
+
     def get_partition_key(self) -> str:
         return str(self.user_id)
 

@@ -5,7 +5,6 @@ from datetime import timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.config import auth_config
-from app.auth.dtos.user import AuthUserJWTData
 from app.auth.exceptions import NotFoundOrInactiveSessionError
 from app.auth.repositories.session import SessionRepository, TokenBlacklistRepository
 from app.auth.services.jwt import AuthJWTManager
@@ -16,6 +15,7 @@ from app.core.services.auth.dto import JwtTokenType
 from app.core.services.auth.exceptions import InvalidTokenError
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class LogoutCommand(BaseCommand):
