@@ -39,7 +39,7 @@ class TestAddContactCommand:
         dto = await handler.handle(
             AddContactCommand(
                 owner_id=OWNER_ID,
-                username="friend",
+                user_id=FRIEND_ID,
                 first_name="Вася",
                 user_jwt_data=user_jwt,
             )
@@ -60,7 +60,7 @@ class TestAddContactCommand:
         user_jwt: UserJWTData,
         make_profile,
     ) -> None:
-        await make_profile(FRIEND_ID, "Friend")
+        await make_profile(FRIEND_ID, "friend")
 
         dto = await handler.handle(
             AddContactCommand(owner_id=OWNER_ID, username="friend", user_jwt_data=user_jwt)
