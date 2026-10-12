@@ -7,6 +7,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    Enum,
     Index,
     LargeBinary,
     SmallInteger,
@@ -36,32 +37,6 @@ class ContactSource(IntEnum):
 class IdentifierKind(IntEnum):
     EMAIL = 1
     PHONE = 2
-
-
-class IntEnumType(TypeDecorator):
-    impl = SmallInteger
-    cache_ok = True
-
-    def __init__(self, enum_class: type[IntEnum], *args: Any, **kwargs: Any) -> None:
-        self.enum_class = enum_class
-        super().__init__(*args, **kwargs)
-
-    def process_bind_param(self, value: Any, _dialect: Dialect) -> int | None:
-        if value is None:
-            return None
-        return int(self.enum_class(value))
-
-    def process_result_value(self, value: Any, _dialect: Dialect) -> IntEnum | None:
-        if value is None:
-            return None
-        return self.enum_class(value)
-
-    def process_literal_param(self, value: Any, _dialect: Dialect) -> str:
-        return str(int(self.enum_class(value)))
-
-    @property
-    def python_type(self) -> type[IntEnum]:
-        return self.enum_class
 
 
 @dataclass(frozen=True)
@@ -137,7 +112,7 @@ class UserContact(BaseModel, DateMixin):
         String(profile_config.MAX_LEN_CONTACT_NAME), nullable=True
     )
 
-    source: Mapped[ContactSource] = mapped_column(IntEnumType(ContactSource), nullable=False)
+    source: Mapped[ContactSource] = mapped_column(Enum(ContactSource), nullable=False)
     is_mutual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     is_favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
@@ -225,7 +200,7 @@ class UserIdentifier(BaseModel):
     __tablename__ = "user_identifiers"
 
     identifier_hash: Mapped[bytes] = mapped_column(LargeBinary, primary_key=True)
-    kind: Mapped[IdentifierKind] = mapped_column(IntEnumType(IdentifierKind), nullable=False)
+    kind: Mapped[IdentifierKind] = mapped_column(Enum(IdentifierKind), nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

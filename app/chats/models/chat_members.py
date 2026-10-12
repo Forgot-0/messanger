@@ -87,7 +87,6 @@ class ChatMember(BaseModel, DateMixin):
         ),
     )
 
-
     @classmethod
     def create(cls, chat_id: UUID, user_id: int, role_id: int) -> Self:
         return cls(chat_id=chat_id, user_id=user_id, role_id=role_id)
