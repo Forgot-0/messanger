@@ -12,6 +12,7 @@ class WSEventType(StrEnum):
     MEMBER_LEFT = "member_left"
     MEMBER_KICK = "member_kick"
     MEMBER_BANNED = "member_banned"
+    MEMBER_MUTED = "member_muted"
     TYPING_START = "typing_start"
     TYPING_STOP = "typing_stop"
     PING = "ping"
@@ -23,6 +24,7 @@ class WSEventType(StrEnum):
     CHAT_CREATED = "chat_created"
     CHAT_UPDATED = "chat_updated"
     CHAT_DELETED = "chat_deleted"
+    CHAT_OWNERSHIP_TRANSFERRED = "chat_ownership_transferred"
 
     CALL_STARTED = "call_started"
     CALL_ENDED = "call_ended"

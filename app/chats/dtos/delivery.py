@@ -23,8 +23,10 @@ CHAT_EVENT_TO_WS_TYPE: dict[str, str] = {
     "chats.member.left": WSEventType.MEMBER_LEFT.value,
     "chats.member.kicked": WSEventType.MEMBER_KICK.value,
     "chats.member.banned": WSEventType.MEMBER_BANNED.value,
+    "chats.member.muted": WSEventType.MEMBER_MUTED.value,
     "chats.chat.created": WSEventType.CHAT_CREATED.value,
     "chats.chat.updated": WSEventType.CHAT_UPDATED.value,
+    "chats.chat.ownership_transferred": WSEventType.CHAT_OWNERSHIP_TRANSFERRED.value,
     CHAT_DELETED_EVENT_NAME: WSEventType.CHAT_DELETED.value,
     REACTION_EVENT_NAME: WSEventType.REACTION_UPDATED.value,
 }

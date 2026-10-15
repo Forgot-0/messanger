@@ -10,6 +10,7 @@ from app.chats.exceptions import AccessDeniedChatError, NotChatMemberError, NotF
 from app.chats.models.chat import ChatType
 from app.chats.repositories.chat import ChatRepository
 from app.chats.services.livekit_service import LiveKitService
+from app.chats.services.privacy import ChatPrivacyService
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
 from app.core.services.auth.dto import UserJWTData
@@ -28,6 +29,7 @@ class JoinCallCommandHandler(BaseCommandHandler[JoinCallCommand, JoinTokenDTO]):
     session: AsyncSession
     chat_repository: ChatRepository
     livekit_service: LiveKitService
+    privacy_service: ChatPrivacyService
     event_bus: BaseEventBus
 
     async def handle(self, command: JoinCallCommand) -> JoinTokenDTO:
@@ -48,6 +50,8 @@ class JoinCallCommandHandler(BaseCommandHandler[JoinCallCommand, JoinTokenDTO]):
             chat.member_count >= chat_config.ROOM_MAX_PARTICIPANTS
         ):
             raise AccessDeniedChatError(chat_id=str(chat.id), requester_id=user_id)
+
+        await self.privacy_service.ensure_can_message(chat, user_id)
 
         token = self.livekit_service.generate_join_token(
             slug=str(chat.id),

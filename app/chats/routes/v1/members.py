@@ -8,9 +8,17 @@ from app.chats.commands.chats.add_member import AddMemberCommand
 from app.chats.commands.chats.ban_member import BanMemberCommand
 from app.chats.commands.chats.change_role import ChangeMemberRoleCommand
 from app.chats.commands.chats.kick import KickMemberCommand
+from app.chats.commands.chats.mute_member import MuteMemberCommand
+from app.chats.commands.chats.unban_member import UnbanMemberCommand
+from app.chats.commands.chats.unmute_member import UnmuteMemberCommand
 from app.chats.dtos.members import ListMembers
 from app.chats.queries.chats.get_members import GetChatMembersQuery
-from app.chats.schemas.rest import AddMemberRequest, BanMemberRequest, ChangeMemberRoleRequest
+from app.chats.schemas.rest import (
+    AddMemberRequest,
+    BanMemberRequest,
+    ChangeMemberRoleRequest,
+    MuteMemberRequest,
+)
 from app.core.api.rate_limiter import ConfigurableRateLimiter
 from app.core.mediators.base import BaseMediator
 from app.core.services.auth.depends import CurrentUserJWTData
@@ -100,6 +108,65 @@ async def ban_member(
             target_user_id=user_id,
             reason=ban_member_request.reason,
             banned_until=ban_member_request.banned_to
+        )
+    )
+
+
+@router.delete(
+    "/{user_id}/ban/",
+    status_code=status.HTTP_204_NO_CONTENT
+)
+async def unban_member(
+    chat_id: UUID,
+    user_id: int,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> None:
+    await mediator.handle_command(
+        UnbanMemberCommand(
+            user_jwt_data=user_jwt_data,
+            chat_id=chat_id,
+            target_user_id=user_id,
+        )
+    )
+
+
+@router.patch(
+    "/{user_id}/mute/",
+    status_code=status.HTTP_204_NO_CONTENT
+)
+async def mute_member(
+    chat_id: UUID,
+    user_id: int,
+    mute_member_request: MuteMemberRequest,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> None:
+    await mediator.handle_command(
+        MuteMemberCommand(
+            user_jwt_data=user_jwt_data,
+            chat_id=chat_id,
+            target_user_id=user_id,
+            muted_until=mute_member_request.muted_until,
+        )
+    )
+
+
+@router.delete(
+    "/{user_id}/mute/",
+    status_code=status.HTTP_204_NO_CONTENT
+)
+async def unmute_member(
+    chat_id: UUID,
+    user_id: int,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> None:
+    await mediator.handle_command(
+        UnmuteMemberCommand(
+            user_jwt_data=user_jwt_data,
+            chat_id=chat_id,
+            target_user_id=user_id,
         )
     )
 

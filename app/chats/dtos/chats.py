@@ -24,7 +24,19 @@ class MutedByMeMixin(BaseModel):
         return self
 
 
-class ChatDTO(MutedByMeMixin):
+class ChatAvatarMixin(BaseModel):
+    avatar_s3_key: str | None = None
+    avatar_url: str | None = None
+    avatars: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _derive_avatar_url(self) -> Self:
+        if self.avatar_url is None and self.avatar_s3_key and "http" in self.avatar_s3_key:
+            self.avatar_url = self.avatar_s3_key
+        return self
+
+
+class ChatDTO(MutedByMeMixin, ChatAvatarMixin):
     id: UUID
     seq_counter: int
     last_activity_at: datetime | None
@@ -32,7 +44,7 @@ class ChatDTO(MutedByMeMixin):
     type: ChatType
     name: str | None
     description: str | None
-    avatar_s3_key: str | None
+    username: str | None = None
 
     is_public: bool
     admin_only: bool = False
@@ -72,7 +84,7 @@ class ChatStateDTO(MutedByMeMixin):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ChatDetailDTO(BaseModel):
+class ChatDetailDTO(ChatAvatarMixin):
     id: UUID
     seq_counter: int
     last_activity_at: datetime | None
@@ -80,7 +92,7 @@ class ChatDetailDTO(BaseModel):
     type: ChatType
     name: str | None
     description: str | None
-    avatar_s3_key: str | None
+    username: str | None = None
 
     is_public: bool
     admin_only: bool = False
@@ -99,3 +111,20 @@ class ListChats(BaseModel):
     chats: list[ChatDTO]
     next_date: datetime | None
     next_chat_id: UUID | None = None
+
+
+class ChatPreviewDTO(ChatAvatarMixin):
+    id: UUID
+    type: ChatType
+    name: str | None
+    description: str | None
+    username: str | None = None
+    is_public: bool
+    member_count: int
+    is_member: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PublicChatSearchDTO(BaseModel):
+    items: list[ChatPreviewDTO]

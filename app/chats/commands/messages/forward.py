@@ -18,6 +18,7 @@ from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.message import MessageRepository
 from app.chats.services.access import ChatAccessService
 from app.chats.services.messages import MessageService
+from app.chats.services.privacy import ChatPrivacyService
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
 from app.core.services.auth.dto import UserJWTData
@@ -43,6 +44,7 @@ class ForwardMessageCommandHandler(BaseCommandHandler[ForwardMessageCommand, Mes
     attachment_repository: AttachmentRepository
     chat_access_service: ChatAccessService
     message_service: MessageService
+    privacy_service: ChatPrivacyService
     event_bus: BaseEventBus
 
     async def handle(self, command: ForwardMessageCommand) -> MessageDTO:
@@ -76,6 +78,7 @@ class ForwardMessageCommandHandler(BaseCommandHandler[ForwardMessageCommand, Mes
         ):
             raise AccessDeniedChatError(chat_id=str(command.target_chat_id), requester_id=user_id)
 
+        await self.privacy_service.ensure_can_message(target_chat, user_id)
         await self.message_service.is_slow(
             chat=target_chat,
             user_id=user_id,

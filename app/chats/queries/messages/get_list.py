@@ -6,6 +6,7 @@ from app.chats.exceptions import NotChatMemberError
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.message import MessageRepository
 from app.chats.services.messages import MessageService
+from app.chats.services.privacy import ChatPrivacyService
 from app.chats.services.reaction_attach import ReactionAttachService
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
@@ -25,6 +26,7 @@ class GetMessagesQueryHandler(BaseQueryHandler[GetMessagesQuery, MessagesDTO]):
     message_repository: MessageRepository
     message_service: MessageService
     reaction_attach_service: ReactionAttachService
+    privacy_service: ChatPrivacyService
 
     async def handle(self, query: GetMessagesQuery) -> MessagesDTO:
         user_id = int(query.user_jwt_data.id)
@@ -42,6 +44,9 @@ class GetMessagesQueryHandler(BaseQueryHandler[GetMessagesQuery, MessagesDTO]):
         )
         page = messages[:limit]
         message_dtos = [MessageDTO.model_validate(msg) for msg in page]
+        await self.privacy_service.hide_avatars(
+            user_id, MessageService.message_profiles(message_dtos)
+        )
         message_dtos = await self.message_service.attach_download_urls(message_dtos)
         message_dtos = await self.reaction_attach_service.attach(message_dtos, user_id)
 

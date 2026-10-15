@@ -7,6 +7,7 @@ from app.chats.dtos.messages import MessageDTO
 from app.chats.dtos.search import MessageSearchDTO, MessageSearchItemDTO, SearchChatPreviewDTO
 from app.chats.repositories.message import MessageRepository
 from app.chats.services.messages import AvatarHolder, MessageService
+from app.chats.services.privacy import ChatPrivacyService
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
 
@@ -25,6 +26,7 @@ class SearchMessagesQuery(BaseQuery):
 class SearchMessagesQueryHandler(BaseQueryHandler[SearchMessagesQuery, MessageSearchDTO]):
     message_repository: MessageRepository
     message_service: MessageService
+    privacy_service: ChatPrivacyService
 
     async def handle(self, query: SearchMessagesQuery) -> MessageSearchDTO:
         limit = min(max(query.limit, 1), chat_config.MESSAGE_SEARCH_MAX_LIMIT)
@@ -57,6 +59,9 @@ class SearchMessagesQueryHandler(BaseQueryHandler[SearchMessagesQuery, MessageSe
 
             items.append(MessageSearchItemDTO(message=message_dto, chat=chat_dto))
 
+        await self.privacy_service.hide_avatars(
+            int(query.user_jwt_data.id), [item.message.profile for item in items]
+        )
         await self.message_service.image_urls(avatars)
 
         has_next = len(rows) > limit

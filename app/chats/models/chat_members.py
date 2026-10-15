@@ -116,6 +116,18 @@ class ChatMember(BaseModel, DateMixin):
             )
         )
 
+    def unban(self, unbanned_by: int) -> None:
+        self.banned_until = None
+        self.bans.append(
+            ChatMemberBan(
+                member_id=self.id,
+                banned_by_user_id=unbanned_by,
+                reason=None,
+                banned_at=now_utc(),
+                banned_until=None,
+            )
+        )
+
     def mute(self, muted_until: datetime | None = None) -> None:
         if muted_until is None:
             self.muted_until = PERMANENT_UNTIL
@@ -125,6 +137,9 @@ class ChatMember(BaseModel, DateMixin):
 
         else:
             self.muted_until = muted_until
+
+    def unmute(self) -> None:
+        self.muted_until = None
 
     def set_pinned(self, pinned: bool) -> None:
         self.pinned_at = now_utc() if pinned else None

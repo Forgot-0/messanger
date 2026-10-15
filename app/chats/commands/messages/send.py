@@ -17,6 +17,7 @@ from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.message import MessageRepository
 from app.chats.services.access import ChatAccessService
 from app.chats.services.messages import MessageService
+from app.chats.services.privacy import ChatPrivacyService
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
 from app.core.services.auth.dto import UserJWTData
@@ -44,6 +45,7 @@ class SendMessageCommandHandler(BaseCommandHandler[SendMessageCommand, MessageDT
     message_repository: MessageRepository
     attachment_repository: AttachmentRepository
     message_service: MessageService
+    privacy_service: ChatPrivacyService
     event_bus: BaseEventBus
 
     async def handle(self, command: SendMessageCommand) -> MessageDTO:
@@ -63,6 +65,7 @@ class SendMessageCommandHandler(BaseCommandHandler[SendMessageCommand, MessageDT
                 chat_id=str(command.chat_id), requester_id=user_id
             )
 
+        await self.privacy_service.ensure_can_message(chat, user_id)
         await self.message_service.is_slow(chat=chat, user_id=user_id, member=member)
 
         claimed = []

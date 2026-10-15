@@ -12,6 +12,7 @@ from app.chats.models.chat import Chat, ChatType
 from app.chats.models.message import Message
 from app.chats.repositories.attachment import AttachmentRepository
 from app.chats.repositories.chat import ChatRepository
+from app.chats.repositories.invite import ChatInviteLinkRepository
 from app.chats.repositories.message import MessageRepository
 from app.chats.repositories.reaction import MessageReactionRepository
 from app.chats.repositories.reads import ReadReceiptRepository
@@ -79,6 +80,11 @@ def livekit() -> LiveKitService:
 @pytest.fixture
 def chat_repository(redis_client, db_session: AsyncSession) -> ChatRepository:
     return ChatRepository(redis=redis_client, session=db_session)
+
+
+@pytest.fixture
+def invite_repository(db_session: AsyncSession) -> ChatInviteLinkRepository:
+    return ChatInviteLinkRepository(session=db_session)
 
 
 @pytest.fixture

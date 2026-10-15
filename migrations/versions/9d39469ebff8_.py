@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: 43864d2eb756
+Revision ID: 9d39469ebff8
 Revises: 
-Create Date: 2026-10-12 21:35:44.298325
+Create Date: 2026-10-15 16:07:25.584917
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '43864d2eb756'
+revision: str = '9d39469ebff8'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -34,6 +34,12 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_chat_roles_name'), 'chat_roles', ['name'], unique=False)
+    op.create_table('chat_user_blocks',
+    sa.Column('owner_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('target_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.PrimaryKeyConstraint('owner_id', 'target_id')
+    )
     op.create_table('chat_user_profiles',
     sa.Column('user_id', sa.BigInteger(), autoincrement=False, nullable=False),
     sa.Column('username', sa.String(), nullable=True),
@@ -51,7 +57,9 @@ def upgrade() -> None:
     sa.Column('type', sa.Enum('DIRECT', 'GROUP', 'SUPERGROUP', 'CHANNEL', name='chattype'), nullable=False),
     sa.Column('name', sa.String(length=256), nullable=True),
     sa.Column('description', sa.String(length=1024), nullable=True),
+    sa.Column('username', sa.String(length=32), nullable=True),
     sa.Column('avatar_s3_key', sa.String(length=512), nullable=True),
+    sa.Column('avatars', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
     sa.Column('is_public', sa.Boolean(), nullable=False),
     sa.Column('created_by', sa.BigInteger(), nullable=False),
     sa.Column('member_count', sa.Integer(), nullable=False),
@@ -67,8 +75,10 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_chats_last_activity_at'), 'chats', ['last_activity_at'], unique=False)
+    op.create_index('ix_chats_public_name_fts_simple', 'chats', [sa.literal_column("to_tsvector('simple', coalesce(name, ''))")], unique=False, postgresql_using='gin', postgresql_where=sa.text('is_public AND deleted_at IS NULL'))
     op.create_index('ix_chats_type_member_count', 'chats', ['type', 'member_count'], unique=False)
     op.create_index('ix_chats_type_public', 'chats', ['type', 'is_public'], unique=False)
+    op.create_index('uq_chats_username_lower', 'chats', [sa.literal_column('lower(username) text_pattern_ops')], unique=True, postgresql_where=sa.text('username IS NOT NULL'))
     op.create_table('notifications',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('user_id', sa.BigInteger(), nullable=False),
@@ -192,6 +202,23 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
     op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
+    op.create_table('chat_invite_links',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('chat_id', sa.UUID(), nullable=False),
+    sa.Column('code', sa.String(length=64), nullable=False),
+    sa.Column('name', sa.String(length=32), nullable=True),
+    sa.Column('created_by', sa.BigInteger(), nullable=False),
+    sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('usage_limit', sa.Integer(), nullable=True),
+    sa.Column('usage_count', sa.Integer(), nullable=False),
+    sa.Column('revoked_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.ForeignKeyConstraint(['chat_id'], ['chats.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('code')
+    )
+    op.create_index('ix_chat_invite_links_chat_id_id', 'chat_invite_links', ['chat_id', 'id'], unique=False)
     op.create_table('chat_members',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('chat_id', sa.UUID(), nullable=False),
@@ -419,6 +446,8 @@ def downgrade() -> None:
     op.drop_index('ix_chat_members_chat_role_user', table_name='chat_members')
     op.drop_index('ix_chat_members_chat_active_user', table_name='chat_members')
     op.drop_table('chat_members')
+    op.drop_index('ix_chat_invite_links_chat_id_id', table_name='chat_invite_links')
+    op.drop_table('chat_invite_links')
     op.drop_index(op.f('ix_users_username'), table_name='users')
     op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_table('users')
@@ -444,11 +473,14 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_notifications_user_id'), table_name='notifications')
     op.drop_index('ix_notifications_user_created', table_name='notifications')
     op.drop_table('notifications')
+    op.drop_index('uq_chats_username_lower', table_name='chats', postgresql_where=sa.text('username IS NOT NULL'))
     op.drop_index('ix_chats_type_public', table_name='chats')
     op.drop_index('ix_chats_type_member_count', table_name='chats')
+    op.drop_index('ix_chats_public_name_fts_simple', table_name='chats', postgresql_using='gin', postgresql_where=sa.text('is_public AND deleted_at IS NULL'))
     op.drop_index(op.f('ix_chats_last_activity_at'), table_name='chats')
     op.drop_table('chats')
     op.drop_table('chat_user_profiles')
+    op.drop_table('chat_user_blocks')
     op.drop_index(op.f('ix_chat_roles_name'), table_name='chat_roles')
     op.drop_table('chat_roles')
     op.drop_table('blocked_users')

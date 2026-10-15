@@ -9,6 +9,17 @@ from app.chats.commands.attachments.success import (
     SuccessUploadAttachmentsCommand,
     SuccessUploadAttachmentsCommandHandler,
 )
+from app.chats.commands.avatars.confirm import (
+    ConfirmChatAvatarUploadCommand,
+    ConfirmChatAvatarUploadCommandHandler,
+)
+from app.chats.commands.avatars.process import ProcessChatAvatarCommand, ProcessChatAvatarCommandHandler
+from app.chats.commands.avatars.remove import RemoveChatAvatarCommand, RemoveChatAvatarCommandHandler
+from app.chats.commands.avatars.request_upload import (
+    RequestChatAvatarUploadCommand,
+    RequestChatAvatarUploadCommandHandler,
+)
+from app.chats.commands.blocks.apply import ApplyUserBlockCommand, ApplyUserBlockCommandHandler
 from app.chats.commands.calls.join import JoinCallCommand, JoinCallCommandHandler
 from app.chats.commands.calls.mute import MuteParticipantCommand, MuteParticipantCommandHandler
 from app.chats.commands.chats.add_member import AddMemberCommand, AddMemberCommandHandler
@@ -19,8 +30,19 @@ from app.chats.commands.chats.delete import DeleteChatCommand, DeleteChatCommand
 from app.chats.commands.chats.join import JoinChatCommand, JoinChatCommandHandler
 from app.chats.commands.chats.kick import KickMemberCommand, KickMemberCommandHandler
 from app.chats.commands.chats.leave import LeaveChatCommand, LeaveChatCommandHandler
+from app.chats.commands.chats.mute_member import MuteMemberCommand, MuteMemberCommandHandler
+from app.chats.commands.chats.set_username import SetChatUsernameCommand, SetChatUsernameCommandHandler
+from app.chats.commands.chats.transfer_ownership import (
+    TransferChatOwnershipCommand,
+    TransferChatOwnershipCommandHandler,
+)
+from app.chats.commands.chats.unban_member import UnbanMemberCommand, UnbanMemberCommandHandler
+from app.chats.commands.chats.unmute_member import UnmuteMemberCommand, UnmuteMemberCommandHandler
 from app.chats.commands.chats.update import UpdateChatCommand, UpdateChatCommandHandler
 from app.chats.commands.chats.update_state import UpdateChatStateCommand, UpdateChatStateCommandHandler
+from app.chats.commands.invites.create import CreateInviteLinkCommand, CreateInviteLinkCommandHandler
+from app.chats.commands.invites.join import JoinChatByInviteCommand, JoinChatByInviteCommandHandler
+from app.chats.commands.invites.revoke import RevokeInviteLinkCommand, RevokeInviteLinkCommandHandler
 from app.chats.commands.messages.delete import DeleteMessageCommand, DeleteMessageCommandHandler
 from app.chats.commands.messages.forward import ForwardMessageCommand, ForwardMessageCommandHandler
 from app.chats.commands.messages.mark_read import MarkAsReadCommand, MarkAsReadCommandHandler
@@ -37,9 +59,13 @@ from app.chats.commands.websockets.subscribe import SubscribeCommand, SubscribeC
 from app.chats.commands.websockets.unsubscribe import UnsubscribeCommand, UnsubscribeCommandHandler
 from app.chats.config import chat_config
 from app.chats.queries.attachments.get_url import GetAttachmentDownloadUrlQuery, GetAttachmentDownloadUrlQueryHandler
+from app.chats.queries.chats.get_by_username import GetChatByUsernameQuery, GetChatByUsernameQueryHandler
 from app.chats.queries.chats.get_detail import GetChatDetailQuery, GetChatDetailQueryHandler
 from app.chats.queries.chats.get_list import GetListChatUserQuery, GetListChatUserQueryHandler
 from app.chats.queries.chats.get_members import GetChatMembersQuery, GetChatMembersQueryHandler
+from app.chats.queries.chats.search_public import SearchPublicChatsQuery, SearchPublicChatsQueryHandler
+from app.chats.queries.invites.get_list import GetInviteLinksQuery, GetInviteLinksQueryHandler
+from app.chats.queries.invites.preview import GetInvitePreviewQuery, GetInvitePreviewQueryHandler
 from app.chats.queries.messages.get_context import GetMessageContextQuery, GetMessageContextQueryHandler
 from app.chats.queries.messages.get_detail import GetMessageDetailQuery, GetMessageDetailQueryHandler
 from app.chats.queries.messages.get_list import GetMessagesQuery, GetMessagesQueryHandler
@@ -53,16 +79,21 @@ from app.chats.queries.reactions.get_list import (
     GetMessageReactionsQueryHandler,
 )
 from app.chats.repositories.attachment import AttachmentRepository
+from app.chats.repositories.avatar_upload import ChatAvatarUploadRepository
+from app.chats.repositories.blocks import ChatUserBlockRepository
 from app.chats.repositories.chat import ChatRepository
+from app.chats.repositories.invite import ChatInviteLinkRepository
 from app.chats.repositories.message import MessageRepository
 from app.chats.repositories.reaction import MessageReactionRepository
 from app.chats.repositories.reads import ReadReceiptRepository
 from app.chats.repositories.user_profile import ChatUserProfileRepository
 from app.chats.services.access import ChatAccessService
 from app.chats.services.attachment_media import AttachmentMediaValidator
+from app.chats.services.chat_avatar import ChatAvatarService
 from app.chats.services.delivery_router import ChatDeliveryRouter
 from app.chats.services.livekit_service import LiveKitService
 from app.chats.services.messages import MessageService
+from app.chats.services.privacy import ChatPrivacyService
 from app.chats.services.reaction_attach import ReactionAttachService
 from app.chats.services.reaction_coalescer import ReactionCoalesceQueue
 from app.chats.services.reaction_policy import ReactionPolicy
@@ -87,6 +118,8 @@ class ChatModuleProvider(Provider):
     reaction_coalesce_queue = provide(ReactionCoalesceQueue, scope=Scope.APP)
     read_coalesce_queue = provide(ReadReceiptCoalesceQueue, scope=Scope.APP)
     read_receipt_flusher = provide(ReadReceiptFlusher, scope=Scope.REQUEST)
+    privacy_service = provide(ChatPrivacyService, scope=Scope.REQUEST)
+    avatar_upload_repository = provide(ChatAvatarUploadRepository, scope=Scope.APP)
 
     commands = provide_all(
         RequestAttachmentUploadCommandHandler,
@@ -118,6 +151,19 @@ class ChatModuleProvider(Provider):
         SetReactionCommandHandler,
         RemoveReactionCommandHandler,
         SetReactionsCommandHandler,
+        MuteMemberCommandHandler,
+        UnmuteMemberCommandHandler,
+        UnbanMemberCommandHandler,
+        TransferChatOwnershipCommandHandler,
+        SetChatUsernameCommandHandler,
+        CreateInviteLinkCommandHandler,
+        RevokeInviteLinkCommandHandler,
+        JoinChatByInviteCommandHandler,
+        RequestChatAvatarUploadCommandHandler,
+        ConfirmChatAvatarUploadCommandHandler,
+        ProcessChatAvatarCommandHandler,
+        RemoveChatAvatarCommandHandler,
+        ApplyUserBlockCommandHandler,
         scope=Scope.REQUEST,
     )
 
@@ -132,6 +178,10 @@ class ChatModuleProvider(Provider):
         GetMessageReactionsQueryHandler,
         GetReactionsCatalogQueryHandler,
         SearchMessagesQueryHandler,
+        GetChatByUsernameQueryHandler,
+        SearchPublicChatsQueryHandler,
+        GetInviteLinksQueryHandler,
+        GetInvitePreviewQueryHandler,
         scope=Scope.REQUEST,
     )
 
@@ -142,6 +192,8 @@ class ChatModuleProvider(Provider):
         AttachmentRepository,
         ReadReceiptRepository,
         ChatUserProfileRepository,
+        ChatUserBlockRepository,
+        ChatInviteLinkRepository,
         scope=Scope.REQUEST,
     )
 
@@ -150,6 +202,7 @@ class ChatModuleProvider(Provider):
         ChatAccessService,
         AttachmentMediaValidator,
         ReactionPolicy,
+        ChatAvatarService,
         scope=Scope.APP
     )
 
@@ -185,6 +238,19 @@ class ChatModuleProvider(Provider):
         command_registry.register_command(SetReactionCommand, SetReactionCommandHandler)
         command_registry.register_command(RemoveReactionCommand, RemoveReactionCommandHandler)
         command_registry.register_command(SetReactionsCommand, SetReactionsCommandHandler)
+        command_registry.register_command(MuteMemberCommand, MuteMemberCommandHandler)
+        command_registry.register_command(UnmuteMemberCommand, UnmuteMemberCommandHandler)
+        command_registry.register_command(UnbanMemberCommand, UnbanMemberCommandHandler)
+        command_registry.register_command(TransferChatOwnershipCommand, TransferChatOwnershipCommandHandler)
+        command_registry.register_command(SetChatUsernameCommand, SetChatUsernameCommandHandler)
+        command_registry.register_command(CreateInviteLinkCommand, CreateInviteLinkCommandHandler)
+        command_registry.register_command(RevokeInviteLinkCommand, RevokeInviteLinkCommandHandler)
+        command_registry.register_command(JoinChatByInviteCommand, JoinChatByInviteCommandHandler)
+        command_registry.register_command(RequestChatAvatarUploadCommand, RequestChatAvatarUploadCommandHandler)
+        command_registry.register_command(ConfirmChatAvatarUploadCommand, ConfirmChatAvatarUploadCommandHandler)
+        command_registry.register_command(ProcessChatAvatarCommand, ProcessChatAvatarCommandHandler)
+        command_registry.register_command(RemoveChatAvatarCommand, RemoveChatAvatarCommandHandler)
+        command_registry.register_command(ApplyUserBlockCommand, ApplyUserBlockCommandHandler)
         return command_registry
 
     @decorate
@@ -199,6 +265,10 @@ class ChatModuleProvider(Provider):
         query_registry.register_query(SearchMessagesQuery, SearchMessagesQueryHandler)
         query_registry.register_query(GetMessageReactionsQuery, GetMessageReactionsQueryHandler)
         query_registry.register_query(GetReactionsCatalogQuery, GetReactionsCatalogQueryHandler)
+        query_registry.register_query(GetChatByUsernameQuery, GetChatByUsernameQueryHandler)
+        query_registry.register_query(SearchPublicChatsQuery, SearchPublicChatsQueryHandler)
+        query_registry.register_query(GetInviteLinksQuery, GetInviteLinksQueryHandler)
+        query_registry.register_query(GetInvitePreviewQuery, GetInvitePreviewQueryHandler)
         return query_registry
 
     @decorate
@@ -209,4 +279,6 @@ class ChatModuleProvider(Provider):
     def bucket_policy(self, policy: dict[str, Policy]) -> dict[str, Policy]:
         policy[chat_config.ATTACHMENT_BUCKET] = Policy.NONE
         policy[chat_config.ATTACHMENT_BUCKET_PENDING] = Policy.NONE
+        policy[chat_config.CHAT_AVATAR_BUCKET] = Policy.GET
+        policy[chat_config.CHAT_AVATAR_BUCKET_PENDING] = Policy.NONE
         return policy

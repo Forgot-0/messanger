@@ -6,6 +6,7 @@ from app.chats.exceptions import NotChatMemberError, NotFoundMessageError
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.message import MessageRepository
 from app.chats.services.messages import MessageService
+from app.chats.services.privacy import ChatPrivacyService
 from app.chats.services.reaction_attach import ReactionAttachService
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
@@ -24,6 +25,7 @@ class GetMessageDetailQueryHandler(BaseQueryHandler[GetMessageDetailQuery, Messa
     message_repository: MessageRepository
     message_service: MessageService
     reaction_attach_service: ReactionAttachService
+    privacy_service: ChatPrivacyService
 
     async def handle(self, query: GetMessageDetailQuery) -> MessageDTO:
         user_id = int(query.user_jwt_data.id)
@@ -37,6 +39,7 @@ class GetMessageDetailQueryHandler(BaseQueryHandler[GetMessageDetailQuery, Messa
             raise NotFoundMessageError(message_id=str(query.message_id))
 
         dto = MessageDTO.model_validate(message)
+        await self.privacy_service.hide_avatars(user_id, MessageService.message_profiles([dto]))
         dto = await self.message_service.attach_download_urls(dto)
         (dto,) = await self.reaction_attach_service.attach([dto], user_id)
         return dto

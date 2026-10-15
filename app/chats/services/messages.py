@@ -69,22 +69,11 @@ class MessageService:
         message_list = [messages] if isinstance(messages, MessageDTO) else list(messages)
 
         attachments_by_key: dict[str, AttachmentDTO] = {}
-        profiles: list[ChatProfileDTO] = []
-
         for message in message_list:
-            if message.profile is not None:
-                profiles.append(message.profile)
-
-            if message.reply_to is not None and message.reply_to.profile is not None:
-                profiles.append(message.reply_to.profile)
-
-            if message.forwarded_from is not None and message.forwarded_from.profile is not None:
-                profiles.append(message.forwarded_from.profile)
-
             for attachment in message.attachments:
                 attachments_by_key[attachment.s3_key] = attachment
 
-        await self.image_urls(profiles)
+        await self.image_urls(self.message_profiles(message_list))
 
         if not attachments_by_key:
             return message_list[0] if isinstance(messages, MessageDTO) else message_list
@@ -102,6 +91,21 @@ class MessageService:
             attachments_by_key[s3_key].url_expires_in = chat_config.DOWNLOAD_URL_TTL
 
         return message_list[0] if isinstance(messages, MessageDTO) else message_list
+
+    @staticmethod
+    def message_profiles(messages: Iterable[MessageDTO]) -> list[ChatProfileDTO]:
+        profiles: list[ChatProfileDTO] = []
+        for message in messages:
+            if message.profile is not None:
+                profiles.append(message.profile)
+
+            if message.reply_to is not None and message.reply_to.profile is not None:
+                profiles.append(message.reply_to.profile)
+
+            if message.forwarded_from is not None and message.forwarded_from.profile is not None:
+                profiles.append(message.forwarded_from.profile)
+
+        return profiles
 
     async def image_urls(
         self, profiles: Iterable[AvatarHolder | None]

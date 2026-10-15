@@ -4,24 +4,47 @@ from uuid import UUID
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 
+from app.chats.commands.avatars.confirm import ConfirmChatAvatarUploadCommand
+from app.chats.commands.avatars.remove import RemoveChatAvatarCommand
+from app.chats.commands.avatars.request_upload import RequestChatAvatarUploadCommand
 from app.chats.commands.chats.create import CreateChatCommand
 from app.chats.commands.chats.delete import DeleteChatCommand
 from app.chats.commands.chats.join import JoinChatCommand
 from app.chats.commands.chats.leave import LeaveChatCommand
+from app.chats.commands.chats.set_username import SetChatUsernameCommand
+from app.chats.commands.chats.transfer_ownership import TransferChatOwnershipCommand
 from app.chats.commands.chats.update import UpdateChatCommand
 from app.chats.commands.chats.update_state import UpdateChatStateCommand
+from app.chats.commands.invites.join import JoinChatByInviteCommand
 from app.chats.config import chat_config
-from app.chats.dtos.chats import ChatDetailDTO, ChatDTO, ChatStateDTO, ListChats
+from app.chats.dtos.avatars import ChatAvatarUploadSlotDTO
+from app.chats.dtos.chats import (
+    ChatDetailDTO,
+    ChatDTO,
+    ChatPreviewDTO,
+    ChatStateDTO,
+    ListChats,
+    PublicChatSearchDTO,
+)
+from app.chats.dtos.invites import ChatInvitePreviewDTO
 from app.chats.dtos.reactions import ReactionsCatalogDTO
 from app.chats.dtos.search import MessageSearchDTO
+from app.chats.queries.chats.get_by_username import GetChatByUsernameQuery
 from app.chats.queries.chats.get_detail import GetChatDetailQuery
 from app.chats.queries.chats.get_list import GetListChatUserQuery
+from app.chats.queries.chats.search_public import SearchPublicChatsQuery
+from app.chats.queries.invites.preview import GetInvitePreviewQuery
 from app.chats.queries.messages.search import SearchMessagesQuery
 from app.chats.queries.reactions.get_catalog import GetReactionsCatalogQuery
 from app.chats.schemas.rest import (
+    ConfirmChatAvatarUploadRequest,
     CreateChatRequest,
     GetListUserChatsRequest,
+    RequestChatAvatarUploadRequest,
     SearchMessagesRequest,
+    SearchPublicChatsRequest,
+    SetChatUsernameRequest,
+    TransferOwnershipRequest,
     UpdateChatRequest,
     UpdateChatStateRequest,
 )
@@ -133,6 +156,82 @@ async def get_reactions_catalog(
     return catalog
 
 @router.get(
+    "/search/",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.PUBLIC_CHAT_SEARCH_RATE_LIMIT_TIMES,
+        seconds=chat_config.PUBLIC_CHAT_SEARCH_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def search_public_chats(
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+    get_request: Annotated[SearchPublicChatsRequest, Query()],
+) -> PublicChatSearchDTO:
+    return await mediator.handle_query(
+        SearchPublicChatsQuery(
+            user_jwt_data=user_jwt_data,
+            q=get_request.q,
+            limit=get_request.limit,
+        )
+    )
+
+
+@router.get(
+    "/u/{username}/",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.PUBLIC_CHAT_SEARCH_RATE_LIMIT_TIMES,
+        seconds=chat_config.PUBLIC_CHAT_SEARCH_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def get_chat_by_username(
+    username: str,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> ChatPreviewDTO:
+    return await mediator.handle_query(
+        GetChatByUsernameQuery(user_jwt_data=user_jwt_data, username=username)
+    )
+
+
+@router.get(
+    "/invites/{code}/",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.INVITE_PREVIEW_RATE_LIMIT_TIMES,
+        seconds=chat_config.INVITE_PREVIEW_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def preview_invite_link(
+    code: str,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> ChatInvitePreviewDTO:
+    return await mediator.handle_query(
+        GetInvitePreviewQuery(user_jwt_data=user_jwt_data, code=code)
+    )
+
+
+@router.post(
+    "/invites/{code}/join/",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.INVITE_JOIN_RATE_LIMIT_TIMES,
+        seconds=chat_config.INVITE_JOIN_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def join_chat_by_invite(
+    code: str,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> ChatDTO:
+    return await mediator.handle_command(
+        JoinChatByInviteCommand(user_jwt_data=user_jwt_data, code=code)
+    )
+
+
+@router.get(
     "/{chat_id}/",
     status_code=status.HTTP_200_OK
 )
@@ -233,3 +332,129 @@ async def leave_chat(
     mediator: FromDishka[BaseMediator],
 ) -> None:
     await mediator.handle_command(LeaveChatCommand(chat_id=chat_id, user_jwt_data=user_jwt_data))
+
+
+@router.put(
+    "/{chat_id}/username/",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.CHAT_USERNAME_RATE_LIMIT_TIMES,
+        seconds=chat_config.CHAT_USERNAME_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def set_chat_username(
+    chat_id: UUID,
+    payload: SetChatUsernameRequest,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> ChatDTO:
+    return await mediator.handle_command(
+        SetChatUsernameCommand(
+            user_jwt_data=user_jwt_data,
+            chat_id=chat_id,
+            username=payload.username,
+        )
+    )
+
+
+@router.delete(
+    "/{chat_id}/username/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.CHAT_USERNAME_RATE_LIMIT_TIMES,
+        seconds=chat_config.CHAT_USERNAME_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def delete_chat_username(
+    chat_id: UUID,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> None:
+    await mediator.handle_command(
+        SetChatUsernameCommand(user_jwt_data=user_jwt_data, chat_id=chat_id, username=None)
+    )
+
+
+@router.post(
+    "/{chat_id}/transfer_ownership/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(ConfigurableRateLimiter(times=4, seconds=5*60))]
+)
+async def transfer_chat_ownership(
+    chat_id: UUID,
+    payload: TransferOwnershipRequest,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> None:
+    await mediator.handle_command(
+        TransferChatOwnershipCommand(
+            user_jwt_data=user_jwt_data,
+            chat_id=chat_id,
+            new_owner_id=payload.user_id,
+        )
+    )
+
+
+@router.post(
+    "/{chat_id}/avatar/upload-requests/",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.CHAT_AVATAR_RATE_LIMIT_TIMES,
+        seconds=chat_config.CHAT_AVATAR_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def request_chat_avatar_upload(
+    chat_id: UUID,
+    payload: RequestChatAvatarUploadRequest,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> ChatAvatarUploadSlotDTO:
+    return await mediator.handle_command(
+        RequestChatAvatarUploadCommand(
+            user_jwt_data=user_jwt_data,
+            chat_id=chat_id,
+            mime_type=payload.mime_type,
+            file_size=payload.file_size,
+        )
+    )
+
+
+@router.post(
+    "/{chat_id}/avatar/upload-requests/confirm/",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.CHAT_AVATAR_RATE_LIMIT_TIMES,
+        seconds=chat_config.CHAT_AVATAR_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def confirm_chat_avatar_upload(
+    chat_id: UUID,
+    payload: ConfirmChatAvatarUploadRequest,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> None:
+    await mediator.handle_command(
+        ConfirmChatAvatarUploadCommand(
+            user_jwt_data=user_jwt_data,
+            chat_id=chat_id,
+            upload_token=payload.upload_token,
+        )
+    )
+
+
+@router.delete(
+    "/{chat_id}/avatar/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(ConfigurableRateLimiter(
+        times=chat_config.CHAT_AVATAR_RATE_LIMIT_TIMES,
+        seconds=chat_config.CHAT_AVATAR_RATE_LIMIT_SECONDS,
+    ))]
+)
+async def remove_chat_avatar(
+    chat_id: UUID,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> None:
+    await mediator.handle_command(
+        RemoveChatAvatarCommand(user_jwt_data=user_jwt_data, chat_id=chat_id)
+    )

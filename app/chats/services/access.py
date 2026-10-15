@@ -64,6 +64,21 @@ class ChatAccessService:
 
         return True
 
+    def can_transfer_ownership(
+        self,
+        user_jwt_data: UserJWTData,
+        chat: Chat,
+        requester: ChatMember | None,
+    ) -> bool:
+        if self._has_global_chat_admin(user_jwt_data):
+            return True
+
+        return (
+            requester is not None
+            and not requester.is_banned
+            and requester.user_id == chat.created_by
+        )
+
     def can_bypass_slow_mode(self, member: ChatMember | None) -> bool:
         if member is None or member.is_banned:
             return False

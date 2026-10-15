@@ -13,7 +13,7 @@ from faststream.kafka.prometheus import KafkaPrometheusMiddleware
 from prometheus_client import CollectorRegistry, make_asgi_app
 
 from app.auth.consumers import user as auth_user
-from app.chats.consumers import delivery, profiles
+from app.chats.consumers import blocks, delivery, profiles
 from app.chats.services.reaction_coalescer import ReactionCoalesceQueue
 from app.chats.services.read_coalescer import ReadReceiptCoalesceQueue
 from app.chats.tasks.coalescer import run_reaction_coalescer
@@ -37,9 +37,9 @@ async def lifespan(context: ContextRepo) -> AsyncGenerator[None]:
 
     background_tasks: list[asyncio.Task] = []
 
-    coalesce_queue = await container.get(ReactionCoalesceQueue)
+    reaction_coalesce_queue = await container.get(ReactionCoalesceQueue)
     background_tasks.append(asyncio.create_task(
-        run_reaction_coalescer(container, coalesce_queue),
+        run_reaction_coalescer(container, reaction_coalesce_queue),
         name="chats:reaction-coalescer",
     ))
 
@@ -65,6 +65,7 @@ def setup_router(broker: KafkaBroker) -> None:
     broker.include_router(auth_user.router)
     broker.include_router(delivery.router)
     broker.include_router(profiles.router)
+    broker.include_router(blocks.router)
     broker.include_router(user.router)
     broker.include_router(chat_offline_delivery.router)
 

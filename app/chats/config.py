@@ -27,6 +27,37 @@ class ChatConfig(BaseConfig):
     MESSAGE_SEARCH_RATE_LIMIT_TIMES: int = 20
     MESSAGE_SEARCH_RATE_LIMIT_SECONDS: int = 60
 
+    CHAT_USERNAME_MIN_LENGTH: int = 5
+    CHAT_USERNAME_MAX_LENGTH: int = 32
+    CHAT_USERNAME_RESERVED: frozenset[str] = frozenset({
+        "admin", "administrator", "moderator", "support", "help", "system",
+        "official", "security", "settings", "search", "invites", "messages",
+        "members", "reactions", "username", "chatix", "telegram", "root",
+    })
+    CHAT_USERNAME_RATE_LIMIT_TIMES: int = 10
+    CHAT_USERNAME_RATE_LIMIT_SECONDS: int = 300
+
+    PUBLIC_CHAT_SEARCH_MIN_QUERY_LENGTH: int = 2
+    PUBLIC_CHAT_SEARCH_MAX_QUERY_LENGTH: int = 64
+    PUBLIC_CHAT_SEARCH_LIMIT: int = 20
+    PUBLIC_CHAT_SEARCH_MAX_LIMIT: int = 50
+    PUBLIC_CHAT_SEARCH_MAX_TERMS: int = 5
+    PUBLIC_CHAT_SEARCH_RATE_LIMIT_TIMES: int = 20
+    PUBLIC_CHAT_SEARCH_RATE_LIMIT_SECONDS: int = 60
+
+    INVITE_LINK_CODE_BYTES: int = 12
+    INVITE_LINK_NAME_MAX_LENGTH: int = 32
+    INVITE_LINK_MAX_USAGE_LIMIT: int = 99_999
+    MAX_INVITE_LINKS_PER_CHAT: int = 100
+    INVITE_LINKS_PAGE_SIZE: int = 50
+    INVITE_LINKS_MAX_PAGE_SIZE: int = 100
+    INVITE_LINK_CREATE_RATE_LIMIT_TIMES: int = 20
+    INVITE_LINK_CREATE_RATE_LIMIT_SECONDS: int = 300
+    INVITE_PREVIEW_RATE_LIMIT_TIMES: int = 30
+    INVITE_PREVIEW_RATE_LIMIT_SECONDS: int = 60
+    INVITE_JOIN_RATE_LIMIT_TIMES: int = 10
+    INVITE_JOIN_RATE_LIMIT_SECONDS: int = 300
+
     MAX_SLOW_MODE_SECONDS: int = 86_400
     CHAT_STAFF_MIN_ROLE_LEVEL: int = 80
     CHAT_EDITOR_MIN_ROLE_LEVEL: int = 80
@@ -112,6 +143,19 @@ class ChatConfig(BaseConfig):
     ATTACHMENT_BUCKET_PENDING: str = "chat-pending-attachments"
     AVATAR_BUCKET: str = "profiles"
 
+    CHAT_AVATAR_BUCKET: str = "chat-avatars"
+    CHAT_AVATAR_BUCKET_PENDING: str = "chat-pending-avatars"
+    CHAT_AVATAR_MAX_SIZE: int = 5 * 1024 * 1024
+    CHAT_AVATAR_MAX_PIXELS: int = 10_000_000
+    CHAT_AVATAR_ALLOWED_MIMES: frozenset[str] = frozenset({
+        "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
+    })
+    CHAT_AVATAR_SIZES: tuple[int, ...] = (32, 64, 256, 512)
+    CHAT_AVATAR_FORMATS: tuple[str, ...] = ("jpg", "webp", "avif")
+    CHAT_AVATAR_UPLOAD_TTL: int = 600
+    CHAT_AVATAR_RATE_LIMIT_TIMES: int = 10
+    CHAT_AVATAR_RATE_LIMIT_SECONDS: int = 300
+
     RATE_LIMIT_REACTIONS_PER_SECOND: int = 10
     MAX_REACTION_LENGTH: int = 32
 
@@ -141,5 +185,9 @@ class ChatConfig(BaseConfig):
         "profiles.profile.created",
         "profiles.profile.updated",
     })
+
+    BLOCK_PROJECTION_GROUP_ID: str = "chat_block_projection"
+    USER_BLOCKED_EVENT: str = "profiles.user.blocked"
+    USER_UNBLOCKED_EVENT: str = "profiles.user.unblocked"
 
 chat_config = ChatConfig()

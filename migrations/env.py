@@ -30,16 +30,10 @@ target_metadata = BaseModel.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-EXPRESSION_INDEXES = frozenset({
-    "ix_messages_content_fts_simple",  # d4f2a91c60b7
-})
-
 
 def include_object(
     object_: object, name: str | None, type_: str, reflected: bool, compare_to: object
 ) -> bool:
-    if type_ == "index" and name in EXPRESSION_INDEXES:
-        return False
     return True
 
 # Set the SQLAlchemy URL.

@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -403,6 +404,18 @@ class BlockedUserRepository(IRepository[BlockedUser], CacheRepository):
         blocked = list(result.scalars().all())
 
         return blocked[:limit], len(blocked) > limit
+
+    async def blockers_of(self, target_id: int, owner_ids: Collection[int]) -> set[int]:
+        candidates = [owner_id for owner_id in owner_ids if owner_id != target_id]
+        if not candidates:
+            return set()
+
+        stmt = select(BlockedUser.owner_id).where(
+            BlockedUser.target_id == target_id,
+            BlockedUser.owner_id.in_(candidates),
+        )
+        result = await self.session.execute(stmt)
+        return set(result.scalars().all())
 
     async def all_target_ids(self, owner_id: int) -> list[int]:
         stmt = select(BlockedUser.target_id).where(BlockedUser.owner_id == owner_id)

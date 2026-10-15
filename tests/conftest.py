@@ -154,6 +154,8 @@ TEST_BUCKETS: dict[str, Policy] = {
     "base": Policy.NONE,
     chat_config.ATTACHMENT_BUCKET: Policy.NONE,
     chat_config.ATTACHMENT_BUCKET_PENDING: Policy.NONE,
+    chat_config.CHAT_AVATAR_BUCKET: Policy.GET,
+    chat_config.CHAT_AVATAR_BUCKET_PENDING: Policy.NONE,
     profile_config.AVATAR_BUCKET: Policy.GET,
     profile_config.PENDING_AVATAR_BUCKET: Policy.GET,
 }

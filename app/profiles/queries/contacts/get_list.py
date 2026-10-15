@@ -6,7 +6,7 @@ from app.core.services.auth.dto import UserJWTData
 from app.core.services.auth.rbac import RBACManagerInterface
 from app.profiles.config import profile_config
 from app.profiles.dtos.contacts import ContactListDTO, UserContactDTO
-from app.profiles.repositories.contacts import ContactRepository
+from app.profiles.repositories.contacts import BlockedUserRepository, ContactRepository
 from app.profiles.services.contact_access import check_contact_owner
 
 
@@ -24,6 +24,7 @@ class GetContactsQuery(BaseQuery):
 @dataclass(frozen=True)
 class GetContactsQueryHandler(BaseQueryHandler[GetContactsQuery, ContactListDTO]):
     contact_repository: ContactRepository
+    blocked_repository: BlockedUserRepository
     rbac_manager: RBACManagerInterface
 
     async def handle(self, query: GetContactsQuery) -> ContactListDTO:
@@ -38,6 +39,13 @@ class GetContactsQueryHandler(BaseQueryHandler[GetContactsQuery, ContactListDTO]
         )
 
         contacts = [UserContactDTO.model_validate(contact) for contact in rows]
+
+        hidden = await self.blocked_repository.blockers_of(
+            query.owner_id, [contact.contact_id for contact in contacts]
+        )
+        for contact in contacts:
+            if contact.contact_id in hidden and contact.profile is not None:
+                contact.profile.avatars = {}
 
         version = None if has_next else await self.contact_repository.max_updated_at(query.owner_id)
 

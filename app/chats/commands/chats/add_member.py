@@ -12,6 +12,7 @@ from app.chats.exceptions import (
 from app.chats.models.chat import Chat
 from app.chats.repositories.chat import ChatRepository
 from app.chats.services.access import ChatAccessService
+from app.chats.services.privacy import ChatPrivacyService
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
 from app.core.services.auth.dto import UserJWTData
@@ -32,6 +33,7 @@ class AddMemberCommandHandler(BaseCommandHandler[AddMemberCommand, None]):
     session: AsyncSession
     chat_repository: ChatRepository
     chat_access_service: ChatAccessService
+    privacy_service: ChatPrivacyService
     event_bus: BaseEventBus
 
     async def handle(self, command: AddMemberCommand) -> None:
@@ -57,6 +59,8 @@ class AddMemberCommandHandler(BaseCommandHandler[AddMemberCommand, None]):
         existing = await self.chat_repository.get_member_chat(command.chat_id, command.target_user_id)
         if existing:
             raise AlreadyMemberError(user_id=command.target_user_id, chat_id=str(command.chat_id))
+
+        await self.privacy_service.ensure_can_add(requester_id, [command.target_user_id])
 
         limit = Chat.member_limit(chat.type)
         if await self.chat_repository.shift_member_count(chat.id, delta=1, limit=limit) is None:

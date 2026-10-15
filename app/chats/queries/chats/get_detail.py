@@ -6,6 +6,7 @@ from app.chats.dtos.members import MemberChatDTO
 from app.chats.exceptions import NotChatMemberError, NotFoundChatError
 from app.chats.repositories.chat import ChatRepository
 from app.chats.services.messages import MessageService
+from app.chats.services.privacy import ChatPrivacyService
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
 
@@ -20,6 +21,7 @@ class GetChatDetailQuery(BaseQuery):
 class GetChatDetailQueryHandler(BaseQueryHandler[GetChatDetailQuery, ChatDetailDTO]):
     chat_repository: ChatRepository
     message_service: MessageService
+    privacy_service: ChatPrivacyService
 
     async def handle(self, query: GetChatDetailQuery) -> ChatDetailDTO:
         user_id = int(query.user_jwt_data.id)
@@ -35,6 +37,7 @@ class GetChatDetailQueryHandler(BaseQueryHandler[GetChatDetailQuery, ChatDetailD
             raise NotChatMemberError(chat_id=str(query.chat_id), user_id=user_id)
 
         member_dtos = [MemberChatDTO.model_validate(item) for item in chat.members]
+        await self.privacy_service.hide_avatars(user_id, [dto.profile for dto in member_dtos])
         await self.message_service.image_urls(
             [dto.profile for dto in member_dtos]
         )
@@ -46,7 +49,9 @@ class GetChatDetailQueryHandler(BaseQueryHandler[GetChatDetailQuery, ChatDetailD
             type=chat.type,
             name=chat.name,
             description=chat.description,
+            username=chat.username,
             avatar_s3_key=chat.avatar_s3_key,
+            avatars=chat.avatars or {},
             is_public=chat.is_public,
             admin_only=chat.admin_only,
             slow_mode_seconds=chat.slow_mode_seconds,

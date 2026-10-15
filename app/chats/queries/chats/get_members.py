@@ -5,6 +5,7 @@ from app.chats.dtos.members import ListMembers, MemberChatDTO, MemberPresenceDTO
 from app.chats.exceptions import NotChatMemberError, NotFoundChatError
 from app.chats.repositories.chat import ChatRepository
 from app.chats.services.messages import MessageService
+from app.chats.services.privacy import ChatPrivacyService
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
 from app.core.websocket.presence import PresenceService
@@ -24,6 +25,7 @@ class GetChatMembersQueryHandler(BaseQueryHandler[GetChatMembersQuery, ListMembe
     chat_repository: ChatRepository
     presence_service: PresenceService
     message_service: MessageService
+    privacy_service: ChatPrivacyService
 
     async def handle(self, query: GetChatMembersQuery) -> ListMembers:
         requester_id = int(query.user_jwt_data.id)
@@ -45,15 +47,21 @@ class GetChatMembersQueryHandler(BaseQueryHandler[GetChatMembersQuery, ListMembe
         page = members[:limit]
         user_ids = [int(member.user_id) for member in page]
 
+        hidden = await self.privacy_service.hidden_from(requester_id, user_ids)
+
         presence: list[MemberPresenceDTO] = []
         if query.include_presence and user_ids:
             online_by_user = await self.presence_service.get_online_status(user_ids)
             presence = [
-                MemberPresenceDTO(user_id=user_id, is_online=online_by_user.get(user_id, False))
+                MemberPresenceDTO(
+                    user_id=user_id,
+                    is_online=online_by_user.get(user_id, False) and user_id not in hidden,
+                )
                 for user_id in user_ids
             ]
 
         member_dtos = [MemberChatDTO.model_validate(member) for member in page]
+        self.privacy_service.strip_avatars([dto.profile for dto in member_dtos], hidden)
         await self.message_service.image_urls(
             [dto.profile for dto in member_dtos]
         )

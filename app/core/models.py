@@ -21,6 +21,8 @@ from app.chats.models.chat_members import ChatMember
 from app.chats.models.read_receipts import ReadReceipt
 from app.chats.models.profile import ChatUserProfile
 from app.chats.models.reaction import MessageReaction, MessageReactionCounter
+from app.chats.models.blocks import ChatUserBlock
+from app.chats.models.invite import ChatInviteLink
 
 from app.notifications.models.device import UserDeviceToken
 from app.notifications.models.notification import Notification

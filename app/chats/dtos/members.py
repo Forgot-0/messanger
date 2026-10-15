@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.chats.dtos.profiles import ChatProfileDTO
@@ -17,6 +19,8 @@ class MemberChatDTO(BaseModel):
     role_id: int
     is_muted: bool
     is_banned: bool
+    muted_until: datetime | None = None
+    banned_until: datetime | None = None
     permissions_overrides: dict[str, bool] = Field(default_factory=dict)
 
     profile: ChatProfileDTO | None = None

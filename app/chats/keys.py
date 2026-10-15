@@ -38,3 +38,9 @@ class ReadReceiptKeys:
             return chat_id, int(user_id)
         except ValueError:
             return None
+
+
+class ChatAvatarKeys:
+    @staticmethod
+    def upload_slot(upload_token: str) -> str:
+        return f"chats:avatar:upload:{upload_token}"

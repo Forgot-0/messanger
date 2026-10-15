@@ -477,3 +477,195 @@ class PinnedChatsLimitExceededError(ApplicationError):
     @property
     def detail(self) -> dict:
         return {"limit": self.limit}
+
+
+@dataclass(kw_only=True)
+class InvalidChatUsernameError(ApplicationError):
+    username: str
+    reason: str
+    code: str = "INVALID_CHAT_USERNAME"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "Chat username is invalid"
+
+    @property
+    def detail(self) -> dict:
+        return {"username": self.username, "reason": self.reason}
+
+
+@dataclass(kw_only=True)
+class ChatUsernameTakenError(ApplicationError):
+    username: str
+    code: str = "CHAT_USERNAME_TAKEN"
+    status: int = 409
+
+    @property
+    def message(self) -> str:
+        return "Chat username is already taken"
+
+    @property
+    def detail(self) -> dict:
+        return {"username": self.username}
+
+
+@dataclass(kw_only=True)
+class ChatUsernameNotAllowedError(ApplicationError):
+    chat_id: str
+    reason: str
+    code: str = "CHAT_USERNAME_NOT_ALLOWED"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "This chat cannot have a public username"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "reason": self.reason}
+
+
+@dataclass(kw_only=True)
+class NotFoundChatUsernameError(ApplicationError):
+    username: str
+    code: str = "NOT_FOUND_CHAT_USERNAME"
+    status: int = 404
+
+    @property
+    def message(self) -> str:
+        return "Public chat with this username not found"
+
+    @property
+    def detail(self) -> dict:
+        return {"username": self.username}
+
+
+@dataclass(kw_only=True)
+class InvalidOwnershipTransferError(ApplicationError):
+    chat_id: str
+    reason: str
+    code: str = "INVALID_OWNERSHIP_TRANSFER"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "Chat ownership cannot be transferred"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "reason": self.reason}
+
+
+@dataclass(kw_only=True)
+class NotFoundInviteLinkError(ApplicationError):
+    invite: str
+    code: str = "NOT_FOUND_INVITE_LINK"
+    status: int = 404
+
+    @property
+    def message(self) -> str:
+        return "Invite link not found"
+
+    @property
+    def detail(self) -> dict:
+        return {"invite": self.invite}
+
+
+class InviteLinkInactiveReason(StrEnum):
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+    USAGE_LIMIT_REACHED = "usage_limit_reached"
+
+
+@dataclass(kw_only=True)
+class InviteLinkExpiredError(ApplicationError):
+    reason: InviteLinkInactiveReason
+    code: str = "INVITE_LINK_EXPIRED"
+    status: int = 410
+
+    @property
+    def message(self) -> str:
+        return "Invite link is no longer active"
+
+    @property
+    def detail(self) -> dict:
+        return {"reason": self.reason.value}
+
+
+@dataclass(kw_only=True)
+class InvalidInviteLinkError(ApplicationError):
+    reason: str
+    code: str = "INVALID_INVITE_LINK"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "Invite link parameters are invalid"
+
+    @property
+    def detail(self) -> dict:
+        return {"reason": self.reason}
+
+
+@dataclass(kw_only=True)
+class InviteLinksLimitExceededError(ApplicationError):
+    limit: int = chat_config.MAX_INVITE_LINKS_PER_CHAT
+    code: str = "INVITE_LINKS_LIMIT_EXCEEDED"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return f"Invite links limit reached ({self.limit})"
+
+    @property
+    def detail(self) -> dict:
+        return {"limit": self.limit}
+
+
+@dataclass(kw_only=True)
+class ChatAvatarValidationError(ApplicationError):
+    reason: str
+    mime_type: str | None = None
+    file_size: int | None = None
+    code: str = "CHAT_AVATAR_VALIDATION"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "Chat avatar validation failed"
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        return {"reason": self.reason, "mime_type": self.mime_type, "file_size": self.file_size}
+
+
+@dataclass(kw_only=True)
+class UserBlockedError(ApplicationError):
+    chat_id: str | None
+    user_id: int
+    code: str = "USER_BLOCKED"
+    status: int = 403
+
+    @property
+    def message(self) -> str:
+        return "Conversation is blocked by one of the participants"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "user_id": self.user_id}
+
+
+@dataclass(kw_only=True)
+class UserPrivacyRestrictedError(ApplicationError):
+    user_ids: list[int]
+    code: str = "USER_PRIVACY_RESTRICTED"
+    status: int = 403
+
+    @property
+    def message(self) -> str:
+        return "Privacy settings of these users do not allow this action"
+
+    @property
+    def detail(self) -> dict:
+        return {"user_ids": self.user_ids}

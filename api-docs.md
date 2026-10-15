@@ -52,6 +52,9 @@
 | 24 | **Серверный поиск по сообщениям ищет только `messages.content`.** `GET /chats/messages/search/` не ищет ни по именам файлов вложений, ни по названиям и описаниям чатов, ни по именам участников — только по тексту сообщения. Индекс полнотекстовый с конфигурацией `simple` (без стемминга, только нижний регистр), последний терм запроса матчится по префиксу, остальные точно: `догов кон` найдёт «договор» + «кон*», но не найдёт «договоры» по запросу «договор». Подстрочный поиск («*юдже*») не поддерживается. Ранжирования нет — порядок строго от новых к старым. Подсветку совпадений клиент делает сам. |
 | 25 | **У direct-чата собеседник приходит только в `GET /chats/`, полем `ChatDTO.peer`.** `name` и `avatar_s3_key` у direct не заполняются никогда, а `last_message` у пустого диалога `null` — без `peer` строку списка нечем отрисовать. У group/supergroup вместо него `members_preview` (до 3 участников кроме себя, по возрастанию `user_id`); у channel пусто и то и другое. В ответах `POST /chats/` и `PATCH /chats/{id}/` оба поля приходят пустыми — это не баг, они наполняются только в списке. См. 5.2. |
 | 25 | **`GET /profiles/` перестал быть публичным.** Списку и поиску профилей теперь нужен `Authorization`, и он ограничен 20 запросами в минуту. Поиск по одному полю ввода — параметр `q`: он ищет по `username` **ИЛИ** `display_name` одним запросом (минимум 2 символа). Старые `username`/`display_name` остались и по-прежнему комбинируются через **AND**; передать `q` вместе с любым из них — `422`, а не тихий приоритет. Форма ответа прежняя — `PageResult<ProfileDTO>`. См. 4.2. |
+| 26 | **Блокировка работает в чатах, но с задержкой доставки события.** Источник правды — `blocked_users` модуля profiles; чаты читают свою проекцию `chat_user_blocks`, которую наполняет консьюмер по `profiles.user.blocked/unblocked` (outbox → Kafka), поэтому блок вступает в силу в чатах через доли секунды, а не в момент ответа `POST /contacts/{id}/block/`. Последствия и коды ошибок — раздел 4.13. |
+| 27 | **`created_by` — это текущий владелец, а не исторический создатель.** `POST /chats/{chat_id}/transfer_ownership/` переписывает `created_by` на нового владельца (как флаг creator в Telegram): новый владелец не может выйти через `/leave/`, бывший — может. Клиенту, который сравнивал `created_by` со своим id, менять ничего не нужно. См. 5.2. |
+| 28 | **Три новых статических пути под `/chats/`**: `/chats/search/`, `/chats/u/{username}/`, `/chats/invites/{code}/` (и `/chats/invites/{code}/join/`). Они объявлены **до** `/chats/{chat_id}/`; без слэша в конце — `404`, а не попадание в чат. Публичное имя чата и username пользователя — **разные пространства имён**: `@name` может одновременно быть и каналом (`/chats/u/name/`), и человеком (`/profiles/u/name/`). |
 
 ---
 
@@ -262,6 +265,18 @@ interface ErrorResponse {
 | `REACTION_NOT_ALLOWED` | 400 | `{ "emoji": string, "allowed": string[] }` — режим чата `some`, эмодзи не в белом списке; см. 6.7.4 |
 | `REACTIONS_DISABLED` | 403 | `{ "chat_id": string }` — в чате `reactions_mode = "none"`; см. 6.7.4 |
 | `TOO_MANY_REACTIONS` | 400 | `{ "limit": number, "scope": "user" \| "message" }` — превышен лимит реакций; см. 6.7.4 |
+| `INVALID_CHAT_USERNAME` | 400 | `{ "username": string, "reason": "length" \| "format" \| "reserved" }` — см. 5.9 |
+| `CHAT_USERNAME_TAKEN` | 409 | `{ "username": string }` — имя занято другим чатом (сравнение без учёта регистра) |
+| `CHAT_USERNAME_NOT_ALLOWED` | 400 | `{ "chat_id": string, "reason": "direct_chat" \| "chat_not_public" }` — публичное имя бывает только у публичной группы/канала |
+| `NOT_FOUND_CHAT_USERNAME` | 404 | `{ "username": string }` — `GET /chats/u/{username}/`: такого публичного чата нет |
+| `INVALID_OWNERSHIP_TRANSFER` | 400 | `{ "chat_id": string, "reason": "direct_chat" \| "already_owner" \| "target_banned" }` |
+| `NOT_FOUND_INVITE_LINK` | 404 | `{ "invite": string }` — код ссылки (или id при отзыве) не найден |
+| `INVITE_LINK_EXPIRED` | 410 | `{ "reason": "expired" \| "revoked" \| "usage_limit_reached" }` — ссылка была, но больше не действует |
+| `INVALID_INVITE_LINK` | 400 | `{ "reason": "expires_at_in_past" \| "usage_limit_out_of_range" \| "direct_chat" }` |
+| `INVITE_LINKS_LIMIT_EXCEEDED` | 400 | `{ "limit": 100 }` — неотозванных ссылок у чата не больше `MAX_INVITE_LINKS_PER_CHAT` |
+| `CHAT_AVATAR_VALIDATION` | 400 | `{ "reason": string, "mime_type": string \| null, "file_size": number \| null }` — синхронно только на шаге запроса слота (`mime_type`, `size`, `direct_chat`); проверка содержимого файла асинхронная, см. 5.10 |
+| `USER_BLOCKED` | 403 | `{ "chat_id": string \| null, "user_id": number }` — личка заблокирована: один из собеседников заблокировал другого (`user_id` — собеседник). `chat_id: null` — при попытке создать новый direct. См. 4.13 |
+| `USER_PRIVACY_RESTRICTED` | 403 | `{ "user_ids": number[] }` — эти пользователи заблокировали вызывающего и не могут быть добавлены им в группу/канал. См. 4.13 |
 
 ⚠️ `ATTACHMENT_MEDIA_VALIDATION` (класс `AttachmentMediaValidationError`) в этой таблице **намеренно не указан** — он никогда не долетает до HTTP-ответа: возникает только внутри фонового воркера `ProccessAttachmentsCommandHandler` (см. 6.5), там же перехватывается и сворачивается в `attachment_status: "error"`. Клиенту как код ошибки API не отдаётся.
 
@@ -790,7 +805,27 @@ interface BlockedListDTO {
   Блокировка себя → `400 SELF_CONTACT_NOT_ALLOWED`. Контакт при блокировке не удаляется.
 - **`DELETE /contacts/{user_id}/block/`** 🔒 → `204`, в том числе если блокировки не было.
 
-Проверка «отправитель заблокирован» на стороне чатов — этап 2, сейчас блок-лист только хранится и отдаётся.
+#### Что делает блокировка (A заблокировал B)
+
+| Где | Поведение |
+|---|---|
+| Личка A↔B: `POST /chats/{id}/messages/`, пересылка в эту личку, `POST /chats/{id}/calls/join/` | `403 USER_BLOCKED` **в обе стороны**: B не может писать и звонить A, а A — B, пока не разблокирует (как кнопка «Разблокировать» вместо поля ввода в Telegram). Редактировать и удалять свои сообщения можно. |
+| Новый direct: `POST /chats/` с `chat_type: "direct"` | `403 USER_BLOCKED` с `chat_id: null`, если direct ещё не существует. Уже существующий direct возвращается как раньше. |
+| Добавление в группу/канал: `POST /chats/{id}/members/`, `POST /chats/` с `member_ids` | B не может добавить A: `403 USER_PRIVACY_RESTRICTED` со списком `user_ids`. Группа при создании не заводится частично. A добавить B может. |
+| Фото A для B | Скрыто: `ProfileDTO.avatars = {}` в `GET /profiles/{id}/` и `GET /profiles/`; `ContactProfileDTO.avatars = {}` в `GET /contacts/` и `/contacts/search/`; в чатах `ChatProfileDTO.avatar_url = avatar_s3_key = null` — в `peer`, `members_preview`, `GET /members/`, `GET /chats/{id}/`, авторах сообщений (`GET /messages/`, контекст, деталь, поиск). |
+| Онлайн A для B | `GET /chats/{id}/members/?include_presence=true` отдаёт `is_online: false`. |
+| Общие группы | Не затронуты: B видит сообщения A и пишет в общую группу. |
+
+⚠️ **Задержка.** Модуль чатов узнаёт о блокировке из события `profiles.user.blocked` (outbox → Kafka →
+консьюмер `chat_block_projection`), поэтому в чатах блок начинает действовать через доли секунды
+после `204` на `POST /contacts/{id}/block/`. Профили и контакты применяют его сразу.
+
+⚠️ **Ограничения скрытия фото.** Realtime-кадр `new_message` собирается один на всех получателей
+чата, поэтому в WS-доставке и в `ws.history` аватар автора не фильтруется по зрителю —
+скрытие действует в REST. `GET /profiles/u/{username}/` работает без авторизации, зрителя не
+знает и аватар не скрывает. Кроме того, бакет аватаров профилей публичный, а ключ
+детерминирован (`profiles/{user_id}/{size}.{fmt}`): скрытие в API — это UX-гарантия, а не
+защита файла от прямого запроса по ссылке.
 
 **WS-событие `contacts_import_completed`** приходит по обычному соединению `/chats/ws/` (раздел 6),
 подписка на канал не нужна:
@@ -824,6 +859,9 @@ interface BlockedListDTO {
 | `/chats` | `routes/v1/chats.py` | `chats` | ✅ |
 | `/chats/messages/search/` | `routes/v1/chats.py` (статический путь выше `/{chat_id}/`) | `chats` | ✅ |
 | `/chats/reactions/catalog/` | `routes/v1/chats.py` (статический путь выше `/{chat_id}/`) | `chats` | ✅ |
+| `/chats/search/`, `/chats/u/{username}/` | `routes/v1/chats.py` (статические пути выше `/{chat_id}/`) | `chats` | ✅ |
+| `/chats/invites/{code}/`, `/chats/invites/{code}/join/` | `routes/v1/chats.py` (статические пути выше `/{chat_id}/`) | `chats` | ✅ |
+| `/chats/{chat_id}/invites` | `routes/v1/invites.py` | `chat-invites` | ✅ |
 | `/chats/{chat_id}/members` | `routes/v1/members.py` | `chat-members` | ✅ |
 | `/chats/{chat_id}/messages` | `routes/v1/messages.py` | `chat-messages` | ✅ |
 | `/chats/{chat_id}` | `routes/v1/attachments.py` | `chat-attachments` | ✅ |
@@ -852,8 +890,28 @@ interface BlockedListDTO {
 | DELETE | `/chats/{chat_id}/` | 4/5мин | — | `204` |
 | POST | `/chats/{chat_id}/join/` | 10/5мин | — | `204` — вступить в публичный чат |
 | POST | `/chats/{chat_id}/leave/` | 4/5мин | — | `204` |
+| POST | `/chats/{chat_id}/transfer_ownership/` | 4/5мин | `{ user_id: number }` | `204` — передать владение (только текущий владелец), см. ниже |
+| PUT | `/chats/{chat_id}/username/` | 10/5мин | `{ username: string }` | `200`, `ChatDTO` — публичное имя, см. 5.9 |
+| DELETE | `/chats/{chat_id}/username/` | 10/5мин | — | `204` — снять публичное имя |
+| POST | `/chats/{chat_id}/avatar/upload-requests/` | 10/5мин | `{ mime_type, file_size }` | `201`, `ChatAvatarUploadSlotDTO` — аватар группы/канала, см. 5.10 |
+| POST | `/chats/{chat_id}/avatar/upload-requests/confirm/` | 10/5мин | `{ upload_token }` | `202` |
+| DELETE | `/chats/{chat_id}/avatar/` | 10/5мин | — | `204` — убрать аватар |
+| GET | `/chats/search/` | 20/1мин | Query `{ q: string (2..64), limit=20 (≤50) }` | `PublicChatSearchDTO`, см. 5.9 |
+| GET | `/chats/u/{username}/` | 20/1мин | — | `ChatPreviewDTO`, см. 5.9 |
+| GET | `/chats/invites/{code}/` | 30/1мин | — | `ChatInvitePreviewDTO` — превью по ссылке, см. 5.8 |
+| POST | `/chats/invites/{code}/join/` | 10/5мин | — | `200`, `ChatDTO` — вступить по ссылке, см. 5.8 |
 
-⚠️ **Создатель чата (`created_by`) не может выйти через `/leave/`** — `Chat.leave()` сравнивает `user_id` с полем `created_by` (не с ролью!) и при совпадении кидает `403 CHAT_ACCESS_DENIED`. Это ограничение не снимается сменой роли через `PATCH /members/{user_id}/role/` — `created_by` не меняется никаким эндпоинтом, так что создатель заперт в чате навсегда (может только удалить чат целиком через `DELETE /chats/{chat_id}/`, если у него остались права `chat:delete`).
+⚠️ **Владелец чата (`created_by`) не может выйти через `/leave/`** — `Chat.leave()` сравнивает `user_id` с полем `created_by` (не с ролью!) и при совпадении кидает `403 CHAT_ACCESS_DENIED`. Сменой роли через `PATCH /members/{user_id}/role/` это не снимается, нужно сначала передать владение.
+
+**Передача владения — `POST /chats/{chat_id}/transfer_ownership/` `{ user_id }`** 🆕. Вызывать может только
+текущий владелец (`created_by`) или системный админ с `chat:update`. Цель — активный участник того же
+чата. В одной транзакции: `created_by` становится `user_id`, новому владельцу выдаётся `role_id=1`
+(owner), прежний опускается до `role_id=2` (admin); строка чата блокируется `FOR UPDATE`, так что две
+одновременные передачи не перемешаются. Прежний владелец после этого может выйти, новый — нет.
+Всем участникам уходит WS-событие `chat_ownership_transferred` (6.4).
+Ошибки: `403 CHAT_ACCESS_DENIED` (не владелец), `403 NOT_CHAT_MEMBER` (цель не в чате),
+`400 INVALID_OWNERSHIP_TRANSFER` (`reason`: `direct_chat` — у лички нет владельца, `already_owner`,
+`target_banned`), `404 NOT_FOUND_CHAT`.
 
 ```ts
 // CreateChatRequest
@@ -888,6 +946,9 @@ interface ChatDTO {
   id: string; seq_counter: number; last_activity_at: string | null;
   type: "direct" | "group" | "supergroup" | "channel";
   name: string | null; description: string | null; avatar_s3_key: string | null;
+  username: string | null;          // 🆕 публичное имя без "@", только у публичных group/supergroup/channel (5.9)
+  avatar_url: string | null;        // 🆕 готовая ссылка на аватар 64px (jpg) группы/канала, = avatar_s3_key (5.10)
+  avatars: Record<"32"|"64"|"256"|"512", Record<"jpg"|"webp"|"avif", string>>;  // 🆕 все варианты; {} — аватара нет
   is_public: boolean; admin_only: boolean; slow_mode_seconds: number;
   permissions: Record<string, boolean>;
   created_by: number; member_count: number; unread_count: number;
@@ -918,6 +979,8 @@ interface ChatDetailDTO {   // ответ GET /chats/{id}/ — отличает�
   id: string; seq_counter: number; last_activity_at: string | null;
   type: "direct" | "group" | "supergroup" | "channel";
   name: string | null; description: string | null; avatar_s3_key: string | null;
+  username: string | null; avatar_url: string | null;
+  avatars: Record<"32"|"64"|"256"|"512", Record<"jpg"|"webp"|"avif", string>>;
   is_public: boolean; admin_only: boolean; slow_mode_seconds: number;
   permissions: Record<string, boolean>;
   created_by: number; member_count: number;
@@ -930,6 +993,17 @@ interface ListChats {   // ответ GET /chats/ — курсорная паг�
   next_chat_id: string | null;   // передать следующим запросом как last_chat_id
 }
 interface ReadDetail { last_read_message_seq: number; last_read_at: string }
+interface ChatPreviewDTO {  // 🆕 публичная карточка: поиск, резолв @username, превью инвайта
+  id: string;
+  type: "group" | "supergroup" | "channel";
+  name: string | null; description: string | null;
+  username: string | null;
+  avatar_s3_key: string | null; avatar_url: string | null;
+  avatars: Record<"32"|"64"|"256"|"512", Record<"jpg"|"webp"|"avif", string>>;
+  is_public: boolean;
+  member_count: number;
+  is_member: boolean;               // вызывающий уже состоит в чате (и не забанен)
+}
 ```
 
 ⚠️ **Курсор списка чатов двусоставной**: для следующей страницы нужно передать **оба** значения — `last_activity_at = next_date` и `last_chat_id = next_chat_id` (сортировка `last_activity_at DESC, id DESC`, второй ключ разрешает коллизии по времени).
@@ -989,6 +1063,9 @@ interface ReadDetail { last_read_message_seq: number; last_read_at: string }
 | POST | `/chats/{chat_id}/members/` | 30/5мин | `AddMemberRequest {user_id: number, role_id: 1..6 = 5}` | `204` |
 | PATCH | `/chats/{chat_id}/members/{user_id}/role/` | — | `ChangeMemberRoleRequest {role_id: 1..6}` | `204` |
 | PATCH | `/chats/{chat_id}/members/{user_id}/ban/` | — | `BanMemberRequest {reason?: string, banned_to?: datetime}` | `204` |
+| DELETE | `/chats/{chat_id}/members/{user_id}/ban/` 🆕 | — | — | `204` — явный разбан |
+| PATCH | `/chats/{chat_id}/members/{user_id}/mute/` 🆕 | — | `MuteMemberRequest {muted_until?: datetime \| null}` | `204` — модераторский мьют |
+| DELETE | `/chats/{chat_id}/members/{user_id}/mute/` 🆕 | — | — | `204` — снять мьют |
 
 ⚠️ **Назначить можно только роль строго ниже собственной.** Овнер (level 100) не может
 выдать роль `owner` — передача владения чатом не делается сменой роли; админ (90) не может
@@ -997,12 +1074,25 @@ interface ReadDetail { last_read_message_seq: number; last_read_at: string }
 `POST /members/` (пригласить сразу овнером нельзя), и `PATCH /members/{id}/role/`.
 
 ⚠️ `BanMemberRequest.banned_to`: `null` — бан навсегда, дата в прошлом — снятие бана,
-дата в будущем — временный бан.
+дата в будущем — временный бан. Для разбана теперь есть явный `DELETE .../ban/` (право
+`member:ban`): разбан не забаненного — `204` без события, разбан забаненного пишет запись в
+историю банов и шлёт `member_banned` с `ban: false`.
+
+**Модераторский мьют** 🆕 — `PATCH .../mute/` с правом `member:mute` (owner, admin). Семантика
+`muted_until` как у бана: поле не передано или `null` — навсегда (в ответах это
+`muted_until: "9999-12-31T00:00:00Z"`), дата в будущем — до этой даты, дата в прошлом — снять.
+`DELETE .../mute/` снимает мьют явно. Замьюченный участник остаётся в чате и читает его, но
+`POST /messages/`, пересылка в этот чат и загрузка вложений отвечают `403 CHAT_ACCESS_DENIED`.
+Кого можно мьютить — те же правила, что у бана и кика: не себя и не участника с ролью выше
+своей. Изменение рассылается WS-событием `member_muted` (6.4); повторный мьют с тем же сроком
+и снятие несуществующего мьюта события не порождают.
 | DELETE | `/chats/{chat_id}/members/{user_id}/` | — | — | `204` (кик) |
 
 ```ts
 interface MemberChatDTO {
   user_id: number; role_id: number; is_muted: boolean; is_banned: boolean;
+  muted_until: string | null;       // 🆕 срок модераторского мьюта; 9999-12-31 — навсегда
+  banned_until: string | null;      // 🆕 срок бана; 9999-12-31 — навсегда
   permissions_overrides: Record<string, boolean>;
   profile: ChatProfileDTO | null;   // денормализованный профиль, ходить в /profiles/ не нужно
 }
@@ -1415,6 +1505,116 @@ interface ReactionsCatalogDTO {
   с `INVALID_REACTION`);
 - `reactions_mode = "none"` — реакции в чате выключены, пикер не показываем.
 
+### 5.8 Ссылки-приглашения 🆕
+
+Приватную группу, супергруппу или канал можно открыть по ссылке. Ссылкой управляют участники с
+правом `member:invite` (owner, admin); у direct-чата ссылок нет.
+
+| Метод | Путь | Rate limit | Request | Response |
+|---|---|---|---|---|
+| POST | `/chats/{chat_id}/invites/` | 20/5мин | `CreateInviteLinkRequest` | `201`, `ChatInviteLinkDTO` |
+| GET | `/chats/{chat_id}/invites/` | — | Query `{ limit=50 (≤100), last_invite_id?: UUID }` | `ListInviteLinks` (новые сверху) |
+| DELETE | `/chats/{chat_id}/invites/{invite_id}/` | — | — | `200`, `ChatInviteLinkDTO` — отозванная ссылка; повторный отзыв ничего не меняет |
+| GET | `/chats/invites/{code}/` | 30/1мин | — | `ChatInvitePreviewDTO` — превью до вступления |
+| POST | `/chats/invites/{code}/join/` | 10/5мин | — | `200`, `ChatDTO` — вступить |
+
+```ts
+interface CreateInviteLinkRequest {
+  name?: string | null;          // ≤ 32 симв., подпись для админов («Для конференции»)
+  expires_at?: string | null;    // ISO, строго в будущем; null — бессрочно
+  usage_limit?: number | null;   // 1..99999; null — без лимита
+}
+interface ChatInviteLinkDTO {
+  id: string; chat_id: string;
+  code: string;                  // ~16 симв. [A-Za-z0-9_-]; ссылку клиент собирает сам: https://<домен>/+<code>
+  name: string | null; created_by: number; created_at: string;
+  expires_at: string | null; usage_limit: number | null; usage_count: number;
+  revoked_at: string | null;
+  is_revoked: boolean; is_expired: boolean;
+  is_active: boolean;            // не отозвана, не истекла и лимит не выбран
+}
+interface ListInviteLinks { invites: ChatInviteLinkDTO[]; has_next: boolean; next_invite_id: string | null }
+interface ChatInvitePreviewDTO { chat: ChatPreviewDTO; expires_at: string | null }
+```
+
+Поведение:
+- Вступивший по ссылке получает роль `member` (5), в канале — `viewer` (6). Остальным участникам
+  уходит обычный `member_joined`.
+- Лимит использований выбирается атомарно (условный `UPDATE ... RETURNING`): при гонке за последний
+  слот вступит ровно один. Ошибка при вступлении (уже участник, лимит участников чата) использование
+  не тратит.
+- Превью отдаёт имя, описание, аватар, `member_count` и `is_member` даже приватного чата — это и
+  есть смысл ссылки. Без кода приватный чат по-прежнему не виден.
+- Кикнутый может вернуться по ссылке, забаненный — нет (`403 CHAT_ACCESS_DENIED`) до разбана.
+- У чата не больше 100 неотозванных ссылок (`400 INVITE_LINKS_LIMIT_EXCEEDED`).
+
+Ошибки превью и вступления: `404 NOT_FOUND_INVITE_LINK` — кода нет (или чат удалён);
+`410 INVITE_LINK_EXPIRED` с `reason: "expired" | "revoked" | "usage_limit_reached"`;
+`409 ALREADY_CHAT_MEMBER`; `403 CHAT_ACCESS_DENIED` — забанен; `400 MEMBER_LIMIT_EXCEEDED`.
+Создание: `400 INVALID_INVITE_LINK` (`expires_at_in_past`), `403 CHAT_ACCESS_DENIED`, `422` на
+`usage_limit` вне диапазона.
+
+### 5.9 Публичное имя (`@username`) и поиск публичных чатов 🆕
+
+Публичной группе, супергруппе или каналу можно дать имя — по нему чат находят и открывают.
+
+- **`PUT /chats/{chat_id}/username/` `{ username }`** → `200 ChatDTO`. Нужно право `chat:update`.
+  Правила: 5–32 символа, латиница, цифры и `_`, начинается с буквы, не кончается на `_`;
+  ведущий `@` можно передать, он отрезается. Регистр сохраняется для отображения, а уникальность
+  и поиск — без учёта регистра (`MyChannel` и `mychannel` — одно имя). Часть имён
+  зарезервирована (`admin`, `support`, `settings`, `search`, `invites`, …).
+- Имя есть только у **публичного** чата: для `is_public: false` — `400 CHAT_USERNAME_NOT_ALLOWED`
+  (`reason: "chat_not_public"`), для direct — `reason: "direct_chat"`. `PATCH /chats/{id}/` с
+  `is_public: false` освобождает имя автоматически.
+- **`DELETE /chats/{chat_id}/username/`** → `204`, имя сразу свободно для других чатов.
+- Изменение рассылается обычным `chat_updated` (в дельте есть `username`).
+- **`GET /chats/u/{username}/`** → `ChatPreviewDTO`. Ищет без учёта регистра, `@` допустим.
+  Приватный или удалённый чат — `404 NOT_FOUND_CHAT_USERNAME`. Вступить в найденный чат —
+  `POST /chats/{chat_id}/join/` (5.2).
+- **`GET /chats/search/?q=...&limit=20`** → `{ items: ChatPreviewDTO[] }`, только публичные
+  group/supergroup/channel. `q` 2..64 символа. Совпадение по префиксу `username` **или** по словам
+  названия (полнотекстовый индекс `simple`, последнее слово — префикс, как в поиске сообщений
+  5.4.1). Если `q` начинается с `@`, ищется только по `username`. Порядок: точное совпадение
+  имени первым, затем по `member_count` убыв. Пагинации нет — это топ результатов.
+
+Ошибки: `400 INVALID_CHAT_USERNAME` (`reason`: `length` | `format` | `reserved`),
+`409 CHAT_USERNAME_TAKEN`, `400 CHAT_USERNAME_NOT_ALLOWED`, `403 CHAT_ACCESS_DENIED`.
+
+⚠️ Имена чатов и пользователей — разные пространства: один и тот же `@name` может принадлежать
+каналу и человеку. Клиенту, который открывает `@name` из текста, стоит пробовать оба резолвера.
+
+### 5.10 Аватар группы и канала 🆕
+
+Тот же двухшаговый presigned PUT, что у вложений (5.5), но для чата целиком. Нужно право
+`chat:update`; у direct-чата аватара нет (`400 CHAT_AVATAR_VALIDATION`, `reason: "direct_chat"`,
+либо `403`, если нет права).
+
+**Шаг 1 — `POST /chats/{chat_id}/avatar/upload-requests/`** `{ mime_type, file_size }`
+- `mime_type` ∈ `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`;
+  `file_size` ≤ 5 МБ. Иначе — `400 CHAT_AVATAR_VALIDATION` сразу.
+```ts
+interface ChatAvatarUploadSlotDTO {
+  upload_token: string;   // UUID, нужен на шаге 3
+  upload_url: string;     // presigned PUT, живёт expires_in секунд
+  expires_in: number;     // 600
+}
+```
+
+**Шаг 2 — `PUT <upload_url>`** сырыми байтами файла.
+
+**Шаг 3 — `POST /chats/{chat_id}/avatar/upload-requests/confirm/`** `{ upload_token }` → `202`.
+Токен должен быть выдан этому же пользователю для этого же чата, иначе `400 INVALID_UPLOAD_TOKEN`.
+
+Дальше фоновая задача проверяет реальный размер и MIME по содержимому, нарезает квадрат по центру
+в 4 размера × 3 формата и кладёт их в публичный бакет под новой версией. Результат приходит всем
+участникам событием `chat_updated` с новыми `avatar_s3_key` / `avatars`. Если файл не прошёл
+проверку, аватар просто не меняется (как у профиля, 4.5) — события не будет.
+
+- `avatar_s3_key` и `avatar_url` у чата — **готовая ссылка** на вариант 64px jpg, presign не нужен.
+  У каждой загрузки свой URL, поэтому `avatar_s3_key` годится как ключ кеша картинки.
+- Прошлая версия удаляется из хранилища после замены; старые ссылки начинают отдавать 404.
+- **`DELETE /chats/{chat_id}/avatar/`** → `204`: `avatars = {}`, `avatar_s3_key = null`, `chat_updated`.
+
 ## 6. Чаты — WebSocket
 
 ⚠️ Это самый важный раздел документа для реализации чата на Flutter — в предыдущей версии доков он был описан на 5% от реального объёма (были упомянуты только `ws.ready` и `ws.error`). Ниже — полный протокол, вычитанный построчно из `app/chats/routes/v1/ws.py`, `app/chats/commands/websockets/*.py`, `app/chats/dtos/delivery.py`, `app/chats/services/delivery_router.py`, `app/chats/models/{chat,message}.py`.
@@ -1523,8 +1723,10 @@ gateway), поэтому один и тот же кадр может прийт�
 | `member_left` | Участник вышел сам | `{ user_id }` | `null` |
 | `member_kick` | Участника кикнули | `{ target_user_id, requester_id }` | `null` |
 | `member_banned` | Участника забанили/разбанили | `{ target_user_id, requester_id, ban }` — `ban: true` бан, `false` разбан | `null` |
+| `member_muted` 🆕 | Модераторский мьют поставлен/снят | `{ target_user_id, requester_id, mute, muted_until }` — `mute: false` снятие, `muted_until` ISO или `null` | `null` |
 | `chat_created` | Чат создан | `{ created_by, name, member_ids, chat_type, member_count }` | `null` |
-| `chat_updated` | Изменены настройки чата | `{ updated_by, name, description, is_public, admin_only, slow_mode_seconds, permissions, reactions_mode, allowed_reactions }` | `null` |
+| `chat_updated` | Изменены настройки чата, публичное имя или аватар | `{ updated_by, name, description, is_public, admin_only, slow_mode_seconds, permissions, reactions_mode, allowed_reactions, username, avatar_s3_key, avatars }` — последние три 🆕, это полный текущий снимок, а не только изменённое | `null` |
+| `chat_ownership_transferred` 🆕 | Владение передано | `{ requester_id, previous_owner_id, new_owner_id }` — у нового владельца теперь `role_id=1` и `created_by`, у прежнего `role_id=2` | `null` |
 | `chat_deleted` | Чат удалён | `{ deleted_by }` | `null` — убрать чат из списка |
 | `reaction_update` | Поставили/сняли/заменили реакцию на сообщении | `{ message_id, actor_id, action }` | `null`; снимок групп — в `payload.reaction.groups` (полный текущий набор). Под нагрузкой рассылки коалесятся (окно 500 мс). Подробно — 5.7.6 |
 | `attachment_success` | Вложение(я) успешно обработаны после `confirm/` (шлётся лично пользователю-загрузчику, не всей подписке чата) | — | `payload` здесь другой: `AttachmentSuccessPayload { user_id, chat_id, tokens }`; `delivery.require_subscription=false`, `recipients=[user_id]` |
@@ -1714,4 +1916,5 @@ interface NotificationDTO {
 - [ ] WS обрабатывает все перечисленные в 6.4 типы событий
 - [ ] `new_message`/`message_edited`/`message_deleted` не рендерятся напрямую из WS-payload
 - [ ] `resume` никогда не отправляется больше чем с 20 курсорами
-- [ ] Учтена структура `avatars` (4 размера × 3 формата), а не плоский `{url}`
+- [ ] Учтена структура `avatars` (4 размера × 3 формата), а не плоский `{url}` — и у профиля, и у группы/канала (`ChatDTO.avatars`)
+- [ ] `USER_BLOCKED` в личке показывается как «Вы не можете написать этому пользователю», а не как сбой отправки

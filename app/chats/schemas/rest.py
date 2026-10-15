@@ -87,6 +87,54 @@ class BanMemberRequest(BaseModel):
     banned_to: datetime | None = None
 
 
+class MuteMemberRequest(BaseModel):
+    muted_until: datetime | None = None
+
+
+class TransferOwnershipRequest(BaseModel):
+    user_id: int = Field(gt=0)
+
+
+class SetChatUsernameRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=chat_config.CHAT_USERNAME_MAX_LENGTH + 1)
+
+
+class SearchPublicChatsRequest(BaseModel):
+    q: str = Field(
+        min_length=chat_config.PUBLIC_CHAT_SEARCH_MIN_QUERY_LENGTH,
+        max_length=chat_config.PUBLIC_CHAT_SEARCH_MAX_QUERY_LENGTH,
+    )
+    limit: int = Field(
+        default=chat_config.PUBLIC_CHAT_SEARCH_LIMIT,
+        ge=1,
+        le=chat_config.PUBLIC_CHAT_SEARCH_MAX_LIMIT,
+    )
+
+
+class CreateInviteLinkRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=chat_config.INVITE_LINK_NAME_MAX_LENGTH)
+    expires_at: datetime | None = None
+    usage_limit: int | None = Field(default=None, ge=1, le=chat_config.INVITE_LINK_MAX_USAGE_LIMIT)
+
+
+class GetInviteLinksRequest(BaseModel):
+    limit: int = Field(
+        default=chat_config.INVITE_LINKS_PAGE_SIZE,
+        ge=1,
+        le=chat_config.INVITE_LINKS_MAX_PAGE_SIZE,
+    )
+    last_invite_id: UUID | None = None
+
+
+class RequestChatAvatarUploadRequest(BaseModel):
+    mime_type: str = Field(min_length=1, max_length=128)
+    file_size: int = Field(gt=0, le=chat_config.CHAT_AVATAR_MAX_SIZE)
+
+
+class ConfirmChatAvatarUploadRequest(BaseModel):
+    upload_token: UUID
+
+
 class SendMessageRequest(BaseModel):
     content: str | None = Field(default=None, max_length=chat_config.MAX_MESSAGE_LENGTH)
     reply_to_id: UUID | None = None

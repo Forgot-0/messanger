@@ -100,3 +100,41 @@ class TestChatDeliveryConsumer:
         )
 
         assert await delivered_frames() == []
+
+    @pytest.mark.parametrize(
+        ("event_name", "payload", "ws_type"),
+        [
+            (
+                "chats.member.muted",
+                {"requester_id": 1, "target_user_id": 3, "mute": True, "muted_until": None},
+                "member_muted",
+            ),
+            (
+                "chats.chat.ownership_transferred",
+                {"requester_id": 1, "previous_owner_id": 1, "new_owner_id": 2},
+                "chat_ownership_transferred",
+            ),
+        ],
+    )
+    async def test_moderation_events_reach_members(
+        self,
+        consumer_broker: KafkaBroker,
+        group_chat: Chat,
+        go_online,
+        delivered_frames,
+        event_name: str,
+        payload: dict,
+        ws_type: str,
+    ) -> None:
+        await go_online(2)
+
+        await self.publish(
+            consumer_broker,
+            chat_message(event_name, {"chat_id": str(group_chat.id), **payload}),
+        )
+
+        frames = await delivered_frames()
+        assert len(frames) == 1
+        assert frames[0]["type"] == ws_type
+        assert frames[0]["payload"]["event_name"] == event_name
+        assert frames[0]["payload"]["event"] == payload

@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Self
@@ -13,13 +14,18 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.chats.config import chat_config
+from app.chats.dtos.avatars import pick_avatar_key
 from app.chats.exceptions import (
     AccessDeniedChatError,
+    ChatUsernameNotAllowedError,
+    InvalidChatUsernameError,
+    InvalidOwnershipTransferError,
     MemberLimitExceededError,
     ReactionNotAllowedError,
     SlowModeOutOfRangeError,
@@ -77,8 +83,24 @@ class UpdatedChatEvent(BaseEvent):
     permissions: dict[str, bool]
     reactions_mode: str
     allowed_reactions: list[str]
+    username: str | None = None
+    avatar_s3_key: str | None = None
+    avatars: dict[str, dict[str, str]] = field(default_factory=dict)
 
     __event_name__ = "chats.chat.updated"
+
+    def get_partition_key(self) -> str:
+        return str(self.chat_id)
+
+
+@dataclass(frozen=True)
+class TransferredChatOwnershipEvent(BaseEvent):
+    chat_id: str
+    requester_id: int
+    previous_owner_id: int
+    new_owner_id: int
+
+    __event_name__ = "chats.chat.ownership_transferred"
 
     def get_partition_key(self) -> str:
         return str(self.chat_id)
@@ -133,6 +155,20 @@ class BannedChatMemberEvent(BaseEvent):
 
 
 @dataclass(frozen=True)
+class MutedChatMemberEvent(BaseEvent):
+    chat_id: str
+    requester_id: int
+    target_user_id: int
+    mute: bool
+    muted_until: str | None
+
+    __event_name__ = "chats.member.muted"
+
+    def get_partition_key(self) -> str:
+        return str(self.chat_id)
+
+
+@dataclass(frozen=True)
 class LeftChatMemberEvent(BaseEvent):
     chat_id: str
     user_id: int
@@ -141,6 +177,9 @@ class LeftChatMemberEvent(BaseEvent):
 
     def get_partition_key(self) -> str:
         return str(self.chat_id)
+
+
+_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*[A-Za-z0-9]$")
 
 
 class Chat(BaseModel, DateMixin, SoftDeleteMixin):
@@ -152,7 +191,13 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
     type: Mapped[ChatType] = mapped_column(Enum(ChatType), nullable=False)
     name: Mapped[str | None] = mapped_column(String(256))
     description: Mapped[str | None] = mapped_column(String(1024))
+    username: Mapped[str | None] = mapped_column(
+        String(chat_config.CHAT_USERNAME_MAX_LENGTH), nullable=True, default=None
+    )
     avatar_s3_key: Mapped[str | None] = mapped_column(String(512))
+    avatars: Mapped[dict[str, dict[str, str]]] = mapped_column(
+        JSONB, server_default="{}", default=dict, nullable=False
+    )
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
     member_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -180,6 +225,18 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
     __table_args__ = (
         Index("ix_chats_type_public", "type", "is_public"),
         Index("ix_chats_type_member_count", "type", "member_count"),
+        Index(
+            "uq_chats_username_lower",
+            text("lower(username) text_pattern_ops"),
+            unique=True,
+            postgresql_where=text("username IS NOT NULL"),
+        ),
+        Index(
+            "ix_chats_public_name_fts_simple",
+            text("to_tsvector('simple', coalesce(name, ''))"),
+            postgresql_using="gin",
+            postgresql_where=text("is_public AND deleted_at IS NULL"),
+        ),
     )
 
     @staticmethod
@@ -254,7 +311,10 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
             slow_mode_seconds=slow_mode_seconds,
             member_count=0,
             permissions=permissions or {},
-            reactions_mode=ChatReactionsMode.ALL
+            reactions_mode=ChatReactionsMode.ALL,
+            allowed_reactions=[],
+            username=None,
+            avatars={},
         )
 
         if chat_type == ChatType.DIRECT:
@@ -323,7 +383,75 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
 
         if is_public is not None:
             self.is_public = is_public
+            if not is_public:
+                self.username = None
 
+        self._register_updated(updated_by)
+
+    def set_username(self, updated_by: int, username: str | None) -> None:
+        if username is None:
+            self.username = None
+            self._register_updated(updated_by)
+            return
+
+        if self.type == ChatType.DIRECT:
+            raise ChatUsernameNotAllowedError(chat_id=str(self.id), reason="direct_chat")
+
+        if not self.is_public:
+            raise ChatUsernameNotAllowedError(chat_id=str(self.id), reason="chat_not_public")
+
+        self.username = self.validate_username(username)
+        self._register_updated(updated_by)
+
+    def update_avatar(self, updated_by: int, avatars: dict[str, dict[str, str]]) -> None:
+        self.avatars = avatars
+        self.avatar_s3_key = pick_avatar_key(avatars)
+        self._register_updated(updated_by)
+
+    def transfer_ownership(self, requester_id: int, new_owner: ChatMember) -> int:
+        if self.type == ChatType.DIRECT:
+            raise InvalidOwnershipTransferError(chat_id=str(self.id), reason="direct_chat")
+
+        if new_owner.user_id == self.created_by:
+            raise InvalidOwnershipTransferError(chat_id=str(self.id), reason="already_owner")
+
+        if new_owner.is_banned:
+            raise InvalidOwnershipTransferError(chat_id=str(self.id), reason="target_banned")
+
+        previous_owner_id = self.created_by
+        self.created_by = new_owner.user_id
+        new_owner.role_id = ChatRoleId.OWNER
+
+        self.register_event(
+            TransferredChatOwnershipEvent(
+                chat_id=str(self.id),
+                requester_id=requester_id,
+                previous_owner_id=previous_owner_id,
+                new_owner_id=new_owner.user_id,
+            )
+        )
+        return previous_owner_id
+
+    @staticmethod
+    def validate_username(username: str) -> str:
+        cleaned = username.strip().removeprefix("@")
+
+        if not (
+            chat_config.CHAT_USERNAME_MIN_LENGTH
+            <= len(cleaned)
+            <= chat_config.CHAT_USERNAME_MAX_LENGTH
+        ):
+            raise InvalidChatUsernameError(username=username, reason="length")
+
+        if not _USERNAME_RE.fullmatch(cleaned):
+            raise InvalidChatUsernameError(username=username, reason="format")
+
+        if cleaned.lower() in chat_config.CHAT_USERNAME_RESERVED:
+            raise InvalidChatUsernameError(username=username, reason="reserved")
+
+        return cleaned
+
+    def _register_updated(self, updated_by: int) -> None:
         self.register_event(
             UpdatedChatEvent(
                 chat_id=str(self.id),
@@ -336,6 +464,9 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
                 permissions=self.permissions or {},
                 reactions_mode=self.reactions_mode.value,
                 allowed_reactions=list(self.allowed_reactions or []),
+                username=self.username,
+                avatar_s3_key=self.avatar_s3_key,
+                avatars=dict(self.avatars or {}),
             )
         )
 
@@ -388,6 +519,18 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
             requester_id=requester_id,
             target_user_id=target,
             ban=ban,
+        ))
+
+    def mute_member(self, target: ChatMember, requester_id: int) -> None:
+        if target.user_id == requester_id:
+            raise AccessDeniedChatError(chat_id=str(self.id), requester_id=requester_id)
+
+        self.register_event(MutedChatMemberEvent(
+            chat_id=str(self.id),
+            requester_id=requester_id,
+            target_user_id=target.user_id,
+            mute=target.is_muted,
+            muted_until=target.muted_until.isoformat() if target.is_muted and target.muted_until else None,
         ))
 
     @staticmethod

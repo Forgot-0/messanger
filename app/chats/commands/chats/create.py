@@ -9,6 +9,7 @@ from app.chats.exceptions import LiveKitServiceError
 from app.chats.models.chat import Chat, ChatType
 from app.chats.repositories.chat import ChatRepository
 from app.chats.services.livekit_service import LiveKitService
+from app.chats.services.privacy import ChatPrivacyService
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
 from app.core.services.auth.dto import UserJWTData
@@ -34,6 +35,7 @@ class CreateChatCommandHandler(BaseCommandHandler[CreateChatCommand, ChatDTO]):
     session: AsyncSession
     chat_repository: ChatRepository
     livekit_sevice: LiveKitService
+    privacy_service: ChatPrivacyService
     event_bus: BaseEventBus
 
     async def handle(self, command: CreateChatCommand) -> ChatDTO:
@@ -59,6 +61,10 @@ class CreateChatCommandHandler(BaseCommandHandler[CreateChatCommand, ChatDTO]):
             )
             if direct_chat is not None:
                 return ChatDTO.model_validate(direct_chat)
+
+            await self.privacy_service.ensure_can_start_direct(created_by, other_user_id)
+        else:
+            await self.privacy_service.ensure_can_add(created_by, command.member_ids)
 
         await self.chat_repository.create(chat)
         await self.event_bus.publish(chat.pull_events())

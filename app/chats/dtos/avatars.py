@@ -1,5 +1,8 @@
 from collections.abc import Mapping
 from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel
 
 CHAT_AVATAR_SIZE = 64
 
@@ -44,3 +47,9 @@ def pick_avatar_key(
                 return value
 
     return None
+
+
+class ChatAvatarUploadSlotDTO(BaseModel):
+    upload_token: UUID
+    upload_url: str
+    expires_in: int

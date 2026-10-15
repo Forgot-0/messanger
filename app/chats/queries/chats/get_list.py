@@ -12,6 +12,7 @@ from app.chats.models.chat import ChatType
 from app.chats.models.read_receipts import ReadReceipt
 from app.chats.repositories.chat import ChatCounterpart, ChatRepository, UserChatRow
 from app.chats.services.messages import MessageService
+from app.chats.services.privacy import ChatPrivacyService
 from app.chats.services.read_coalescer import PendingReadCursor, ReadReceiptCoalesceQueue
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
@@ -34,6 +35,7 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
     chat_repository: ChatRepository
     message_service: MessageService
     coalesce_queue: ReadReceiptCoalesceQueue
+    privacy_service: ChatPrivacyService
 
     async def handle(self, query: GetListChatUserQuery) -> ListChats:
         limit = min(max(query.limit, 1), 100)
@@ -106,7 +108,9 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
                 type=chat.type,
                 name=chat.name,
                 description=chat.description,
+                username=chat.username,
                 avatar_s3_key=chat.avatar_s3_key,
+                avatars=chat.avatars or {},
                 is_public=chat.is_public,
                 admin_only=chat.admin_only,
                 slow_mode_seconds=chat.slow_mode_seconds,
@@ -130,6 +134,7 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
                 draft=member.draft,
             ))
 
+        await self.privacy_service.hide_avatars(user_id, profiles)
         await self.message_service.image_urls(profiles)
 
         return ListChats(

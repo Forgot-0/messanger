@@ -1,15 +1,17 @@
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from sqlalchemy import (
     UUID as SAUUID,
+    ColumnElement,
     Select,
     and_,
     column,
     func,
+    literal_column,
     or_,
     select,
     true,
@@ -28,6 +30,8 @@ from app.core.db.repository import CacheRepository, IRepository
 
 UserChatRow = tuple[Chat, ChatMember, ReadReceipt | None, Message | None]
 UserChatStmtRow = tuple[Chat, ChatMember, ReadReceipt, Message]
+
+_PUBLIC_CHAT_TYPES = (ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL)
 
 
 class DeliveryMember(NamedTuple):
@@ -64,6 +68,70 @@ class ChatRepository(IRepository[Chat], CacheRepository):
 
         result = await self.session.execute(stmt)
         return result.scalar()
+
+    async def get_by_username(self, username: str) -> Chat | None:
+        stmt = Chat.select_not_deleted().where(
+            func.lower(Chat.username) == username.lower(),
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar()
+
+    async def search_public(
+        self,
+        username_prefix: str | None,
+        tsquery: str | None,
+        exact_username: str | None,
+        limit: int,
+    ) -> list[Chat]:
+        matchers: list[ColumnElement[bool]] = []
+        if username_prefix:
+            escaped = (
+                username_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+            matchers.append(func.lower(Chat.username).like(f"{escaped}%", escape="\\"))
+
+        if tsquery:
+            matchers.append(
+                func.to_tsvector(
+                    literal_column("'simple'::regconfig"),
+                    func.coalesce(Chat.name, literal_column("''"))
+                ).op("@@")(
+                    func.to_tsquery(literal_column("'simple'::regconfig"), tsquery)
+                )
+            )
+
+        if not matchers:
+            return []
+
+        order_by: list[ColumnElement[Any]] = [Chat.member_count.desc(), Chat.id.desc()]
+        if exact_username:
+            order_by.insert(0, (func.lower(Chat.username) == exact_username).desc().nulls_last())
+
+        stmt = (
+            select(Chat)
+            .where(
+                Chat.is_public,
+                Chat.deleted_at.is_(None),
+                Chat.type.in_(_PUBLIC_CHAT_TYPES),
+                or_(*matchers),
+            )
+            .order_by(*order_by)
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def member_chat_ids(self, user_id: int, chat_ids: Sequence[UUID]) -> set[UUID]:
+        if not chat_ids:
+            return set()
+
+        stmt = select(ChatMember.chat_id).where(
+            ChatMember.user_id == user_id,
+            ChatMember.chat_id.in_(list(chat_ids)),
+            ChatMember.active_criteria(),
+        )
+        result = await self.session.execute(stmt)
+        return set(result.scalars().all())
 
     async def get_fanout_strategy(self, chat_id: UUID, include_deleted: bool = False) -> ChatFanoutStrategy | None:
         stmt = select(Chat.type, Chat.member_count).where(Chat.id == chat_id)

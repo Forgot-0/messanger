@@ -10,7 +10,7 @@ from app.profiles.dtos.contacts import (
     ContactSearchItemDTO,
     UserContactDTO,
 )
-from app.profiles.repositories.contacts import ContactRepository
+from app.profiles.repositories.contacts import BlockedUserRepository, ContactRepository
 from app.profiles.repositories.profiles import ProfileRepository
 from app.profiles.services.contact_access import check_contact_owner
 
@@ -28,6 +28,7 @@ class SearchContactsQuery(BaseQuery):
 class SearchContactsQueryHandler(BaseQueryHandler[SearchContactsQuery, ContactSearchDTO]):
     contact_repository: ContactRepository
     profile_repository: ProfileRepository
+    blocked_repository: BlockedUserRepository
     rbac_manager: RBACManagerInterface
 
     async def handle(self, query: SearchContactsQuery) -> ContactSearchDTO:
@@ -38,12 +39,20 @@ class SearchContactsQueryHandler(BaseQueryHandler[SearchContactsQuery, ContactSe
             return ContactSearchDTO(items=[])
 
         if raw.startswith("@"):
-            return await self._search_username(query.owner_id, raw[1:])
-
-        if len(raw) < profile_config.CONTACTS_SEARCH_MIN_PREFIX:
+            result = await self._search_username(query.owner_id, raw[1:])
+        elif len(raw) < profile_config.CONTACTS_SEARCH_MIN_PREFIX:
             return ContactSearchDTO(items=[])
+        else:
+            result = await self._search_own(query.owner_id, raw, query.limit)
 
-        return await self._search_own(query.owner_id, raw, query.limit)
+        hidden = await self.blocked_repository.blockers_of(
+            query.owner_id, [item.user_id for item in result.items]
+        )
+        for item in result.items:
+            if item.user_id in hidden and item.profile is not None:
+                item.profile.avatars = {}
+
+        return result
 
     async def _search_username(self, owner_id: int, username: str) -> ContactSearchDTO:
         if not username:

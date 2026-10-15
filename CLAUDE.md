@@ -117,6 +117,32 @@ HTTP route (app/<module>/routes/v1/*.py)
   `ix_messages_content_fts_simple` создаётся миграцией `d4f2a91c60b7` вручную и исключён из
   сравнения в `migrations/env.py` (alembic expression-индексы не сравнивает и выписал бы им DROP).
   Скоуп видимости — join на `chat_members` вызывающего; по `joined_at` намеренно не режем.
+- **Модерация участников**: бан/разбан (`PATCH|DELETE /members/{id}/ban/`), модераторский мьют
+  (`PATCH|DELETE /members/{id}/mute/`, право `member:mute`, событие `chats.member.muted`).
+  `muted_until` (модератор) ≠ `notifications_muted_until` (личный мьют push).
+- **Владелец = `chats.created_by`**, не «исторический создатель». `POST /chats/{id}/transfer_ownership/`
+  переписывает `created_by`, новому владельцу даёт роль owner, прежнему — admin (строка чата под
+  `FOR UPDATE`). `Chat.leave()` запрещает выход именно по `created_by`.
+- **Публичное имя чата** (`chats.username`, только у публичных group/supergroup/channel):
+  уникальность без учёта регистра даёт `uq_chats_username_lower` (`lower(username) text_pattern_ops`,
+  он же обслуживает префиксный поиск). Поиск публичных чатов `GET /chats/search/` — BitmapOr этого
+  индекса и GIN `ix_chats_public_name_fts_simple` (`to_tsvector('simple', coalesce(name,''))`,
+  partial `is_public AND deleted_at IS NULL`). Оба индекса — expression, созданы миграцией
+  `77ee1cfd425a` вручную и исключены в `migrations/env.py`. В запросе конфиг FTS — литерал
+  `'simple'::regconfig`, а не bind-параметр, иначе выражение не совпадёт с индексом.
+- **Инвайт-ссылки** (`chat_invite_links`): использование списывается условным `UPDATE ... RETURNING`
+  (`ChatInviteLinkRepository.consume`), без `SELECT FOR UPDATE`. Превью/вступление —
+  статические `/chats/invites/{code}/`, объявлены выше `/{chat_id}/`.
+- **Аватар группы/канала**: слот загрузки — в Redis (`ChatAvatarKeys`), не в БД; обработка —
+  taskiq-задача `chats.avatar.process` (`ChatAvatarService`: pyvips в `to_thread`, чтение pending
+  пиннится `stat`). Варианты лежат в публичном бакете `chat-avatars` под `{chat_id}/{upload_token}/`,
+  `chats.avatars` хранит URL'ы, `avatar_s3_key` — URL 64px jpg. Старая версия удаляется после замены.
+- **Блокировки в чатах** читаются только из проекции `chat_user_blocks` через `ChatPrivacyService`
+  (`app/chats/services/privacy.py`); модуль чатов не ходит в `blocked_users`. Проекцию наполняет
+  консьюмер `app/chats/consumers/blocks.py` (группа `chat_block_projection`) по
+  `profiles.user.blocked/unblocked`. Личка — `USER_BLOCKED` в обе стороны; добавить в группу того,
+  кто тебя заблокировал, — `USER_PRIVACY_RESTRICTED`; фото и онлайн блокирующего скрываются
+  от заблокированного в REST-ответах (`hide_avatars` — до `image_urls`).
 - **Вложения**: двухшаговая загрузка через presigned PUT в SeaweedFS
   (`chat-pending-attachments` → валидация/обработка → `chat-attachments`). Лимиты MIME и размеров — в `config.py`.
 - **Звонки**: LiveKit, выдача room-токена (`ROOM_TOKEN_TTL`, `ROOM_MAX_PARTICIPANTS`).
@@ -137,8 +163,8 @@ HTTP route (app/<module>/routes/v1/*.py)
 | `profiles.profile.created`, `profiles.profile.updated` | profiles |
 | `profiles.contact.added`, `profiles.contact.removed` | profiles |
 | `profiles.user.blocked`, `profiles.user.unblocked` | profiles |
-| `chats.chat.created`, `chats.chat.updated`, `chats.chat.deleted` | chats |
-| `chats.member.added`, `chats.member.kicked`, `chats.member.banned`, `chats.member.left` | chats |
+| `chats.chat.created`, `chats.chat.updated`, `chats.chat.deleted`, `chats.chat.ownership_transferred` | chats |
+| `chats.member.added`, `chats.member.kicked`, `chats.member.banned`, `chats.member.muted`, `chats.member.left` | chats |
 | `chats.message.sent`, `chats.message.readed`, `chats.message.modified`, `chats.message.deleted` | chats |
 | `chats.message.reaction_updated` | chats |
 
@@ -148,8 +174,9 @@ HTTP route (app/<module>/routes/v1/*.py)
 
 `users`, `user_permissions`, `user_roles`, `roles`, `permissions`, `role_permissions`, `sessions`, `oauth_accounts`,
 `profiles`, `profile_links`, `user_contacts`, `user_identifiers`, `pending_contacts`, `blocked_users`,
-`chats`, `chat_members` (+ per-user состояние: `pinned_at`, `archived_at`, `notifications_muted_until`,
-`draft`, `draft_updated_at`), `chat_member_bans`, `chat_roles`, `chat_user_profiles`, `messages`, `message_attachments`,
+`chats` (+ `username`, `avatars`), `chat_members` (+ per-user состояние: `pinned_at`, `archived_at`, `notifications_muted_until`,
+`draft`, `draft_updated_at`), `chat_member_bans`, `chat_roles`, `chat_user_profiles`, `chat_user_blocks` (проекция
+`blocked_users`), `chat_invite_links`, `messages`, `message_attachments`,
 `message_reactions`, `message_reaction_counters`, `read_receipts`,
 `notifications`, `user_device_tokens`,
 `outbox_messages`.
