@@ -1,4 +1,5 @@
 import logging
+import time
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -7,11 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats.config import chat_config
 from app.chats.exceptions import AccessDeniedChatError, AttachmentMediaValidationError
+from app.chats.metrics import ATTACHMENT_PROCESSING_SECONDS
+from app.chats.models.attachment import AttachmentStatus, HlsStatus, MessageAttachment
 from app.chats.repositories.attachment import AttachmentRepository
 from app.chats.schemas.ws import AttachmentSuccessPayload, WSEventType
-from app.chats.services.attachment_media import AttachmentMediaValidator
+from app.chats.services.attachment_processor import AttachmentMediaProcessor
+from app.chats.tasks.transcode_attachment import AttachmentTranscodeTask
 from app.core.commands import BaseCommand, BaseCommandHandler
-from app.core.services.media.exceptions import MediaProbeUnavailableError
+from app.core.services.media.exceptions import MediaProbeUnavailableError, MediaTranscodeUnavailableError
+from app.core.services.queues.service import QueueService
 from app.core.services.storage.exceptions import ObjectChangedError, ObjectNotFoundError, StorageError
 from app.core.services.storage.service import StorageService
 from app.core.utils import now_utc
@@ -36,7 +41,8 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
     storage_service: StorageService
     connection_manager: ConnectionManager
     session: AsyncSession
-    media_validator: AttachmentMediaValidator
+    media_processor: AttachmentMediaProcessor
+    queue_service: QueueService
 
     async def handle(self, command: ProccessAttachmentsCommand) -> None:
         slots = await self.attachment_repository.get_by_ids(
@@ -47,6 +53,7 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
         processed_tokens: list[str] = []
         for slot in slots:
             processed_tokens.append(str(slot.id))
+            started = time.monotonic()
             try:
                 if slot.uploader_id != command.user_id:
                     raise AccessDeniedChatError(chat_id=str(slot.chat_id), requester_id=command.user_id)
@@ -86,30 +93,23 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                     failed_tokens.append(str(slot.id))
                     continue
 
-                if self.media_validator.requires_probe(slot.attachment_type):
-                    media_info = await self.media_validator.validate_and_apply(slot, stat)
-
-                    logger.info(
-                        "Media attachment validated",
-                        extra={
-                            "slot_id": str(slot.id),
-                            "attachment_type": slot.attachment_type.value,
-                            "detected_mime": mime_type,
-                            "duration": slot.duration_seconds,
-                            "width": slot.width,
-                            "height": slot.height,
-                            "probed_duration": round(media_info.duration, 3),
-                        },
-                    )
-
-                await self.storage_service.copy_object(
-                    bucket_from=chat_config.ATTACHMENT_BUCKET_PENDING,
-                    file_key_from=slot.s3_key,
-                    bucket_to=chat_config.ATTACHMENT_BUCKET,
-                    file_key_to=slot.s3_key,
-                    source_stat=stat,
-                )
+                await self.media_processor.promote(slot, stat)
                 slot.mark_proccesed()
+
+                logger.info(
+                    "Attachment promoted",
+                    extra={
+                        "slot_id": str(slot.id),
+                        "attachment_type": slot.attachment_type.value,
+                        "detected_mime": mime_type,
+                        "stored_mime": slot.mime_type,
+                        "duration": slot.duration_seconds,
+                        "width": slot.width,
+                        "height": slot.height,
+                        "previews": len(slot.previews or ()),
+                        "hls": slot.hls_status,
+                    },
+                )
 
                 try:
                     await self.storage_service.delete_file(
@@ -164,7 +164,7 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                 slot.mark_error()
                 failed_tokens.append(str(slot.id))
 
-            except (StorageError, MediaProbeUnavailableError):
+            except (StorageError, MediaProbeUnavailableError, MediaTranscodeUnavailableError):
                 logger.exception(
                     "Attachment processing failed due to infrastructure error",
                     extra={
@@ -184,7 +184,14 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                 slot.mark_error()
                 failed_tokens.append(str(slot.id))
 
+            finally:
+                ATTACHMENT_PROCESSING_SECONDS.labels(
+                    attachment_type=slot.attachment_type.value,
+                    outcome=slot.attachment_status.value,
+                ).observe(time.monotonic() - started)
+
         await self.session.commit()
+        await self._schedule_transcodes(slots)
 
         try:
             successful_tokens = [t for t in processed_tokens if t not in failed_tokens]
@@ -222,3 +229,15 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                 )
         except Exception:
             logger.exception("Failed to notify user of upload results")
+
+    async def _schedule_transcodes(self, slots: list[MessageAttachment]) -> None:
+        for slot in slots:
+            if slot.attachment_status != AttachmentStatus.SUCCESS or slot.hls_status != HlsStatus.PENDING:
+                continue
+            try:
+                await self.queue_service.push(AttachmentTranscodeTask, data={"attachment_id": str(slot.id)})
+            except Exception:
+                logger.exception(
+                    "Failed to enqueue HLS transcode, the sweeper will retry it",
+                    extra={"slot_id": str(slot.id)},
+                )

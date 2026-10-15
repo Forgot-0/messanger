@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.chats.models.attachment import AttachmentStatus, AttachmentType, MessageAttachment
+from app.chats.models.attachment import AttachmentStatus, AttachmentType, HlsStatus, MessageAttachment
 
 
 def make_attachment(
@@ -157,3 +157,61 @@ class TestCreateForForward:
         assert original.id == original_id
         assert original.attachment_status == original_status
         assert original.chat_id == original_chat
+
+
+@pytest.mark.unit
+@pytest.mark.chats
+class TestAttachmentMedia:
+
+    def test_forward_carries_previews_and_stream_state(self) -> None:
+        original = make_attachment(AttachmentType.VIDEO, mime_type="video/mp4")
+        original.apply_media(
+            width=1280, height=720,
+            previews=[{"size": 320, "width": 320, "height": 180, "s3_key": "p", "mime_type": "image/webp", "file_size": 9}],
+            thumbhash="abc=",
+        )
+        original.request_hls()
+
+        forwarded = original.create_for_forward(chat_id=uuid4())
+
+        assert forwarded.previews == original.previews
+        assert forwarded.previews is not original.previews
+        assert forwarded.thumbhash == "abc="
+        assert forwarded.hls_status == HlsStatus.PENDING
+        assert (forwarded.width, forwarded.height) == (1280, 720)
+
+    def test_forward_of_a_forward_points_at_the_uploaded_root(self) -> None:
+        """HLS дописывается в корень и все его копии одним UPDATE по source_attachment_id —
+        поэтому цепочка пересылок не должна удлиняться."""
+        root = make_attachment()
+
+        first = root.create_for_forward(chat_id=uuid4())
+        second = first.create_for_forward(chat_id=uuid4())
+
+        assert first.source_attachment_id == root.id
+        assert second.source_attachment_id == root.id
+        assert second.media_root_id == root.id
+
+    def test_replacing_the_original_renames_by_the_new_format(self) -> None:
+        attachment = make_attachment(mime_type="image/heic", original_filename="IMG_0001.HEIC")
+
+        attachment.replace_original(mime_type="image/jpeg", size=2048, extension="jpg")
+
+        assert attachment.original_filename == "IMG_0001.jpg"
+        assert (attachment.mime_type, attachment.size) == ("image/jpeg", 2048)
+
+    def test_same_format_keeps_the_name(self) -> None:
+        attachment = make_attachment(mime_type="image/png", original_filename="screen.png")
+
+        attachment.replace_original(mime_type="image/png", size=10, extension="png")
+
+        assert attachment.original_filename == "screen.png"
+        assert attachment.size == 10
+
+    def test_long_name_stays_within_the_column(self) -> None:
+        attachment = make_attachment(mime_type="image/heif", original_filename="x" * 256)
+
+        attachment.replace_original(mime_type="image/jpeg", size=1, extension="jpg")
+
+        assert len(attachment.original_filename) == 256
+        assert attachment.original_filename.endswith(".jpg")

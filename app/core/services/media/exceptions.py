@@ -27,3 +27,22 @@ class MediaProbeTimeoutError(MediaProbeError):
 class MediaProbeUnavailableError(MediaProbeError):
     permanent = False
     reason = MediaProbeFailureReason.PROBE_UNAVAILABLE
+
+
+class MediaTranscodeError(Exception):
+    permanent: bool = True
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(message or type(self).__name__)
+
+
+class MediaTranscodeFailedError(MediaTranscodeError):
+    permanent = True
+
+
+class MediaTranscodeTimeoutError(MediaTranscodeError):
+    permanent = True
+
+
+class MediaTranscodeUnavailableError(MediaTranscodeError):
+    permanent = False

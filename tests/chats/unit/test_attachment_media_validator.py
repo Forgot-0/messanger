@@ -116,12 +116,12 @@ class TestRequiresProbe:
         [
             (AttachmentType.VOICE, True),
             (AttachmentType.VIDEO_NOTE, True),
+            (AttachmentType.VIDEO, True),
             (AttachmentType.IMAGE, False),
-            (AttachmentType.VIDEO, False),
             (AttachmentType.FILE, False),
         ],
     )
-    def test_only_voice_and_video_note_are_probed(
+    def test_only_audio_and_video_are_probed(
         self, attachment_type: AttachmentType, expected: bool
     ) -> None:
         assert AttachmentMediaValidator.requires_probe(attachment_type) is expected
@@ -319,6 +319,72 @@ class TestVideoNoteValidation:
         await validator.validate_and_apply(attachment, stat())
 
         assert (attachment.width, attachment.height) == (100, 100)
+
+
+@pytest.mark.unit
+@pytest.mark.chats
+@pytest.mark.asyncio
+class TestVideoValidation:
+
+    async def test_video_gets_duration_and_resolution(
+        self, validator: AttachmentMediaValidator, probe: FakeMediaProbe
+    ) -> None:
+        probe.media_info = video_info(duration=125.6, width=1920, height=1080)
+        attachment = make_attachment(AttachmentType.VIDEO)
+
+        await validator.validate_and_apply(attachment, stat())
+
+        assert attachment.duration_seconds == 126
+        assert (attachment.width, attachment.height) == (1920, 1080)
+
+    @pytest.mark.parametrize("rotation", [90, 270])
+    async def test_rotated_video_reports_display_dimensions(
+        self, validator: AttachmentMediaValidator, probe: FakeMediaProbe, rotation: int
+    ) -> None:
+        """Телефон пишет вертикальное видео как 1920×1080 с матрицей поворота; плитке в ленте
+        нужны размеры после поворота, иначе она будет горизонтальной."""
+        probe.media_info = MediaInfo(
+            duration=5.0,
+            streams=(
+                StreamInfo(index=0, codec_type="video", width=1920, height=1080, rotation=rotation),
+            ),
+        )
+        attachment = make_attachment(AttachmentType.VIDEO)
+
+        await validator.validate_and_apply(attachment, stat())
+
+        assert (attachment.width, attachment.height) == (1080, 1920)
+
+    async def test_long_video_is_not_capped_like_a_note(
+        self, validator: AttachmentMediaValidator, probe: FakeMediaProbe
+    ) -> None:
+        probe.media_info = video_info(duration=3_600.0, width=640, height=360)
+        attachment = make_attachment(AttachmentType.VIDEO)
+
+        await validator.validate_and_apply(attachment, stat())
+
+        assert attachment.duration_seconds == 3_600
+
+    async def test_video_without_a_video_stream_is_rejected(
+        self, validator: AttachmentMediaValidator, probe: FakeMediaProbe
+    ) -> None:
+        probe.media_info = audio_info()
+
+        with pytest.raises(AttachmentMediaValidationError) as exc_info:
+            await validator.validate_and_apply(make_attachment(AttachmentType.VIDEO), stat())
+
+        assert exc_info.value.reason is AttachmentRejectionReason.INVALID_MEDIA
+
+    async def test_video_over_the_media_size_limit_is_rejected_before_probing(
+        self, validator: AttachmentMediaValidator, probe: FakeMediaProbe
+    ) -> None:
+        with pytest.raises(AttachmentMediaValidationError) as exc_info:
+            await validator.validate_and_apply(
+                make_attachment(AttachmentType.VIDEO), stat(size=chat_config.MAX_MEDIA_SIZE + 1)
+            )
+
+        assert exc_info.value.reason is AttachmentRejectionReason.SIZE_LIMIT_EXCEEDED
+        assert probe.probed_paths == []
 
 
 @pytest.mark.unit

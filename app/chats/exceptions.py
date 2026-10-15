@@ -728,3 +728,17 @@ class ReadReceiptsUnavailableError(ApplicationError):
             "max_members": chat_config.READ_MARKS_MAX_MEMBERS,
             "retention_days": chat_config.READ_MARKS_RETENTION_DAYS,
         }
+
+
+@dataclass(kw_only=True)
+class HlsPlaylistNotFoundError(ApplicationError):
+    code: str = "HLS_PLAYLIST_NOT_FOUND"
+    status: int = 404
+
+    @property
+    def message(self) -> str:
+        return "Playlist not found or the link has expired"
+
+    @property
+    def detail(self) -> dict:
+        return {}

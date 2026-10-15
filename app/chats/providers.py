@@ -9,6 +9,11 @@ from app.chats.commands.attachments.success import (
     SuccessUploadAttachmentsCommand,
     SuccessUploadAttachmentsCommandHandler,
 )
+from app.chats.commands.attachments.sweep_transcodes import (
+    SweepStaleTranscodesCommand,
+    SweepStaleTranscodesCommandHandler,
+)
+from app.chats.commands.attachments.transcode import TranscodeAttachmentCommand, TranscodeAttachmentCommandHandler
 from app.chats.commands.avatars.confirm import (
     ConfirmChatAvatarUploadCommand,
     ConfirmChatAvatarUploadCommandHandler,
@@ -62,6 +67,8 @@ from app.chats.commands.websockets.subscribe import SubscribeCommand, SubscribeC
 from app.chats.commands.websockets.typing import TypingCommand, TypingCommandHandler
 from app.chats.commands.websockets.unsubscribe import UnsubscribeCommand, UnsubscribeCommandHandler
 from app.chats.config import chat_config
+from app.chats.queries.attachments.get_hls_playlist import GetHlsPlaylistQuery, GetHlsPlaylistQueryHandler
+from app.chats.queries.attachments.get_shared_media import GetSharedMediaQuery, GetSharedMediaQueryHandler
 from app.chats.queries.attachments.get_url import GetAttachmentDownloadUrlQuery, GetAttachmentDownloadUrlQueryHandler
 from app.chats.queries.chats.get_by_username import GetChatByUsernameQuery, GetChatByUsernameQueryHandler
 from app.chats.queries.chats.get_detail import GetChatDetailQuery, GetChatDetailQueryHandler
@@ -95,9 +102,12 @@ from app.chats.repositories.reaction import MessageReactionRepository
 from app.chats.repositories.reads import ReadReceiptRepository
 from app.chats.repositories.user_profile import ChatUserProfileRepository
 from app.chats.services.access import ChatAccessService
+from app.chats.services.attachment_images import AttachmentImageRenderer
 from app.chats.services.attachment_media import AttachmentMediaValidator
+from app.chats.services.attachment_processor import AttachmentMediaProcessor
 from app.chats.services.chat_avatar import ChatAvatarService
 from app.chats.services.delivery_router import ChatDeliveryRouter
+from app.chats.services.hls import HlsPlaylistService, HlsUrlSigner
 from app.chats.services.livekit_service import LiveKitService
 from app.chats.services.messages import MessageService
 from app.chats.services.privacy import ChatPrivacyService
@@ -108,6 +118,8 @@ from app.chats.services.read_coalescer import ReadReceiptCoalesceQueue
 from app.chats.services.read_flusher import ReadReceiptFlusher
 from app.core.events.event import EventRegistry
 from app.core.mediators.base import CommandRegistry, QueryRegistry
+from app.core.services.media.service import MediaTranscoder
+from app.core.services.media.transcode.ffmpeg import FfmpegMediaTranscoder
 from app.core.services.storage.policy import Policy
 
 
@@ -119,6 +131,21 @@ class ChatModuleProvider(Provider):
             api_key=chat_config.LIVEKIT_API_KEY,
             api_secret=chat_config.LIVEKIT_API_SECRET,
         )
+
+    @provide(scope=Scope.APP)
+    def media_transcoder(self) -> MediaTranscoder:
+        return FfmpegMediaTranscoder(
+            frame_timeout_seconds=chat_config.VIDEO_FRAME_TIMEOUT_SECONDS,
+            remux_timeout_seconds=chat_config.VIDEO_REMUX_TIMEOUT_SECONDS,
+            transcode_timeout_seconds=chat_config.VIDEO_TRANSCODE_TIMEOUT_SECONDS,
+            threads=chat_config.VIDEO_TRANSCODE_THREADS,
+            nice=chat_config.VIDEO_TRANSCODE_NICE,
+            concurrency=chat_config.VIDEO_TRANSCODE_CONCURRENCY,
+        )
+
+    @provide(scope=Scope.APP)
+    def hls_signer(self) -> HlsUrlSigner:
+        return HlsUrlSigner.from_config()
 
     delivery_router = provide(ChatDeliveryRouter, scope=Scope.REQUEST)
     reaction_attach_service = provide(ReactionAttachService, scope=Scope.REQUEST)
@@ -132,6 +159,8 @@ class ChatModuleProvider(Provider):
         RequestAttachmentUploadCommandHandler,
         SuccessUploadAttachmentsCommandHandler,
         ProccessAttachmentsCommandHandler,
+        TranscodeAttachmentCommandHandler,
+        SweepStaleTranscodesCommandHandler,
         JoinCallCommandHandler,
         MuteParticipantCommandHandler,
         AddMemberCommandHandler,
@@ -180,6 +209,8 @@ class ChatModuleProvider(Provider):
 
     queries = provide_all(
         GetAttachmentDownloadUrlQueryHandler,
+        GetSharedMediaQueryHandler,
+        GetHlsPlaylistQueryHandler,
         GetChatDetailQueryHandler,
         GetListChatUserQueryHandler,
         GetChatMembersQueryHandler,
@@ -215,6 +246,9 @@ class ChatModuleProvider(Provider):
         MessageService,
         ChatAccessService,
         AttachmentMediaValidator,
+        AttachmentImageRenderer,
+        AttachmentMediaProcessor,
+        HlsPlaylistService,
         ReactionPolicy,
         ChatAvatarService,
         scope=Scope.APP
@@ -225,6 +259,8 @@ class ChatModuleProvider(Provider):
         command_registry.register_command(RequestAttachmentUploadCommand, RequestAttachmentUploadCommandHandler)
         command_registry.register_command(SuccessUploadAttachmentsCommand, SuccessUploadAttachmentsCommandHandler)
         command_registry.register_command(ProccessAttachmentsCommand, ProccessAttachmentsCommandHandler)
+        command_registry.register_command(TranscodeAttachmentCommand, TranscodeAttachmentCommandHandler)
+        command_registry.register_command(SweepStaleTranscodesCommand, SweepStaleTranscodesCommandHandler)
         command_registry.register_command(JoinCallCommand, JoinCallCommandHandler)
         command_registry.register_command(MuteParticipantCommand, MuteParticipantCommandHandler)
         command_registry.register_command(AddMemberCommand, AddMemberCommandHandler)
@@ -274,6 +310,8 @@ class ChatModuleProvider(Provider):
     @decorate
     def register_auth_query_handlers(self, query_registry: QueryRegistry) -> QueryRegistry:
         query_registry.register_query(GetAttachmentDownloadUrlQuery, GetAttachmentDownloadUrlQueryHandler)
+        query_registry.register_query(GetSharedMediaQuery, GetSharedMediaQueryHandler)
+        query_registry.register_query(GetHlsPlaylistQuery, GetHlsPlaylistQueryHandler)
         query_registry.register_query(GetChatDetailQuery, GetChatDetailQueryHandler)
         query_registry.register_query(GetListChatUserQuery, GetListChatUserQueryHandler)
         query_registry.register_query(GetChatMembersQuery, GetChatMembersQueryHandler)

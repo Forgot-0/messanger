@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.chats.routes.v1 import attachments, calls, chats, invites, members, messages, pins, reactions, ws
+from app.chats.routes.v1 import attachments, calls, chats, invites, media, members, messages, pins, reactions, ws
 
 router_v1 = APIRouter()
 
+router_v1.include_router(media.router, prefix="/chats/media/hls", tags=["chat-media"])
 router_v1.include_router(chats.router, prefix="/chats", tags=["chats"])
 router_v1.include_router(members.router, prefix="/chats/{chat_id}/members", tags=["chat-members"])
 router_v1.include_router(invites.router, prefix="/chats/{chat_id}/invites", tags=["chat-invites"])

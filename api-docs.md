@@ -59,6 +59,9 @@
 | 31 | **Пакетная пересылка — один push на пакет.** `POST /chats/{chat_id}/messages/forward_many/` создаёт N сообщений и N `new_message`, но у всех, кроме последнего, в дельте `notify: false` — на них push не уходит. Порядок — порядок сообщений в исходном чате, а не в запросе; удалённые и чужие id молча пропускаются. См. 5.4. |
 | 32 | **«Кто прочитал» — только автору, только в маленьких группах и только 7 дней.** `GET /chats/{chat_id}/messages/{message_id}/reads/` работает для group/supergroup до 100 участников, только для своего сообщения и только пока сообщению меньше 7 дней; иначе `400 READ_RECEIPTS_UNAVAILABLE` с `reason`. Время — момент, когда курсор чтения участника впервые прошёл это сообщение, а не время последнего чтения. См. 5.4.2. |
 | 28 | **Три новых статических пути под `/chats/`**: `/chats/search/`, `/chats/u/{username}/`, `/chats/invites/{code}/` (и `/chats/invites/{code}/join/`). Они объявлены **до** `/chats/{chat_id}/`; без слэша в конце — `404`, а не попадание в чат. Публичное имя чата и username пользователя — **разные пространства имён**: `@name` может одновременно быть и каналом (`/chats/u/name/`), и человеком (`/profiles/u/name/`). |
+| 33 | **Фото на сервере перекодируется, байты оригинала меняются.** После обработки у `image` нет EXIF/XMP/IPTC (GPS, модель камеры), поворот из EXIF вшит в пиксели, `width`/`height` — уже после поворота; `size` — размер сохранённого файла, а не загруженного. HEIC/HEIF сохраняется JPEG'ом: `mime_type` становится `image/jpeg`, расширение в `original_filename` — `.jpg`. GIF хранится как есть. У видео метаданные (геотег QuickTime) вырезаются ремуксом без перекодирования. Сравнивать загруженный файл с сохранённым по размеру или хэшу нельзя. См. 5.5. |
+| 34 | **Ленту рисуют превью, а не оригиналы.** У фото, видео и кружков есть `previews` (WebP по большей стороне 320/800/1280, без апскейла — у маленьких картинок одна ступень своего размера) и `thumbhash` — заглушка до загрузки. Кэшировать превью по их `s3_key` (ссылки живут 300 с). `previews` пуст, если постер видео не удалось снять — плитку рисовать по `thumbhash`/`width`/`height`, а если и их нет, как раньше. См. 5.5. |
+| 35 | **`hls_url` появляется не сразу.** HLS-поток видео собирается в фоне после того, как вложение стало `success` и сообщение уже отправлено: пока `hls_status: "pending"`, `hls_url` — `null`, играть оригинал по `url`. Ссылка на плейлист — путь без завершающего слэша (`.../master.m3u8`) и без `Authorization`: токен в пути, живёт ≥ 2 ч. См. 5.13. |
 
 ---
 
@@ -284,6 +287,7 @@ interface ErrorResponse {
 | `CHAT_AVATAR_VALIDATION` | 400 | `{ "reason": string, "mime_type": string \| null, "file_size": number \| null }` — синхронно только на шаге запроса слота (`mime_type`, `size`, `direct_chat`); проверка содержимого файла асинхронная, см. 5.10 |
 | `USER_BLOCKED` | 403 | `{ "chat_id": string \| null, "user_id": number }` — личка заблокирована: один из собеседников заблокировал другого (`user_id` — собеседник). `chat_id: null` — при попытке создать новый direct. См. 4.13 |
 | `USER_PRIVACY_RESTRICTED` | 403 | `{ "user_ids": number[] }` — эти пользователи заблокировали вызывающего и не могут быть добавлены им в группу/канал. См. 4.13 |
+| `HLS_PLAYLIST_NOT_FOUND` | 404 | `{}` — токен в ссылке на HLS-плейлист подделан или истёк, либо такого плейлиста нет; получить свежий `hls_url` из сообщения или `download-url/`. См. 5.13 |
 
 ⚠️ `ATTACHMENT_MEDIA_VALIDATION` (класс `AttachmentMediaValidationError`) в этой таблице **намеренно не указан** — он никогда не долетает до HTTP-ответа: возникает только внутри фонового воркера `ProccessAttachmentsCommandHandler` (см. 6.5), там же перехватывается и сворачивается в `attachment_status: "error"`. Клиенту как код ошибки API не отдаётся.
 
@@ -872,7 +876,8 @@ interface BlockedListDTO {
 | `/chats/{chat_id}/members` | `routes/v1/members.py` | `chat-members` | ✅ |
 | `/chats/{chat_id}/messages` | `routes/v1/messages.py` | `chat-messages` | ✅ |
 | `/chats/{chat_id}/pinned_messages` | `routes/v1/pins.py` | `chat-pinned-messages` | ✅ |
-| `/chats/{chat_id}` | `routes/v1/attachments.py` | `chat-attachments` | ✅ |
+| `/chats/{chat_id}` | `routes/v1/attachments.py` (в т.ч. `/media/`) | `chat-attachments` | ✅ |
+| `/chats/media/hls/{token}/{name}` | `routes/v1/media.py` (подключён раньше `/chats/{chat_id}`; без слэша в конце) | `chat-media` | ✅ |
 | `/chats/{chat_id}/calls` | `routes/v1/calls.py` | `chat-calls` | ✅ |
 | `/chats` (ws) | `routes/v1/ws.py` | `chats-ws` | ✅ |
 | `/chats/{chat_id}/messages/{message_id}/reactions` | `routes/v1/reactions.py` | `chat-reactions` | ✅ |
@@ -1412,13 +1417,25 @@ Array<{
 { upload_tokens: string[] }   // 1..11 элементов, те же токены из шага 1
 // Response 202 Accepted, пустое тело — обработка асинхронная (fire-and-forget)
 ```
-После `202` бэкенд в фоне валидирует реальное содержимое файла и заполняет `width/height/duration_seconds`, переводя статус `pending → success` (или `error`). Готовность отслеживается через WS-событие `attachment_success` (раздел 7.4) — в его `payload.tokens` попадут завершённые `upload_token`. Отдельного WS-события на ОШИБКУ обработки в протоколе нет — для проверки неудачи ориентируйтесь на `attachment_status: "error"` после отправки сообщения.
+После `202` бэкенд в фоне валидирует реальное содержимое файла, готовит производные и переводит статус `pending → success` (или `error`). Готовность отслеживается через WS-событие `attachment_success` (раздел 7.4) — в его `payload.tokens` попадут завершённые `upload_token`. Отдельного WS-события на ОШИБКУ обработки в протоколе нет — для проверки неудачи ориентируйтесь на `attachment_status: "error"` после отправки сообщения.
 
-Внутри фонового воркера (`ProccessAttachmentsCommandHandler`) причина падения в `error` может быть любой из: несовпадение размера с заявленным, несовпадение реального MIME (magic bytes) с заявленным, инфраструктурная ошибка стораджа, а для `voice`/`video_note` — дополнительно любая из `AttachmentRejectionReason` (`size_limit_exceeded`, `duration_limit_exceeded`, `resolution_limit_exceeded` — только video_note, `frame_rate_limit_exceeded` — только video_note, `metadata_unreadable`, `probe_timeout`, `invalid_media` — напр. voice без аудиодорожки или с видеодорожкой, video_note не с одной видеодорожкой). Конкретная причина **никуда клиенту не передаётся** — только `attachment_status: "error"`, различить причины на фронте нельзя.
+Что делает фоновая обработка (`ProccessAttachmentsCommandHandler` → `AttachmentMediaProcessor`), по типам:
+
+| Тип | Проверка | Что сохраняется | Производные |
+|---|---|---|---|
+| `image` | декодируется целиком (pyvips; HEIC/HEIF — ffmpeg, включая сетку тайлов айфона); не больше 100 Мпикс (`ATTACHMENT_IMAGE_MAX_PIXELS`) | **перекодированный** оригинал без EXIF/XMP/IPTC, поворот из EXIF вшит в пиксели, ICC-профиль сохранён; JPEG q92 прогрессивный, PNG без потерь, WebP (анимация сохраняется). HEIC/HEIF → JPEG. **GIF — байт в байт** | `previews` 320/800/1280 + `thumbhash` |
+| `video` | ffprobe: есть видеодорожка, длительность и размеры читаются | ремукс без метаданных (геотег, title) с `+faststart`, без перекодирования; если ремукс не удался — исходные байты | постер = первый кадр (HDR тонмапится в SDR) → `previews` + `thumbhash`; затем в фоне HLS (5.13) |
+| `video_note` | как раньше (≤ 60 с, ≤ 640 px, ≤ 60 fps) | байты как есть | постер → `previews` + `thumbhash`, без HLS |
+| `voice` | как раньше | байты как есть | — |
+| `file` | — | байты как есть | — |
+
+Если постер видео снять не удалось (редкий кодек), вложение всё равно становится `success` — просто без `previews`/`thumbhash`. Если в воркере нет ffmpeg/ffprobe — `error` (инфраструктурная ошибка, как и раньше).
+
+Причина падения в `error` может быть любой из: несовпадение размера с заявленным, несовпадение реального MIME (magic bytes) с заявленным, инфраструктурная ошибка стораджа, нераскодируемая картинка или картинка больше лимита пикселей, а для `voice`/`video_note`/`video` — дополнительно любая из `AttachmentRejectionReason` (`size_limit_exceeded`, `duration_limit_exceeded`, `resolution_limit_exceeded`, `frame_rate_limit_exceeded` — только video_note, `metadata_unreadable`, `probe_timeout`, `invalid_media`). Конкретная причина **никуда клиенту не передаётся** — только `attachment_status: "error"`, различить причины на фронте нельзя.
 
 **Шаг 4 — отправить сообщение**, передав `upload_tokens` из шагов 1/3 в `POST /chats/{chat_id}/messages/` (раздел 5.4) с корректным `message_type`.
 
-**Скачивание:** `GET /chats/{chat_id}/messages/{message_id}/attachments/{attachment_id}/download-url/` → `AttachmentDownloadUrlDTO { attachment_id: string; url: string; expires_in: number }` (ссылка живёт 300 секунд, генерировать заново при истечении).
+**Скачивание:** `GET /chats/{chat_id}/messages/{message_id}/attachments/{attachment_id}/download-url/` → `AttachmentDownloadUrlDTO { attachment_id: string; url: string; expires_in: number; hls_url: string | null }` (ссылка живёт 300 секунд, генерировать заново при истечении; `hls_url` — см. 5.13).
 
 ```ts
 interface AttachmentDTO {
@@ -1427,12 +1444,28 @@ interface AttachmentDTO {
   attachment_status: "pending" | "success" | "error";
   url: string | null; url_expires_in: number | null;
   s3_key: string; mime_type: string; original_filename: string; size: number;
-  width: number | null; height: number | null; duration_seconds: number | null;
+  width: number | null; height: number | null;   // для фото/видео — после поворота
+  duration_seconds: number | null;
+  thumbhash: string | null;                       // base64 (с паддингом), ThumbHash: заглушка + пропорции
+  previews: AttachmentPreviewDTO[];               // [] у file/voice и пока не обработано
+  hls_status: "pending" | "ready" | "failed" | null;  // только у video; null — не video или исходник больше лимитов 5.13
+  hls_url: string | null;                         // только при hls_status = "ready", см. 5.13
   created_at: string;
+}
+
+interface AttachmentPreviewDTO {
+  size: 320 | 800 | 1280;   // ступень (большая сторона ≤ size); у маленьких картинок одна ступень своего размера
+  width: number; height: number;
+  mime_type: string;        // "image/webp"
+  file_size: number;
+  s3_key: string;           // стабильный ключ — по нему кэшировать
+  url: string | null; url_expires_in: number | null;
 }
 ```
 
-⚠️ `url` живёт 300 секунд — кэшировать нужно скачанный файл (ключ — `s3_key`), а не сам URL.
+⚠️ `url` живёт 300 секунд — кэшировать нужно скачанный файл (ключ — `s3_key`), а не сам URL. То же для превью: ключ кэша — `previews[i].s3_key`.
+
+**Как рисовать ленту.** Сразу — `thumbhash` (декодер есть в пакете `thumbhash` для Dart) в рамке `width`×`height`; затем — наименьшая ступень `previews`, которая не меньше ширины плитки × devicePixelRatio (для плитки 420 логических px на 3x — 1280); оригинал по `url` — только в полноэкранном просмотре. Ссылки на вложения в `reply_to` и `forwarded_from` теперь тоже подписываются — цитату можно рисовать превью.
 
 Ошибки: `400 ATTACHMENT_VALIDATION/INVALID_UPLOAD_TOKEN/ATTACHMENT_LIMIT_EXCEEDED/EMPTY_ATTACHMENT_UPLOAD_REQUEST`, `403 CHAT_ACCESS_DENIED/NOT_CHAT_MEMBER`, `404 NOT_FOUND_CHAT/ATTACHMENT_NOT_FOUND`.
 
@@ -1753,6 +1786,64 @@ interface PinnedMessagesDTO {
   (см. 6.4). Набор закреплённых на клиенте меняется **только** этими двумя событиями.
 - В `MessageDTO` признака «закреплено» нет — клиенту хватает списка: он ограничен сотней,
   держите его целиком и обновляйте по событиям.
+
+### 5.12 Общие медиа чата — `GET /chats/{chat_id}/media/` 🔒
+
+Вкладки «Медиа / Файлы / Голосовые / Ссылки» профиля чата — с сервера, на всю историю, а не из загруженного окна сообщений.
+
+```ts
+// Query
+{
+  type: "photo" | "video" | "media" | "file" | "voice" | "link";  // обязательно
+  limit?: number;    // 1..100, по умолчанию 30
+  cursor?: string;   // next_cursor предыдущей страницы, как есть
+}
+// Response 200 — SharedMediaDTO
+{
+  items: Array<{
+    message_id: string;
+    message_seq: number;
+    author_id: number | null;
+    content: string | null;        // подпись к медиа / текст сообщения со ссылкой
+    created_at: string;            // время сообщения
+    attachment: AttachmentDTO | null;  // null только у type = "link"; ссылки, previews, thumbhash, hls_url — как в 5.5
+  }>;
+  has_next: boolean;
+  next_cursor: string | null;
+}
+```
+
+| `type` | Что в выдаче |
+|---|---|
+| `photo` | вложения `image` |
+| `video` | вложения `video` |
+| `media` | `image` + `video` вперемешку (сетка «Медиа» как в Telegram) |
+| `file` | вложения `file` |
+| `voice` | `voice` **и** `video_note` (как вкладка «Голосовые» в Telegram) |
+| `link` | сообщения, в тексте которых есть `http(s)://…` или `www.…` (та же регулярка, что у линкифаера клиента); сами ссылки клиент достаёт из `content` |
+
+- Порядок — от новых к старым: по `message_seq`, внутри альбома — по `attachment.id` убыв. Один элемент = одно вложение: альбом из 10 фото — 10 элементов с одним `message_id`.
+- Курсор непрозрачный (`"{seq}:{attachment_id}"` у вложений, `"{seq}"` у ссылок), передавать как есть; кривой курсор — `422`.
+- Удалённые сообщения и вложения не в статусе `success` не попадают. Права — как у ленты: участник без бана, иначе `403 NOT_CHAT_MEMBER`.
+- Под капотом: `message_attachments.message_seq` (проставляется при отправке/пересылке) + индекс `ix_msg_attachments_shared_media (chat_id, attachment_type, message_seq, id)`; для `link` — флаг `messages.has_links` и partial-индекс `ix_messages_chat_links`. Страница — обратный проход по индексу и `limit` строк, независимо от размера чата.
+
+### 5.13 Видеопоток (HLS)
+
+После того как видео стало `success`, воркер в фоне перекодирует его в H.264 High / AAC и собирает HLS (fMP4, сегменты по 4 с, независимые). Рендиции — по короткой стороне без апскейла: 360p (800 кбит/с), 720p (2.5 Мбит/с), 1080p (5 Мбит/с); вертикальное видео — так же, по ширине. HDR (HLG/PQ с айфона) тонмапится в SDR BT.709. Видео больше 4096 px по длинной стороне или длиннее 3 ч в HLS не перекодируются (`hls_status: null`) — играть оригинал.
+
+Жизненный цикл `hls_status`: `pending` → `ready` | `failed`. Пока `pending` — играть оригинал по `url` (после ремукса у MP4/MOV `moov` в начале, перемотка по Range работает). Нового WS-события о готовности нет: `hls_url` появляется в любом следующем чтении сообщения (лента, `download-url/`, общие медиа). Пересланные копии получают поток вместе с оригиналом.
+
+**Ссылка.** `hls_url` = `{HLS_PUBLIC_BASE_URL}/api/v1/chats/media/hls/{token}/master.m3u8`. Если `HLS_PUBLIC_BASE_URL` на сервере не задан — это **путь** от origin API (дополнить базовым URL клиента). Запрос по ней — **без** `Authorization`: доступ даёт токен в пути (HMAC, живёт не меньше `HLS_URL_TTL` = 2 ч и одинаков в пределах часа, так что кэш плеера не сбрасывается). Подставлять заголовок нельзя ещё и потому, что плеер понесёт его на presigned-ссылки сегментов, а S3 отвергает запрос с двумя способами авторизации.
+
+```
+GET /api/v1/chats/media/hls/{token}/master.m3u8   → application/vnd.apple.mpegurl
+GET /api/v1/chats/media/hls/{token}/v0.m3u8       → плейлист рендиции
+```
+
+- Мастер ссылается на рендиции относительными путями (`v0.m3u8`), они резолвятся в тот же `{token}`. Путь **без слэша на конце** — исключение из правила 1.1, иначе относительные ссылки не сработают.
+- В плейлисте рендиции один медиафайл на всю рендицию (`EXT-X-MAP` + `EXT-X-BYTERANGE`), он подписан presigned-ссылкой на `HLS_SEGMENT_URL_TTL` = 3 ч; плеер качает только нужные байтовые диапазоны — перемотка без скачивания файла целиком.
+- `Cache-Control: private, max-age=300`. Истёкший или подделанный токен, неизвестное имя плейлиста — `404 HLS_PLAYLIST_NOT_FOUND`.
+- Flutter: `VideoPlayerController.networkUrl(Uri.parse(hlsUrl))` без `httpHeaders`; `formatHint: VideoFormat.hls` можно указать явно.
 
 ## 6. Чаты — WebSocket
 

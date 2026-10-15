@@ -70,11 +70,13 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
+    # HLS-транскод 1080p в три рендиции: ffmpeg один держит ~460 MB пика и
+    # VIDEO_TRANSCODE_THREADS=2 потока; с 512M воркер падал бы по OOM вместе со всеми задачами.
     deploy:
       resources:
         limits:
-          cpus: "1"
-          memory: 512M
+          cpus: "2"
+          memory: 1536M
 
   scheduler:
     <<: *app-base

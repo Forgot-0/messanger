@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from app.chats.config import chat_config
 from app.chats.exceptions import AttachmentMediaValidationError, AttachmentRejectionReason
 from app.chats.models.attachment import AttachmentType, MessageAttachment
-from app.core.services.media.dtos import MediaInfo
+from app.core.services.media.dtos import MediaInfo, StreamInfo
 from app.core.services.media.exceptions import (
     InvalidMediaError,
     MediaMetadataUnreadableError,
@@ -30,6 +30,7 @@ PROBE_REASON_MAP: dict[type[MediaProbeError], AttachmentRejectionReason] = {
 SIZE_LIMITS: dict[AttachmentType, int] = {
     AttachmentType.VOICE: chat_config.MAX_VOICE_SIZE,
     AttachmentType.VIDEO_NOTE: chat_config.MAX_VIDEO_NOTE_SIZE,
+    AttachmentType.VIDEO: chat_config.MAX_MEDIA_SIZE,
 }
 
 DURATION_LIMITS: dict[AttachmentType, int] = {
@@ -48,8 +49,15 @@ class AttachmentMediaValidator:
         return attachment_type in SIZE_LIMITS
 
     async def validate_and_apply(self, attachment: MessageAttachment, stat: ObjectStat) -> MediaInfo:
-        attachment_type = attachment.attachment_type
-        max_bytes = SIZE_LIMITS[attachment_type]
+        max_bytes = self.check_size(attachment, stat)
+
+        with TemporaryDirectory(prefix=f"attachment-{attachment.id}-") as tmp_dir:
+            local_path = Path(tmp_dir) / "media"
+            await self.download(attachment, stat, local_path, max_bytes)
+            return await self.inspect(attachment, local_path)
+
+    def check_size(self, attachment: MessageAttachment, stat: ObjectStat) -> int:
+        max_bytes = SIZE_LIMITS[attachment.attachment_type]
 
         if stat.size <= 0:
             raise AttachmentMediaValidationError(
@@ -68,55 +76,61 @@ class AttachmentMediaValidator:
                 detected={"size": stat.size},
             )
 
-        media_info = await self._probe(attachment, stat, max_bytes)
+        return max_bytes
 
-        if attachment_type == AttachmentType.VOICE:
-            self._validate_voice(attachment, media_info)
-        else:
-            self._validate_video_note(attachment, media_info)
+    async def download(
+        self, attachment: MessageAttachment, stat: ObjectStat, destination: Path, max_bytes: int
+    ) -> None:
+        try:
+            await self.storage_service.download_to_path(
+                bucket_name=chat_config.ATTACHMENT_BUCKET_PENDING,
+                file_key=attachment.s3_key,
+                destination=destination,
+                max_bytes=max_bytes,
+                stat=stat,
+            )
+        except ObjectTooLargeError as exc:
+            raise AttachmentMediaValidationError(
+                reason=AttachmentRejectionReason.SIZE_LIMIT_EXCEEDED,
+                attachment_id=str(attachment.id),
+                attachment_type=attachment.attachment_type.value,
+                limit=max_bytes,
+            ) from exc
 
-        limit = DURATION_LIMITS[attachment.attachment_type]
-        duration_seconds = min(limit, max(1, round(media_info.duration)))
+    async def inspect(self, attachment: MessageAttachment, path: Path) -> MediaInfo:
+        try:
+            media_info = await self.media_probe_service.probe(path)
+        except MediaProbeError as exc:
+            if not exc.permanent:
+                raise
 
-        attachment.set_duration(duration_seconds)
+            raise AttachmentMediaValidationError(
+                reason=PROBE_REASON_MAP.get(type(exc), AttachmentRejectionReason.INVALID_MEDIA),
+                attachment_id=str(attachment.id),
+                attachment_type=attachment.attachment_type.value,
+            ) from exc
 
-        if attachment.attachment_type == AttachmentType.VIDEO_NOTE:
-            stream = media_info.video_streams[0]
-            attachment.set_resolution(int(stream.width or 0), int(stream.height or 0))
+        match attachment.attachment_type:
+            case AttachmentType.VOICE:
+                self._validate_voice(attachment, media_info)
+            case AttachmentType.VIDEO_NOTE:
+                self._validate_video_note(attachment, media_info)
+            case _:
+                self._validate_video(attachment, media_info)
+
+        limit = DURATION_LIMITS.get(attachment.attachment_type)
+        duration_seconds = max(1, round(media_info.duration))
+        attachment.set_duration(min(limit, duration_seconds) if limit else duration_seconds)
+
+        if media_info.video_streams:
+            width, height = self.display_size(media_info.video_streams[0])
+            attachment.set_resolution(width, height)
 
         return media_info
 
-    async def _probe(self, attachment: MessageAttachment, stat: ObjectStat, max_bytes: int) -> MediaInfo:
-        with TemporaryDirectory(prefix=f"attachment-{attachment.id}-") as tmp_dir:
-            local_path = Path(tmp_dir) / "media"
-
-            try:
-                await self.storage_service.download_to_path(
-                    bucket_name=chat_config.ATTACHMENT_BUCKET_PENDING,
-                    file_key=attachment.s3_key,
-                    destination=local_path,
-                    max_bytes=max_bytes,
-                    stat=stat,
-                )
-            except ObjectTooLargeError:
-                raise AttachmentMediaValidationError(
-                    reason=AttachmentRejectionReason.SIZE_LIMIT_EXCEEDED,
-                    attachment_id=str(attachment.id),
-                    attachment_type=attachment.attachment_type.value,
-                    limit=max_bytes,
-                )
-
-            try:
-                return await self.media_probe_service.probe(local_path)
-            except MediaProbeError as exc:
-                if not exc.permanent:
-                    raise
-
-                raise AttachmentMediaValidationError(
-                    reason=PROBE_REASON_MAP.get(type(exc), AttachmentRejectionReason.INVALID_MEDIA),
-                    attachment_id=str(attachment.id),
-                    attachment_type=attachment.attachment_type.value,
-                )
+    @staticmethod
+    def display_size(stream: StreamInfo) -> tuple[int, int]:
+        return stream.display_size or (int(stream.width or 0), int(stream.height or 0))
 
     def _validate_voice(self, attachment: MessageAttachment, media_info: MediaInfo) -> None:
         if not media_info.audio_streams or media_info.video_streams:
@@ -132,6 +146,18 @@ class AttachmentMediaValidator:
 
         self._validate_duration(attachment, media_info)
 
+    def _validate_video(self, attachment: MessageAttachment, media_info: MediaInfo) -> None:
+        if not media_info.video_streams:
+            raise AttachmentMediaValidationError(
+                reason=AttachmentRejectionReason.INVALID_MEDIA,
+                attachment_id=str(attachment.id),
+                attachment_type=attachment.attachment_type.value,
+                detected={"video_streams": 0},
+            )
+
+        self._validate_duration(attachment, media_info)
+        self._validate_dimensions(attachment, media_info.video_streams[0])
+
     def _validate_video_note(self, attachment: MessageAttachment, media_info: MediaInfo) -> None:
         video_streams = media_info.video_streams
 
@@ -146,15 +172,7 @@ class AttachmentMediaValidator:
         self._validate_duration(attachment, media_info)
 
         stream = video_streams[0]
-        width, height = stream.width, stream.height
-
-        if width is None or height is None or width <= 0 or height <= 0:
-            raise AttachmentMediaValidationError(
-                reason=AttachmentRejectionReason.METADATA_UNREADABLE,
-                attachment_id=str(attachment.id),
-                attachment_type=attachment.attachment_type.value,
-                detected={"width": width, "height": height},
-            )
+        width, height = self._validate_dimensions(attachment, stream)
 
         if max(width, height) > chat_config.MAX_VIDEO_NOTE_RESOLUTION_PX:
             raise AttachmentMediaValidationError(
@@ -174,9 +192,20 @@ class AttachmentMediaValidator:
                 detected={"frame_rate": round(stream.frame_rate, 3)},
             )
 
+    def _validate_dimensions(self, attachment: MessageAttachment, stream: StreamInfo) -> tuple[int, int]:
+        width, height = stream.width, stream.height
+        if width is None or height is None or width <= 0 or height <= 0:
+            raise AttachmentMediaValidationError(
+                reason=AttachmentRejectionReason.METADATA_UNREADABLE,
+                attachment_id=str(attachment.id),
+                attachment_type=attachment.attachment_type.value,
+                detected={"width": width, "height": height},
+            )
+        return width, height
+
     def _validate_duration(self, attachment: MessageAttachment, media_info: MediaInfo) -> None:
         duration = media_info.duration
-        limit = DURATION_LIMITS[attachment.attachment_type]
+        limit = DURATION_LIMITS.get(attachment.attachment_type)
 
         if not math.isfinite(duration) or duration <= 0:
             raise AttachmentMediaValidationError(
@@ -186,7 +215,7 @@ class AttachmentMediaValidator:
                 detected={"duration": duration},
             )
 
-        if duration > limit:
+        if limit is not None and duration > limit:
             raise AttachmentMediaValidationError(
                 reason=AttachmentRejectionReason.DURATION_LIMIT_EXCEEDED,
                 attachment_id=str(attachment.id),

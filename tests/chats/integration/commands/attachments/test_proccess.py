@@ -13,7 +13,10 @@ from app.chats.config import chat_config
 from app.chats.models.attachment import AttachmentStatus, AttachmentType, MessageAttachment
 from app.chats.models.chat import Chat
 from app.chats.repositories.attachment import AttachmentRepository
+from app.chats.services.attachment_images import AttachmentImageRenderer
 from app.chats.services.attachment_media import AttachmentMediaValidator
+from app.chats.services.attachment_processor import AttachmentMediaProcessor
+from app.core.services.queues.service import QueueService
 from app.core.services.storage.aioboto.client import S3Client
 from app.core.services.storage.exceptions import ObjectNotFoundError, StorageError
 from app.core.services.storage.service import StorageService
@@ -21,8 +24,9 @@ from app.core.websocket.dtos import DeliveryDTO
 from app.core.websocket.manager import ConnectionManager
 from app.core.websocket.presence import PresenceService
 from tests.chats.integration.conftest import GATEWAY_ID
+from tests.support.media import FakeMediaTranscoder, make_jpeg
 
-JPEG_HEADER = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+JPEG_HEADER = make_jpeg(64, 48)
 PDF_HEADER = b"%PDF-1.4\n"
 TEXT_BYTES = b"totally not a jpeg\n" * 4
 
@@ -73,7 +77,13 @@ class TestProccessAttachments:
                 gateway_id=GATEWAY_ID,
             ),
             session=db_session,
-            media_validator=validator,
+            media_processor=AttachmentMediaProcessor(
+                storage_service=storage,
+                media_validator=validator,
+                image_renderer=AttachmentImageRenderer(),
+                media_transcoder=FakeMediaTranscoder(),
+            ),
+            queue_service=await request_container.get(QueueService),
         )
 
     async def _slot(
@@ -85,6 +95,7 @@ class TestProccessAttachments:
         *,
         uploader_id: int = 1,
         mime_type: str = "image/jpeg",
+        attachment_type: AttachmentType = AttachmentType.IMAGE,
         declared_size: int | None = None,
         real_bytes: bytes = JPEG_HEADER,
         upload: bool = True,
@@ -92,7 +103,7 @@ class TestProccessAttachments:
         attachment = MessageAttachment.create(
             chat_id=chat.id,
             uploader_id=uploader_id,
-            attachment_type=AttachmentType.IMAGE,
+            attachment_type=attachment_type,
             s3_key=f"chats/{chat.id}/{uuid4()}/photo.jpg",
             mime_type=mime_type,
             original_filename="photo.jpg",
@@ -150,7 +161,7 @@ class TestProccessAttachments:
             storage, chat_config.ATTACHMENT_BUCKET_PENDING, slot.s3_key
         )
 
-    async def test_promoted_object_keeps_its_bytes(
+    async def test_promoted_file_keeps_its_bytes(
         self,
         handler: ProccessAttachmentsCommandHandler,
         attachment_repository: AttachmentRepository,
@@ -159,7 +170,11 @@ class TestProccessAttachments:
         s3_test_client: S3Client,
         group_chat: Chat,
     ) -> None:
-        slot = await self._slot(attachment_repository, db_session, s3_test_client, group_chat)
+        document = PDF_HEADER + b"1 0 obj\n<<>>\nendobj\n" * 8
+        slot = await self._slot(
+            attachment_repository, db_session, s3_test_client, group_chat,
+            mime_type="application/pdf", attachment_type=AttachmentType.FILE, real_bytes=document,
+        )
 
         await self._run(handler, group_chat, [slot.id])
 
@@ -167,9 +182,9 @@ class TestProccessAttachments:
             bucket_name=chat_config.ATTACHMENT_BUCKET,
             file_key=slot.s3_key,
             offset=0,
-            length=len(JPEG_HEADER),
+            length=len(document),
         )
-        assert moved == JPEG_HEADER
+        assert moved == document
 
     @pytest.mark.parametrize(
         "real_bytes,label", [(PDF_HEADER, "pdf"), (TEXT_BYTES, "текст")]

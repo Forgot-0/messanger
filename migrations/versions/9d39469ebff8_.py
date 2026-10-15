@@ -378,7 +378,6 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_message_attachments_message_id'), 'message_attachments', ['message_id'], unique=False)
     op.create_index('ix_msg_attachments_chat_uploader', 'message_attachments', ['chat_id', 'uploader_id'], unique=False)
-    op.create_index('ix_msg_attachments_message_id', 'message_attachments', ['message_id'], unique=False)
     op.create_table('message_reaction_counters',
     sa.Column('message_id', sa.UUID(), autoincrement=False, nullable=False),
     sa.Column('emoji', sa.String(length=32), nullable=False),
@@ -413,7 +412,6 @@ def downgrade() -> None:
     op.drop_table('message_reactions')
     op.drop_index('ix_message_reaction_counters_chat_message', table_name='message_reaction_counters')
     op.drop_table('message_reaction_counters')
-    op.drop_index('ix_msg_attachments_message_id', table_name='message_attachments')
     op.drop_index('ix_msg_attachments_chat_uploader', table_name='message_attachments')
     op.drop_index(op.f('ix_message_attachments_message_id'), table_name='message_attachments')
     op.drop_table('message_attachments')

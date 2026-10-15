@@ -9,6 +9,9 @@ class MediaProbeFailureReason(StrEnum):
     PROBE_UNAVAILABLE = "probe_unavailable"
 
 
+HDR_TRANSFERS = frozenset({"smpte2084", "arib-std-b67"})
+
+
 @dataclass(frozen=True)
 class StreamInfo:
     index: int
@@ -19,6 +22,20 @@ class StreamInfo:
     duration: float | None = None
     frame_rate: float | None = None
     is_attached_pic: bool = False
+    rotation: int = 0
+    color_transfer: str | None = None
+
+    @property
+    def display_size(self) -> tuple[int, int] | None:
+        if not self.width or not self.height:
+            return None
+        if self.rotation % 180:
+            return self.height, self.width
+        return self.width, self.height
+
+    @property
+    def is_hdr(self) -> bool:
+        return self.color_transfer in HDR_TRANSFERS
 
 
 @dataclass(frozen=True)
@@ -38,3 +55,27 @@ class MediaInfo:
     @property
     def audio_streams(self) -> tuple[StreamInfo, ...]:
         return tuple(stream for stream in self.streams if stream.codec_type == "audio")
+
+
+@dataclass(frozen=True)
+class HlsRendition:
+    name: str
+    width: int
+    height: int
+    video_kbps: int
+    audio_kbps: int
+
+    @property
+    def bandwidth(self) -> int:
+        return (self.video_kbps + self.audio_kbps) * 1000
+
+
+@dataclass(frozen=True)
+class HlsJob:
+    renditions: tuple[HlsRendition, ...]
+    has_audio: bool
+    hdr: bool
+    segment_seconds: int
+    crf: int
+    preset: str
+    max_fps: int

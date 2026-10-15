@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -30,6 +31,13 @@ from app.core.events.event import BaseEvent
 
 if TYPE_CHECKING:
     from app.chats.models.chat import Chat
+
+
+LINK_PATTERN = re.compile(r"(?:https?://|www\.)[^\s<>\"']", re.IGNORECASE)
+
+
+def contains_link(content: str | None) -> bool:
+    return content is not None and LINK_PATTERN.search(content) is not None
 
 
 class MessageType(StrEnum):
@@ -178,6 +186,9 @@ class Message(BaseModel, DateMixin):
 
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_edited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    has_links: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
 
     chat: Mapped[Chat] = relationship(back_populates="messages", foreign_keys=[chat_id], lazy="noload")
     reply_to: Mapped[Message | None] = relationship(
@@ -203,6 +214,11 @@ class Message(BaseModel, DateMixin):
             "idx_messages_content_tsvector",
             text("to_tsvector('simple', content)"),
             postgresql_using="gin",
+        ),
+        Index(
+            "ix_messages_chat_links",
+            "chat_id", "seq",
+            postgresql_where=text("has_links AND is_deleted = false"),
         ),
     )
 
@@ -237,11 +253,14 @@ class Message(BaseModel, DateMixin):
             forwarded_from_message_id=forwarded_from_message_id,
             forwarded_from_author_id=forwarded_from_author_id,
             action=action,
+            has_links=contains_link(content),
         )
 
         instance.validate_content()
 
         if attachments is not None:
+            for attachment in attachments:
+                attachment.bind_to_message(seq)
             instance.attachments.extend(attachments)
 
         if attachments is not None or message_type in (
@@ -346,6 +365,7 @@ class Message(BaseModel, DateMixin):
     def update_content(self, new_content: str, modified_by: int) -> None:
         self.content = new_content
         self.is_edited = True
+        self.has_links = contains_link(new_content)
         self.validate_content()
         self.register_event(
             ModifiedMessageEvent(

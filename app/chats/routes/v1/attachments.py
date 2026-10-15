@@ -1,16 +1,22 @@
+from typing import Annotated
 from uuid import UUID
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 
 from app.chats.commands.attachments.request_upload import (
     RequestAttachmentUploadCommand,
     UploadRequest,
 )
 from app.chats.commands.attachments.success import SuccessUploadAttachmentsCommand
-from app.chats.dtos.attachments import AttachmentDownloadUrlDTO, UploadSlotDTO
+from app.chats.dtos.attachments import AttachmentDownloadUrlDTO, SharedMediaDTO, UploadSlotDTO
+from app.chats.queries.attachments.get_shared_media import GetSharedMediaQuery
 from app.chats.queries.attachments.get_url import GetAttachmentDownloadUrlQuery
-from app.chats.schemas.rest import ConfirmAttachmentUploadRequest, RequestAttachmentUploadRequest
+from app.chats.schemas.rest import (
+    ConfirmAttachmentUploadRequest,
+    GetSharedMediaRequest,
+    RequestAttachmentUploadRequest,
+)
 from app.core.mediators.base import BaseMediator
 from app.core.services.auth.depends import CurrentUserJWTData
 
@@ -80,5 +86,26 @@ async def get_attachment_download_url(
             chat_id=chat_id,
             message_id=message_id,
             attachment_id=attachment_id,
+        )
+    )
+
+
+@router.get(
+    "/media/",
+    status_code=status.HTTP_200_OK,
+)
+async def list_shared_media(
+    chat_id: UUID,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+    get_request: Annotated[GetSharedMediaRequest, Query()],
+) -> SharedMediaDTO:
+    return await mediator.handle_query(
+        GetSharedMediaQuery(
+            user_jwt_data=user_jwt_data,
+            chat_id=chat_id,
+            media_type=get_request.type,
+            limit=get_request.limit,
+            cursor=get_request.cursor,
         )
     )

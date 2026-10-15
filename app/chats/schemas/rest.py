@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.chats.config import chat_config
+from app.chats.dtos.attachments import SharedMediaType
 from app.chats.models.attachment import AttachmentType
 from app.chats.models.chat import ChatReactionsMode, ChatType
 from app.chats.models.chat_roles import ChatRoleId
@@ -190,6 +191,19 @@ class RequestAttachmentUploadRequest(BaseModel):
     uploads: list[UploadRequestItem] = Field(
         min_length=1,
         max_length=chat_config.MAX_MEDIA_PER_MESSAGE + chat_config.MAX_FILES_PER_MESSAGE
+    )
+
+
+class GetSharedMediaRequest(BaseModel):
+    type: SharedMediaType
+    limit: int = Field(
+        default=chat_config.SHARED_MEDIA_PAGE_SIZE,
+        ge=1,
+        le=chat_config.SHARED_MEDIA_MAX_PAGE_SIZE,
+    )
+    cursor: str | None = Field(
+        default=None,
+        pattern=r"^\d{1,18}(:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?$",
     )
 
 

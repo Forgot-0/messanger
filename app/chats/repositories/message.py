@@ -186,3 +186,28 @@ class MessageRepository(IRepository[Message]):
 
         result = await self.session.execute(stmt)
         return list(result.tuples())
+
+    async def get_link_messages_page(
+        self,
+        chat_id: UUID,
+        limit: int,
+        before_seq: int | None = None,
+    ) -> list[Message]:
+        # Ровно в форме предиката ix_messages_chat_links: `IS TRUE`/`IS FALSE` планировщик
+        # не сводит к `has_links AND is_deleted = false` и уходит в seq scan.
+        conditions = [
+            Message.chat_id == chat_id,
+            Message.has_links,
+            ~Message.is_deleted,
+        ]
+        if before_seq is not None:
+            conditions.append(Message.seq < before_seq)
+
+        stmt = (
+            select(Message)
+            .where(*conditions)
+            .order_by(Message.seq.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

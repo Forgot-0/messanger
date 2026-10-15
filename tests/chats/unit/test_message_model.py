@@ -169,3 +169,42 @@ class TestMessageModel:
                 content="pending",
                 attachments=[pending],
             )
+
+
+@pytest.mark.unit
+@pytest.mark.chats
+class TestMessageLinks:
+
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            ("see https://example.com/a?b=1", True),
+            ("HTTP://EXAMPLE.COM", True),
+            ("go to www.example.org", True),
+            ("just www. and http:// with nothing after", False),
+            ("mail me: user@example.com", False),
+            ("plain text", False),
+            (None, False),
+        ],
+    )
+    def test_link_flag_follows_the_client_linkifier(self, content: str | None, expected: bool) -> None:
+        assert create_message(content).has_links is expected
+
+    def test_editing_recomputes_the_link_flag(self) -> None:
+        message = create_message("https://example.com")
+
+        message.update_content("no link anymore", modified_by=1)
+        assert message.has_links is False
+
+        message.update_content("now www.example.com", modified_by=1)
+        assert message.has_links is True
+
+    def test_attachments_remember_the_message_seq(self) -> None:
+        album = [create_attachment(), create_attachment()]
+
+        Message.create(
+            sender_id=1, chat_id=uuid4(), seq=42, content=None,
+            message_type=MessageType.IMAGE, attachments=album,
+        )
+
+        assert [attachment.message_seq for attachment in album] == [42, 42]

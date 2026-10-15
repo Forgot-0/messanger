@@ -171,7 +171,38 @@ def _parse_stream(index: int, raw: Any) -> StreamInfo:
         duration=_parse_number(raw.get("duration"), field_name="stream.duration"),
         frame_rate=_parse_frame_rate(raw.get("avg_frame_rate")) or _parse_frame_rate(raw.get("r_frame_rate")),
         is_attached_pic=attached_pic,
+        rotation=_parse_rotation(raw),
+        color_transfer=_parse_label(raw.get("color_transfer")),
     )
+
+
+def _parse_rotation(raw_stream: dict[str, Any]) -> int:
+    candidates: list[Any] = []
+
+    side_data = raw_stream.get("side_data_list")
+    if isinstance(side_data, list):
+        candidates.extend(item.get("rotation") for item in side_data if isinstance(item, dict))
+
+    tags = raw_stream.get("tags")
+    if isinstance(tags, dict):
+        candidates.append(tags.get("rotate"))
+
+    for candidate in candidates:
+        if isinstance(candidate, bool) or not isinstance(candidate, (int, float, str)):
+            continue
+        try:
+            value = float(candidate)
+        except ValueError:
+            continue
+        if math.isfinite(value):
+            return round(value / 90) * 90 % 360
+    return 0
+
+
+def _parse_label(raw: Any) -> str | None:
+    if _is_absent(raw) or not isinstance(raw, str):
+        return None
+    return raw.strip().lower()
 
 
 def _is_absent(raw: Any) -> bool:
