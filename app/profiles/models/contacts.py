@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import IntEnum
-from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -10,12 +9,9 @@ from sqlalchemy import (
     Enum,
     Index,
     LargeBinary,
-    SmallInteger,
     String,
-    TypeDecorator,
     and_,
 )
-from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 from sqlalchemy.sql import func
 

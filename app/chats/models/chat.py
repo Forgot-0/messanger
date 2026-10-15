@@ -233,6 +233,9 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
         if chat_type == ChatType.DIRECT and (len(members_ids) != 1 or created_by == members_ids[0]):
             raise MemberLimitExceededError(limit=2)
 
+        if len(members_ids) > 200_000:
+            raise MemberLimitExceededError(limit=200_000)
+
         participant_count = len(members_ids) + 1
         limit = cls.member_limit(chat_type)
         if participant_count > limit:
