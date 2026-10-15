@@ -162,12 +162,17 @@ class ChatRepository(IRepository[Chat], CacheRepository):
         result = await self.session.execute(stmt)
         return result.scalar()
 
-    async def allocate_message_seq(self, chat_id: UUID, message_date: datetime) -> int | None:
+    async def allocate_message_seq(
+        self,
+        chat_id: UUID,
+        message_date: datetime,
+        count: int = 1,
+    ) -> int | None:
         stmt = (
             update(Chat)
             .where(Chat.id == chat_id, Chat.deleted_at.is_(None))
             .values(
-                seq_counter=Chat.seq_counter + 1,
+                seq_counter=Chat.seq_counter + count,
                 last_activity_at=message_date,
             )
             .returning(Chat.seq_counter)

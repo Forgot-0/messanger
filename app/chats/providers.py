@@ -45,9 +45,12 @@ from app.chats.commands.invites.join import JoinChatByInviteCommand, JoinChatByI
 from app.chats.commands.invites.revoke import RevokeInviteLinkCommand, RevokeInviteLinkCommandHandler
 from app.chats.commands.messages.delete import DeleteMessageCommand, DeleteMessageCommandHandler
 from app.chats.commands.messages.forward import ForwardMessageCommand, ForwardMessageCommandHandler
+from app.chats.commands.messages.forward_many import ForwardMessagesCommand, ForwardMessagesCommandHandler
 from app.chats.commands.messages.mark_read import MarkAsReadCommand, MarkAsReadCommandHandler
 from app.chats.commands.messages.modify import EditMessageCommand, EditMessageCommandHandler
 from app.chats.commands.messages.send import SendMessageCommand, SendMessageCommandHandler
+from app.chats.commands.pins.pin import PinMessageCommand, PinMessageCommandHandler
+from app.chats.commands.pins.unpin import UnpinMessagesCommand, UnpinMessagesCommandHandler
 from app.chats.commands.profiles.upsert import UpsertProfileProjectionCommand, UpsertProfileProjectionCommandHandler
 from app.chats.commands.reactions.remove import RemoveReactionCommand, RemoveReactionCommandHandler
 from app.chats.commands.reactions.set import SetReactionCommand, SetReactionCommandHandler
@@ -56,6 +59,7 @@ from app.chats.commands.websockets.ping import PingCommand, PingCommandHandler
 from app.chats.commands.websockets.pong import PongCommand, PongCommandHandler
 from app.chats.commands.websockets.resume import ResumeCommand, ResumeCommandHandler
 from app.chats.commands.websockets.subscribe import SubscribeCommand, SubscribeCommandHandler
+from app.chats.commands.websockets.typing import TypingCommand, TypingCommandHandler
 from app.chats.commands.websockets.unsubscribe import UnsubscribeCommand, UnsubscribeCommandHandler
 from app.chats.config import chat_config
 from app.chats.queries.attachments.get_url import GetAttachmentDownloadUrlQuery, GetAttachmentDownloadUrlQueryHandler
@@ -69,7 +73,9 @@ from app.chats.queries.invites.preview import GetInvitePreviewQuery, GetInvitePr
 from app.chats.queries.messages.get_context import GetMessageContextQuery, GetMessageContextQueryHandler
 from app.chats.queries.messages.get_detail import GetMessageDetailQuery, GetMessageDetailQueryHandler
 from app.chats.queries.messages.get_list import GetMessagesQuery, GetMessagesQueryHandler
+from app.chats.queries.messages.get_reads import GetMessageReadsQuery, GetMessageReadsQueryHandler
 from app.chats.queries.messages.search import SearchMessagesQuery, SearchMessagesQueryHandler
+from app.chats.queries.pins.get_list import GetPinnedMessagesQuery, GetPinnedMessagesQueryHandler
 from app.chats.queries.reactions.get_catalog import (
     GetReactionsCatalogQuery,
     GetReactionsCatalogQueryHandler,
@@ -84,6 +90,7 @@ from app.chats.repositories.blocks import ChatUserBlockRepository
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.invite import ChatInviteLinkRepository
 from app.chats.repositories.message import MessageRepository
+from app.chats.repositories.pinned_message import ChatPinnedMessageRepository
 from app.chats.repositories.reaction import MessageReactionRepository
 from app.chats.repositories.reads import ReadReceiptRepository
 from app.chats.repositories.user_profile import ChatUserProfileRepository
@@ -139,6 +146,7 @@ class ChatModuleProvider(Provider):
         UpdateChatStateCommandHandler,
         DeleteMessageCommandHandler,
         ForwardMessageCommandHandler,
+        ForwardMessagesCommandHandler,
         MarkAsReadCommandHandler,
         EditMessageCommandHandler,
         SendMessageCommandHandler,
@@ -147,6 +155,7 @@ class ChatModuleProvider(Provider):
         ResumeCommandHandler,
         SubscribeCommandHandler,
         UnsubscribeCommandHandler,
+        TypingCommandHandler,
         UpsertProfileProjectionCommandHandler,
         SetReactionCommandHandler,
         RemoveReactionCommandHandler,
@@ -164,6 +173,8 @@ class ChatModuleProvider(Provider):
         ProcessChatAvatarCommandHandler,
         RemoveChatAvatarCommandHandler,
         ApplyUserBlockCommandHandler,
+        PinMessageCommandHandler,
+        UnpinMessagesCommandHandler,
         scope=Scope.REQUEST,
     )
 
@@ -182,6 +193,8 @@ class ChatModuleProvider(Provider):
         SearchPublicChatsQueryHandler,
         GetInviteLinksQueryHandler,
         GetInvitePreviewQueryHandler,
+        GetMessageReadsQueryHandler,
+        GetPinnedMessagesQueryHandler,
         scope=Scope.REQUEST,
     )
 
@@ -194,6 +207,7 @@ class ChatModuleProvider(Provider):
         ChatUserProfileRepository,
         ChatUserBlockRepository,
         ChatInviteLinkRepository,
+        ChatPinnedMessageRepository,
         scope=Scope.REQUEST,
     )
 
@@ -225,6 +239,7 @@ class ChatModuleProvider(Provider):
         command_registry.register_command(UpdateChatStateCommand, UpdateChatStateCommandHandler)
         command_registry.register_command(DeleteMessageCommand, DeleteMessageCommandHandler)
         command_registry.register_command(ForwardMessageCommand, ForwardMessageCommandHandler)
+        command_registry.register_command(ForwardMessagesCommand, ForwardMessagesCommandHandler)
         command_registry.register_command(MarkAsReadCommand, MarkAsReadCommandHandler)
         command_registry.register_command(EditMessageCommand, EditMessageCommandHandler)
         command_registry.register_command(SendMessageCommand, SendMessageCommandHandler)
@@ -234,6 +249,7 @@ class ChatModuleProvider(Provider):
         command_registry.register_command(ResumeCommand, ResumeCommandHandler)
         command_registry.register_command(SubscribeCommand, SubscribeCommandHandler)
         command_registry.register_command(UnsubscribeCommand, UnsubscribeCommandHandler)
+        command_registry.register_command(TypingCommand, TypingCommandHandler)
         command_registry.register_command(UpsertProfileProjectionCommand, UpsertProfileProjectionCommandHandler)
         command_registry.register_command(SetReactionCommand, SetReactionCommandHandler)
         command_registry.register_command(RemoveReactionCommand, RemoveReactionCommandHandler)
@@ -251,6 +267,8 @@ class ChatModuleProvider(Provider):
         command_registry.register_command(ProcessChatAvatarCommand, ProcessChatAvatarCommandHandler)
         command_registry.register_command(RemoveChatAvatarCommand, RemoveChatAvatarCommandHandler)
         command_registry.register_command(ApplyUserBlockCommand, ApplyUserBlockCommandHandler)
+        command_registry.register_command(PinMessageCommand, PinMessageCommandHandler)
+        command_registry.register_command(UnpinMessagesCommand, UnpinMessagesCommandHandler)
         return command_registry
 
     @decorate
@@ -269,6 +287,8 @@ class ChatModuleProvider(Provider):
         query_registry.register_query(SearchPublicChatsQuery, SearchPublicChatsQueryHandler)
         query_registry.register_query(GetInviteLinksQuery, GetInviteLinksQueryHandler)
         query_registry.register_query(GetInvitePreviewQuery, GetInvitePreviewQueryHandler)
+        query_registry.register_query(GetMessageReadsQuery, GetMessageReadsQueryHandler)
+        query_registry.register_query(GetPinnedMessagesQuery, GetPinnedMessagesQueryHandler)
         return query_registry
 
     @decorate

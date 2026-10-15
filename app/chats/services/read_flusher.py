@@ -26,6 +26,12 @@ class ReadReceiptFlusher:
             for cursor in cursors
         ])
 
+        await self.read_receipt_repository.add_marks([
+            (cursor.chat_id, cursor.user_id, cursor.message_seq, cursor.read_at)
+            for cursor in cursors
+            if cursor.track_marks and (cursor.chat_id, cursor.user_id) in advanced
+        ])
+
         events = [
             ReadedMessageEvent(
                 chat_id=str(cursor.chat_id),

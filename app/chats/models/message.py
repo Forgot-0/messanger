@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Self
@@ -41,6 +42,27 @@ class MessageType(StrEnum):
     VOICE = "voice"
     VIDEO_NOTE = "video_note"
 
+    @classmethod
+    def for_attachments(cls, attachments: Iterable[MessageAttachment]) -> MessageType:
+        kinds = {attachment.attachment_type for attachment in attachments}
+        if AttachmentType.VOICE in kinds:
+            return cls.VOICE
+
+        if AttachmentType.VIDEO_NOTE in kinds:
+            return cls.VIDEO_NOTE
+
+        if kinds & {AttachmentType.IMAGE, AttachmentType.VIDEO}:
+            return cls.IMAGE
+
+        if AttachmentType.FILE in kinds:
+            return cls.FILE
+
+        return cls.TEXT
+
+
+class SystemMessageAction(StrEnum):
+    MESSAGE_PINNED = "message_pinned"
+
 
 @dataclass(frozen=True)
 class SendedMessageEvent(BaseEvent):
@@ -49,6 +71,7 @@ class SendedMessageEvent(BaseEvent):
     seq: int
     sender_id: int | None
     message_type: str
+    notify: bool = True
 
     __event_name__ = "chats.message.sent"
 
@@ -94,6 +117,33 @@ class DeletedMessageEvent(BaseEvent):
         return str(self.chat_id)
 
 
+@dataclass(frozen=True)
+class PinnedMessageEvent(BaseEvent):
+    chat_id: str
+    message_id: str
+    seq: int
+    pinned_by: int
+    pinned_at: str
+
+    __event_name__ = "chats.message.pinned"
+
+    def get_partition_key(self) -> str:
+        return str(self.chat_id)
+
+
+@dataclass(frozen=True)
+class UnpinnedMessagesEvent(BaseEvent):
+    chat_id: str
+    message_ids: list[str]
+    unpinned_by: int
+    all: bool = False
+
+    __event_name__ = "chats.message.unpinned"
+
+    def get_partition_key(self) -> str:
+        return str(self.chat_id)
+
+
 class Message(BaseModel, DateMixin):
     __tablename__ = "messages"
 
@@ -122,6 +172,10 @@ class Message(BaseModel, DateMixin):
     )
     forwarded_from_author_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
+    action: Mapped[SystemMessageAction | None] = mapped_column(
+        SAEnum(SystemMessageAction, native_enum=False, length=32), nullable=True, default=None
+    )
+
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_edited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
@@ -133,7 +187,7 @@ class Message(BaseModel, DateMixin):
         foreign_keys=[forwarded_from_message_id], remote_side="Message.id", lazy="noload"
     )
     attachments: Mapped[list[MessageAttachment]] = relationship(
-        lazy="noload", cascade="all, delete-orphan"
+        lazy="noload", cascade="all, delete-orphan", order_by=MessageAttachment.id
     )
     profile: Mapped[ChatUserProfile | None] = relationship(
         ChatUserProfile,
@@ -165,6 +219,8 @@ class Message(BaseModel, DateMixin):
         forwarded_from_message_id: UUID | None = None,
         forwarded_from_author_id: int | None=None,
         attachments: list[MessageAttachment] | None = None,
+        notify: bool = True,
+        action: SystemMessageAction | None = None,
     ) -> Self:
         if message_type == MessageType.REPLY and reply_to_id is None:
             raise InvalidMessageError(reason="reply_to_id is required for reply messages")
@@ -180,6 +236,7 @@ class Message(BaseModel, DateMixin):
             forwarded_from_chat_id=forwarded_from_chat_id,
             forwarded_from_message_id=forwarded_from_message_id,
             forwarded_from_author_id=forwarded_from_author_id,
+            action=action,
         )
 
         instance.validate_content()
@@ -197,10 +254,94 @@ class Message(BaseModel, DateMixin):
             chat_id=str(instance.chat_id),
             seq=instance.seq,
             sender_id=instance.author_id,
-            message_type=message_type.value
+            message_type=message_type.value,
+            notify=notify,
         ))
 
         return instance
+
+    @classmethod
+    def create_system(
+        cls,
+        actor_id: int,
+        chat_id: UUID,
+        seq: int,
+        action: SystemMessageAction,
+        reply_to_id: UUID | None = None,
+    ) -> Self:
+        return cls.create(
+            sender_id=actor_id,
+            chat_id=chat_id,
+            seq=seq,
+            content=None,
+            reply_to_id=reply_to_id,
+            message_type=MessageType.SYSTEM,
+            action=action,
+        )
+
+    @classmethod
+    def create_forward(
+        cls,
+        source: Message,
+        sender_id: int,
+        chat_id: UUID,
+        seq: int,
+        hide_author: bool = False,
+        notify: bool = True,
+    ) -> Self:
+        attachments = source.forwardable_attachments(chat_id)
+
+        if hide_author:
+            return cls.create(
+                sender_id=sender_id,
+                chat_id=chat_id,
+                seq=seq,
+                content=source.content,
+                message_type=source.copy_type(),
+                attachments=attachments,
+                notify=notify,
+            )
+
+        is_forward = source.type == MessageType.FORWARD
+        return cls.create(
+            sender_id=sender_id,
+            chat_id=chat_id,
+            seq=seq,
+            content=source.content,
+            message_type=MessageType.FORWARD,
+            forwarded_from_chat_id=source.forwarded_from_chat_id if is_forward else source.chat_id,
+            forwarded_from_message_id=source.forwarded_from_message_id if is_forward else source.id,
+            forwarded_from_author_id=source.forwarded_from_author_id if is_forward else source.author_id,
+            attachments=attachments,
+            notify=notify,
+        )
+
+    def forwardable_attachments(self, chat_id: UUID) -> list[MessageAttachment]:
+        return [
+            attachment.create_for_forward(chat_id=chat_id)
+            for attachment in sorted(self.attachments, key=lambda item: item.id)
+            if attachment.attachment_status == AttachmentStatus.SUCCESS
+        ]
+
+    @property
+    def is_forwardable(self) -> bool:
+        if self.is_deleted or self.type == MessageType.SYSTEM:
+            return False
+
+        return bool(self.content) or any(
+            attachment.attachment_status == AttachmentStatus.SUCCESS
+            for attachment in self.attachments
+        )
+
+    def copy_type(self) -> MessageType:
+        if self.type not in (MessageType.REPLY, MessageType.FORWARD):
+            return self.type
+
+        return MessageType.for_attachments(
+            attachment
+            for attachment in self.attachments
+            if attachment.attachment_status == AttachmentStatus.SUCCESS
+        )
 
     def update_content(self, new_content: str, modified_by: int) -> None:
         self.content = new_content
@@ -223,6 +364,15 @@ class Message(BaseModel, DateMixin):
                 chat_id=str(self.chat_id),
                 seq=self.seq,
                 deleted_by=deleted_by
+            )
+        )
+
+    def unpin(self, unpinned_by: int) -> None:
+        self.register_event(
+            UnpinnedMessagesEvent(
+                chat_id=str(self.chat_id),
+                message_ids=[str(self.id)],
+                unpinned_by=unpinned_by,
             )
         )
 

@@ -87,7 +87,7 @@ HTTP route (app/<module>/routes/v1/*.py)
 - **Стратегии фанаута** (`ChatFanoutStrategy`): `fanout_on_write`, `active_subscribers`, `channel_subscribers`.
   Порог переключения — `FAN_OUT_WRITE_THRESHOLD = 500` в `app/chats/config.py`.
 - **WS-протокол**: субпротокол `chat.v1`, вход `GET /api/v1/chats/ws/`, токен через query/заголовок.
-  Клиентские операции (`WSClientOp`): `ping`, `pong`, `subscribe`, `unsubscribe`, `resume`.
+  Клиентские операции (`WSClientOp`): `ping`, `pong`, `subscribe`, `unsubscribe`, `resume`, `typing`.
   Серверные события (`WSEventType`) — в `app/chats/schemas/ws.py`.
   Переподключение: `resume` с `last_seq` на чат (режим `last_seq_per_chat`).
 - **Доставка**: `ChatDeliveryRouter` (`app/chats/services/delivery_router.py`) читает топик `chats`
@@ -96,6 +96,37 @@ HTTP route (app/<module>/routes/v1/*.py)
 - **Коалесеры**: реакции и read receipts не рассылаются по одной — они склеиваются в окне
   (`REACTIONS_COALESCE_WINDOW_MS`, `READ_RECEIPTS_COALESCE_WINDOW_MS`, по 500 мс) фоновыми задачами
   в процессе `consumers` (`app/chats/tasks/coalescer.py`, `app/chats/tasks/read_coalescer.py`).
+- **«Печатает…»** (`op: "typing"`, `TypingAction`) — эфемерное, **не доменное** событие: мимо outbox,
+  Kafka и БД. `TypingCommandHandler` (`app/chats/commands/websockets/typing.py`) в процессе `app`
+  сам раскладывает `typing_start`/`typing_stop` по стримам gateway через
+  `ChatDeliveryRouter.route_ephemeral` (та же стратегия фан-аута, без offline-сигнала, без автора).
+  Троттлинг и кэш прав — в памяти соединения (`WSConnection.typing_by_chat`, `services/typing.py`):
+  одинаковый `action` не чаще `TYPING_BROADCAST_INTERVAL_MS`, проверка членства/прав/блока —
+  раз в `TYPING_CONTEXT_TTL_SECONDS`, так что поток кадров клавиатуры не доходит ни до Redis, ни до
+  Postgres. У записи стрима есть `DeliveryDTO.expires_at`: gateway выбрасывает просроченные
+  (важно для `xautoclaim`), счётчик `chat_ws_gateway_stream_expired_total`. Ошибки — `ws.error`,
+  исключение не рвёт сокет.
+- **Пакетная пересылка** `POST /chats/{chat_id}/messages/forward_many/` (`ForwardMessagesCommand`):
+  до `MAX_FORWARD_MESSAGES = 100`, одна транзакция, `seq` выделяются одним
+  `allocate_message_seq(count=N)`, порядок — по `seq` источника. Альбом = одно сообщение со многими
+  вложениями, копируется целиком (`Message.create_forward`, вложения по `id`, с `width/height/duration`;
+  `relationship(order_by=MessageAttachment.id)`). `hide_author` — копия без `forwarded_from_*`.
+  `SendedMessageEvent.notify` (по умолчанию `True`) — `False` у всех сообщений пакета, кроме
+  последнего: delivery-router не шлёт по ним offline-сигнал, push один на пакет.
+- **Кто прочитал** `GET .../messages/{message_id}/reads/`: только автор, только group/supergroup
+  с `member_count <= READ_MARKS_MAX_MEMBERS = 100` (`Chat.tracks_read_marks`), только 7 дней.
+  Источник — `read_receipt_marks` (PK `chat_id, user_id, seq`): `ReadReceiptFlusher` пишет строку на
+  каждое реальное продвижение курсора в таких чатах (флаг `marks` едет в payload коалесера). Время
+  для сообщения — первая отметка с `seq >= S` (LATERAL с `LIMIT 1` по участникам). Чистит
+  taskiq-задача `chats.read_marks.cleanup` по BRIN-индексу `read_at`.
+- **Закреплённые сообщения** — таблица `chat_pinned_messages` (PK `chat_id, message_id`,
+  индекс `chat_id, message_seq`), до `MAX_PINNED_MESSAGES = 100`, право `message:pin`.
+  `PinMessageCommand` берёт строку чата `FOR UPDATE` (лимит без гонок, `seq` всё равно выделяется
+  тем же UPDATE), создаёт системное сообщение `type=system, action=message_pinned,
+  reply_to_id=<закреплённое>` (`Message.create_system`, колонка `messages.action`). События
+  `chats.message.pinned` / `chats.message.unpinned` (WS `message_pinned` / `message_unpinned`).
+  Удаление сообщения открепляет его в той же транзакции. Роутер — `routes/v1/pins.py`,
+  префикс `/chats/{chat_id}/pinned_messages`.
 - **Персональное состояние чата** живёт в колонках `chat_members`: `pinned_at`, `archived_at`,
   `notifications_muted_until`, `draft`, `draft_updated_at`. Меняется только своё membership —
   `PATCH /api/v1/chats/{chat_id}/state/` (user_id из JWT, RBAC не нужен, нет членства = 404).
@@ -166,9 +197,12 @@ HTTP route (app/<module>/routes/v1/*.py)
 | `chats.chat.created`, `chats.chat.updated`, `chats.chat.deleted`, `chats.chat.ownership_transferred` | chats |
 | `chats.member.added`, `chats.member.kicked`, `chats.member.banned`, `chats.member.muted`, `chats.member.left` | chats |
 | `chats.message.sent`, `chats.message.readed`, `chats.message.modified`, `chats.message.deleted` | chats |
+| `chats.message.pinned`, `chats.message.unpinned` | chats |
 | `chats.message.reaction_updated` | chats |
 
 Дополнительный топик без outbox: `chats.offline-delivery` (сигнал на push, публикуется delivery-router'ом).
+`chats.typing.started` / `chats.typing.stopped` — только имена в WS-конверте: эти кадры не проходят
+ни через outbox, ни через Kafka (см. «Печатает…» выше).
 
 ## Таблицы БД
 
@@ -176,8 +210,8 @@ HTTP route (app/<module>/routes/v1/*.py)
 `profiles`, `profile_links`, `user_contacts`, `user_identifiers`, `pending_contacts`, `blocked_users`,
 `chats` (+ `username`, `avatars`), `chat_members` (+ per-user состояние: `pinned_at`, `archived_at`, `notifications_muted_until`,
 `draft`, `draft_updated_at`), `chat_member_bans`, `chat_roles`, `chat_user_profiles`, `chat_user_blocks` (проекция
-`blocked_users`), `chat_invite_links`, `messages`, `message_attachments`,
-`message_reactions`, `message_reaction_counters`, `read_receipts`,
+`blocked_users`), `chat_invite_links`, `chat_pinned_messages`, `messages` (+ `action` у системных),
+`message_attachments`, `message_reactions`, `message_reaction_counters`, `read_receipts`, `read_receipt_marks`,
 `notifications`, `user_device_tokens`,
 `outbox_messages`.
 

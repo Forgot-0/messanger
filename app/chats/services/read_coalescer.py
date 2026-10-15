@@ -47,6 +47,7 @@ class PendingReadCursor:
     message_seq: int
     support_read_event: bool
     read_at: datetime
+    track_marks: bool = False
 
 
 @dataclass
@@ -59,12 +60,14 @@ class ReadReceiptCoalesceQueue:
         user_id: int,
         message_seq: int,
         support_read_event: bool,
+        track_marks: bool = False,
     ) -> bool:
         field = ReadReceiptKeys.coalesce_field(str(chat_id), user_id)
         ms = now_ms()
         payload = orjson.dumps({
             "seq": message_seq,
             "read_event": support_read_event,
+            "marks": track_marks,
             "at": ms,
         }).decode()
 
@@ -137,6 +140,7 @@ class ReadReceiptCoalesceQueue:
                 message_seq=int(data["seq"]),
                 support_read_event=bool(data["read_event"]),
                 read_at=datetime.fromtimestamp(int(data["at"]) / 1000, tz=UTC),
+                track_marks=bool(data.get("marks", False)),
             )
         except (orjson.JSONDecodeError, KeyError, TypeError, ValueError):
             return None
@@ -148,4 +152,5 @@ class ReadReceiptCoalesceQueue:
                 user_id=cursor.user_id,
                 message_seq=cursor.message_seq,
                 support_read_event=cursor.support_read_event,
+                track_marks=cursor.track_marks,
             )

@@ -25,6 +25,7 @@ class WSConnection:
     last_seen_at: datetime = field(default_factory=now_utc)
     subscriptions: set[str] = field(default_factory=set)
     last_seq_by_chat: dict[str, int] = field(default_factory=dict)
+    typing_by_chat: dict[str, Any] = field(default_factory=dict)
     send_queue: asyncio.Queue[bytes] = field(
         default_factory=lambda: asyncio.Queue(maxsize=app_config.WS_SEND_QUEUE_SIZE)
     )

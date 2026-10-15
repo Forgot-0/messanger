@@ -14,3 +14,4 @@ class DeliveryDTO(BaseModel):
     payload: dict[str, Any]
     delivery: DeliveryData
     ts: str
+    expires_at: str | None = None

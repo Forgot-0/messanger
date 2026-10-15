@@ -19,6 +19,8 @@ CHAT_EVENT_TO_WS_TYPE: dict[str, str] = {
     "chats.message.modified": WSEventType.MESSAGE_EDITED.value,
     "chats.message.deleted": WSEventType.MESSAGE_DELETED.value,
     "chats.message.readed": WSEventType.MESSAGES_READ.value,
+    "chats.message.pinned": WSEventType.MESSAGE_PINNED.value,
+    "chats.message.unpinned": WSEventType.MESSAGE_UNPINNED.value,
     "chats.member.added": WSEventType.MEMBER_JOINED.value,
     "chats.member.left": WSEventType.MEMBER_LEFT.value,
     "chats.member.kicked": WSEventType.MEMBER_KICK.value,

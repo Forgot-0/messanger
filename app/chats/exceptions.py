@@ -669,3 +669,62 @@ class UserPrivacyRestrictedError(ApplicationError):
     @property
     def detail(self) -> dict:
         return {"user_ids": self.user_ids}
+
+
+@dataclass(kw_only=True)
+class PinnedMessagesLimitExceededError(ApplicationError):
+    chat_id: str
+    limit: int = chat_config.MAX_PINNED_MESSAGES
+    code: str = "PINNED_MESSAGES_LIMIT_EXCEEDED"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return f"Pinned messages limit reached ({self.limit})"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "limit": self.limit}
+
+
+@dataclass(kw_only=True)
+class SlowModeMultipleMessagesError(ApplicationError):
+    chat_id: str
+    count: int
+    code: str = "SLOW_MODE_MULTIPLE_MESSAGES"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "Slow mode is enabled, only one message can be sent at a time"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "count": self.count}
+
+
+class ReadReceiptsUnavailableReason(StrEnum):
+    CHAT_TYPE = "chat_type"
+    CHAT_TOO_LARGE = "chat_too_large"
+    MESSAGE_TOO_OLD = "message_too_old"
+
+
+@dataclass(kw_only=True)
+class ReadReceiptsUnavailableError(ApplicationError):
+    chat_id: str
+    reason: ReadReceiptsUnavailableReason
+    code: str = "READ_RECEIPTS_UNAVAILABLE"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "Read receipts are not available for this message"
+
+    @property
+    def detail(self) -> dict:
+        return {
+            "chat_id": self.chat_id,
+            "reason": self.reason.value,
+            "max_members": chat_config.READ_MARKS_MAX_MEMBERS,
+            "retention_days": chat_config.READ_MARKS_RETENTION_DAYS,
+        }

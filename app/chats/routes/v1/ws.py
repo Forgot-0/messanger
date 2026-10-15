@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from uuid import UUID
 
 import orjson
 from dishka import AsyncContainer
@@ -12,6 +13,7 @@ from app.chats.commands.websockets.ping import PingCommand
 from app.chats.commands.websockets.pong import PongCommand
 from app.chats.commands.websockets.resume import ResumeCommand
 from app.chats.commands.websockets.subscribe import SubscribeCommand
+from app.chats.commands.websockets.typing import TypingCommand
 from app.chats.commands.websockets.unsubscribe import UnsubscribeCommand
 from app.chats.config import chat_config
 from app.chats.schemas.ws import WSClientCommand, WSClientOp
@@ -171,6 +173,21 @@ async def websocket_gateway(
                             continue
                         await mediator.handle_command(
                             UnsubscribeCommand(conn=conn, chat_id=websocket_command.chat_id)
+                        )
+                    case WSClientOp.TYPING:
+                        if websocket_command.chat_id is None:
+                            conn.try_send({
+                                "type": "ws.error",
+                                "code": "BAD_COMMAND",
+                                "detail": "chat_id is requeried",
+                            })
+                            continue
+                        await mediator.handle_command(
+                            TypingCommand(
+                                conn=conn,
+                                chat_id=UUID(websocket_command.chat_id),
+                                action=websocket_command.action,
+                            )
                         )
     except WebSocketDisconnect:
         pass

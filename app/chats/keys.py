@@ -4,6 +4,7 @@ from enum import StrEnum
 class ChatIdempotencyScope(StrEnum):
     SEND_MESSAGE = "chats.message.send"
     FORWARD_MESSAGE = "chats.message.forward"
+    FORWARD_MESSAGES = "chats.message.forward_many"
 
 
 class ReactionKeys:

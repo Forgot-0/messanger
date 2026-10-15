@@ -431,3 +431,72 @@ async def _read_gateway_stream(redis: Redis, manager: ConnectionManager) -> list
         for _stream, stream_messages in messages
         for _message_id, fields in stream_messages
     ]
+
+
+@pytest.mark.integration
+@pytest.mark.chats
+@pytest.mark.asyncio
+class TestDeliveryRouterPinsAndSilentMessages:
+    async def test_message_without_notify_skips_the_offline_push(
+        self,
+        delivery_router: ChatDeliveryRouter,
+        broker: FakeMessageBroker,
+        group_chat: Chat,
+        create_message,
+        user_jwt: UserJWTData,
+        go_online,
+        delivered_frames,
+    ) -> None:
+        message: Message = await create_message(group_chat, user_jwt, "part of a batch")
+        await go_online(2)
+        event = _message_sent_event(group_chat, message, sender_id=int(user_jwt.id))
+        event.payload["notify"] = False
+
+        await delivery_router.route_broker_message(event)
+
+        assert broker.sent_data == []
+        frames = await delivered_frames()
+        assert [frame["type"] for frame in frames] == ["new_message"]
+        assert frames[0]["payload"]["event"]["notify"] is False
+
+    async def test_pin_events_reach_members_as_deltas(
+        self,
+        delivery_router: ChatDeliveryRouter,
+        group_chat: Chat,
+        go_online,
+        delivered_frames,
+    ) -> None:
+        await go_online(2)
+        message_id = str(uuid4())
+
+        await delivery_router.route_broker_message(chat_event(
+            "chats.message.pinned",
+            {
+                "chat_id": str(group_chat.id),
+                "message_id": message_id,
+                "seq": 7,
+                "pinned_by": 1,
+                "pinned_at": now_utc().isoformat(),
+            },
+        ))
+        await delivery_router.route_broker_message(chat_event(
+            "chats.message.unpinned",
+            {
+                "chat_id": str(group_chat.id),
+                "message_ids": [message_id],
+                "unpinned_by": 1,
+                "all": False,
+            },
+        ))
+
+        pinned, unpinned = await delivered_frames()
+        assert pinned["type"] == "message_pinned"
+        assert pinned["payload"]["event"]["message_id"] == message_id
+        assert pinned["payload"]["event"]["seq"] == 7
+        assert pinned["payload"]["message"] is None
+        assert unpinned["type"] == "message_unpinned"
+        assert unpinned["payload"]["event"] == {
+            "message_ids": [message_id],
+            "unpinned_by": 1,
+            "all": False,
+        }

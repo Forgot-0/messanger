@@ -105,6 +105,34 @@ class ChatDeliveryRouter:
 
         await self._dispatch(ws_event, reaction=build_reaction_ws_dto(event))
 
+    async def route_ephemeral(
+        self,
+        ws_event: WsEvent,
+        *,
+        expires_at: str,
+        exclude_user_ids: frozenset[int] = frozenset(),
+    ) -> None:
+        payload = MessagePayloadWS(
+            event_id=ws_event.event_id,
+            event_name=ws_event.event_name,
+            event=ws_event.delta,
+        ).model_dump(mode="json")
+
+        if ws_event.fanout_strategy == ChatFanoutStrategy.FANOUT_ON_WRITE:
+            return await self._route_fanout_on_write(
+                ws_event=ws_event,
+                payload=payload,
+                exclude_user_ids=exclude_user_ids,
+                expires_at=expires_at,
+            )
+
+        return await self._route_to_active_subscribers(
+            ws_event=ws_event,
+            payload=payload,
+            exclude_user_ids=exclude_user_ids,
+            expires_at=expires_at,
+        )
+
     async def _dispatch(
         self,
         ws_event: WsEvent,
@@ -132,8 +160,14 @@ class ChatDeliveryRouter:
         self,
         ws_event: WsEvent,
         payload: dict[str, Any],
+        *,
+        exclude_user_ids: frozenset[int] = frozenset(),
+        expires_at: str | None = None,
     ) -> None:
-        with_offline_signal = ws_event.event_name in OFFLINE_SIGNAL_EVENT_NAMES
+        with_offline_signal = (
+            ws_event.event_name in OFFLINE_SIGNAL_EVENT_NAMES
+            and ws_event.delta.get("notify", True) is not False
+        )
         offline_user_ids: list[int] = []
 
         async for members in self.chat_repository.iter_delivery_members(
@@ -141,7 +175,9 @@ class ChatDeliveryRouter:
             batch_size=chat_config.DELIVERY_ROUTER_MEMBER_BATCH_SIZE,
         ):
             for member_batch in chunks(members, chat_config.DELIVERY_ROUTER_ROUTE_LOOKUP_BATCH_SIZE):
-                lookup_batch = [member.user_id for member in member_batch]
+                lookup_batch = [
+                    member.user_id for member in member_batch if member.user_id not in exclude_user_ids
+                ]
                 routes = await self._lookup_online_routes(lookup_batch)
 
                 if with_offline_signal:
@@ -154,6 +190,7 @@ class ChatDeliveryRouter:
                     ws_event,
                     payload,
                     require_subscription=False,
+                    expires_at=expires_at,
                 )
 
         if offline_user_ids:
@@ -163,13 +200,24 @@ class ChatDeliveryRouter:
         self,
         ws_event: WsEvent,
         payload: dict[str, Any],
+        *,
+        exclude_user_ids: frozenset[int] = frozenset(),
+        expires_at: str | None = None,
     ) -> None:
         async for routes_by_gateway in self._iter_active_subscriber_routes(str(ws_event.chat_id)):
+            if exclude_user_ids:
+                routes_by_gateway = {
+                    gateway_id: remaining
+                    for gateway_id, user_ids in routes_by_gateway.items()
+                    if (remaining := user_ids - exclude_user_ids)
+                }
+
             await self._enqueue_gateway_deliveries(
                 routes_by_gateway,
                 ws_event,
                 payload,
                 require_subscription=True,
+                expires_at=expires_at,
             )
 
     async def _route_to_removed_member(
@@ -313,6 +361,7 @@ class ChatDeliveryRouter:
         payload: dict[str, Any],
         *,
         require_subscription: bool,
+        expires_at: str | None = None,
     ) -> None:
         if not routes_by_gateway:
             return
@@ -330,7 +379,8 @@ class ChatDeliveryRouter:
                         require_subscription=require_subscription, recipients=user_chunk
                     ),
                     ts=ws_event.ts,
-                    channel=str(ws_event.chat_id)
+                    channel=str(ws_event.chat_id),
+                    expires_at=expires_at,
                 )
                 pipe.xadd(
                     stream_key,

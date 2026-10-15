@@ -1,4 +1,5 @@
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -25,14 +26,18 @@ from app.chats.exceptions import (
     AccessDeniedChatError,
     ChatUsernameNotAllowedError,
     InvalidChatUsernameError,
+    InvalidMessageError,
     InvalidOwnershipTransferError,
     MemberLimitExceededError,
+    NotFoundMessageError,
+    PinnedMessagesLimitExceededError,
     ReactionNotAllowedError,
     SlowModeOutOfRangeError,
 )
 from app.chats.models.chat_members import ChatMember
 from app.chats.models.chat_roles import ChatRoleId
-from app.chats.models.message import Message
+from app.chats.models.message import Message, MessageType, PinnedMessageEvent, UnpinnedMessagesEvent
+from app.chats.models.pinned_message import ChatPinnedMessage
 from app.core.db.base_model import BaseModel, DateMixin, SoftDeleteMixin
 from app.core.events.event import BaseEvent
 
@@ -271,6 +276,14 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
     def support_read_event(self) -> bool:
         return self.type == ChatType.DIRECT or self.type == ChatType.GROUP
 
+    @property
+    def is_small_group(self) -> bool:
+        return self.member_count <= chat_config.READ_MARKS_MAX_MEMBERS
+
+    @property
+    def tracks_read_marks(self) -> bool:
+        return self.type in (ChatType.GROUP, ChatType.SUPERGROUP) and self.is_small_group
+
     @classmethod
     def create(
         cls,
@@ -467,6 +480,53 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
                 username=self.username,
                 avatar_s3_key=self.avatar_s3_key,
                 avatars=dict(self.avatars or {}),
+            )
+        )
+
+    def pin_message(self, message: Message, pinned_by: int, pinned_count: int) -> ChatPinnedMessage:
+        if message.chat_id != self.id or message.is_deleted:
+            raise NotFoundMessageError(message_id=str(message.id))
+
+        if message.type == MessageType.SYSTEM:
+            raise InvalidMessageError(reason="system messages cannot be pinned")
+
+        if pinned_count >= chat_config.MAX_PINNED_MESSAGES:
+            raise PinnedMessagesLimitExceededError(
+                chat_id=str(self.id), limit=chat_config.MAX_PINNED_MESSAGES
+            )
+
+        pin = ChatPinnedMessage.create(
+            chat_id=self.id,
+            message_id=message.id,
+            message_seq=message.seq,
+            pinned_by=pinned_by,
+        )
+        self.register_event(
+            PinnedMessageEvent(
+                chat_id=str(self.id),
+                message_id=str(message.id),
+                seq=message.seq,
+                pinned_by=pinned_by,
+                pinned_at=pin.pinned_at.isoformat(),
+            )
+        )
+        return pin
+
+    def unpin_messages(
+        self,
+        message_ids: Sequence[UUID],
+        unpinned_by: int,
+        unpin_all: bool = False,
+    ) -> None:
+        if not message_ids:
+            return
+
+        self.register_event(
+            UnpinnedMessagesEvent(
+                chat_id=str(self.id),
+                message_ids=[str(message_id) for message_id in message_ids],
+                unpinned_by=unpinned_by,
+                all=unpin_all,
             )
         )
 

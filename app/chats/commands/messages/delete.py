@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chats.exceptions import AccessDeniedChatError, NotChatMemberError, NotFoundMessageError
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.message import MessageRepository
+from app.chats.repositories.pinned_message import ChatPinnedMessageRepository
 from app.chats.services.access import ChatAccessService
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
@@ -28,6 +29,7 @@ class DeleteMessageCommandHandler(BaseCommandHandler[DeleteMessageCommand, None]
     session: AsyncSession
     chat_repository: ChatRepository
     message_repository: MessageRepository
+    pin_repository: ChatPinnedMessageRepository
     chat_access_service: ChatAccessService
     event_bus: BaseEventBus
 
@@ -53,6 +55,9 @@ class DeleteMessageCommandHandler(BaseCommandHandler[DeleteMessageCommand, None]
             raise AccessDeniedChatError(chat_id=str(command.chat_id), requester_id=user_id)
 
         message.delete(deleted_by=user_id)
+        if await self.pin_repository.delete_many(command.chat_id, [message.id]):
+            message.unpin(unpinned_by=user_id)
+
         await self.event_bus.publish(message.pull_events())
         await self.session.commit()
 

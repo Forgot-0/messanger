@@ -89,6 +89,7 @@ class MessageAttachment(BaseModel, DateMixin):
             attachment_type=self.attachment_type, s3_key=self.s3_key, mime_type=self.mime_type,
             original_filename=self.original_filename, size=self.size,
             attachment_status=AttachmentStatus.SUCCESS,
+            width=self.width, height=self.height, duration_seconds=self.duration_seconds,
             source_attachment_id=self.id
         )
         return instance

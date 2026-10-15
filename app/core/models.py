@@ -18,7 +18,8 @@ from app.chats.models.chat import Chat
 from app.chats.models.message import Message
 from app.chats.models.chat_roles import ChatRole
 from app.chats.models.chat_members import ChatMember
-from app.chats.models.read_receipts import ReadReceipt
+from app.chats.models.read_receipts import ReadReceipt, ReadReceiptMark
+from app.chats.models.pinned_message import ChatPinnedMessage
 from app.chats.models.profile import ChatUserProfile
 from app.chats.models.reaction import MessageReaction, MessageReactionCounter
 from app.chats.models.blocks import ChatUserBlock

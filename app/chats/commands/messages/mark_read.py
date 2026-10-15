@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats.exceptions import AccessDeniedChatError
 from app.chats.repositories.chat import ChatRepository
-from app.chats.repositories.reads import ReadReceiptRepository
 from app.chats.services.access import ChatAccessService
 from app.chats.services.read_coalescer import ReadReceiptCoalesceQueue
 from app.core.commands import BaseCommand, BaseCommandHandler
@@ -29,7 +28,6 @@ class MarkAsReadCommandHandler(BaseCommandHandler[MarkAsReadCommand, None]):
     session: AsyncSession
     chat_repository: ChatRepository
     access_service: ChatAccessService
-    read_receipt_repository: ReadReceiptRepository
     coalesce_queue: ReadReceiptCoalesceQueue
     event_bus: BaseEventBus
 
@@ -55,5 +53,6 @@ class MarkAsReadCommandHandler(BaseCommandHandler[MarkAsReadCommand, None]):
             user_id=user_id,
             message_seq=message_seq,
             support_read_event=support_read_event,
+            track_marks=chat.tracks_read_marks,
         )
 

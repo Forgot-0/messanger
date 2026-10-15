@@ -13,6 +13,8 @@ class WSEventType(StrEnum):
     MEMBER_KICK = "member_kick"
     MEMBER_BANNED = "member_banned"
     MEMBER_MUTED = "member_muted"
+    MESSAGE_PINNED = "message_pinned"
+    MESSAGE_UNPINNED = "message_unpinned"
     TYPING_START = "typing_start"
     TYPING_STOP = "typing_stop"
     PING = "ping"
@@ -38,6 +40,19 @@ class WSClientOp(StrEnum):
     SUBSCRIBE = "subscribe"
     UNSUBSCRIBE = "unsubscribe"
     RESUME = "resume"
+    TYPING = "typing"
+
+
+class TypingAction(StrEnum):
+    TYPING = "typing"
+    RECORD_VOICE = "record_voice"
+    UPLOAD_VOICE = "upload_voice"
+    RECORD_VIDEO_NOTE = "record_video_note"
+    UPLOAD_VIDEO_NOTE = "upload_video_note"
+    UPLOAD_PHOTO = "upload_photo"
+    UPLOAD_VIDEO = "upload_video"
+    UPLOAD_FILE = "upload_file"
+    CANCEL = "cancel"
 
 
 class WSClientCommand(BaseModel):
@@ -45,6 +60,7 @@ class WSClientCommand(BaseModel):
     chat_id: str | None = None
     last_seq: int | None = None
     cursors: dict[str, int] = Field(default_factory=dict)
+    action: TypingAction = TypingAction.TYPING
 
 
 class AttachmentSuccessPayload(BaseModel):

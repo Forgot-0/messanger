@@ -6,6 +6,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    Index,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,4 +25,20 @@ class ReadReceipt(BaseModel, DateMixin):
     last_read_message_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
     last_read_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ReadReceiptMark(BaseModel):
+    __tablename__ = "read_receipt_marks"
+
+    chat_id: Mapped[UUID] = mapped_column(
+        SAUUID, ForeignKey("chats.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    seq: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_read_receipt_marks_read_at_brin", "read_at", postgresql_using="brin"),
     )

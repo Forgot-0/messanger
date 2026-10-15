@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.chats.exceptions import AccessDeniedChatError, InvalidChatRoleError
+from app.chats.exceptions import AccessDeniedChatError, InvalidChatRoleError, NotChatMemberError
 from app.chats.models.chat import Chat
 from app.chats.models.chat_members import ChatMember
 from app.chats.models.chat_roles import chat_role_level
@@ -34,6 +34,20 @@ class ChatAccessService:
         member_permissions = member.effective_permissions()
         return all(member_permissions.get(perm, False) for perm in must_permissions)
 
+    async def ensure_can_pin(
+        self,
+        user_jwt_data: UserJWTData,
+        member: ChatMember | None,
+        chat_id: UUID,
+    ) -> None:
+        if await self.has_permissions(user_jwt_data, member, {"message:pin"}):
+            return
+
+        user_id = int(user_jwt_data.id)
+        if member is None or member.is_banned:
+            raise NotChatMemberError(chat_id=str(chat_id), user_id=user_id)
+        raise AccessDeniedChatError(chat_id=str(chat_id), requester_id=user_id)
+
     async def can_send_message(
         self,
         user_jwt_data: UserJWTData,
@@ -43,6 +57,9 @@ class ChatAccessService:
         if self._has_global_chat_admin(user_jwt_data):
             return True
 
+        return self.member_can_send(chat, member)
+
+    def member_can_send(self, chat: Chat, member: ChatMember | None) -> bool:
         if member is None or member.is_banned or member.is_muted:
             return False
 

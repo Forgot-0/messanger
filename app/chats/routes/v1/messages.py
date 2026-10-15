@@ -6,17 +6,25 @@ from fastapi import APIRouter, Depends, Header, Query, status
 
 from app.chats.commands.messages.delete import DeleteMessageCommand
 from app.chats.commands.messages.forward import ForwardMessageCommand
+from app.chats.commands.messages.forward_many import ForwardMessagesCommand
 from app.chats.commands.messages.mark_read import MarkAsReadCommand
 from app.chats.commands.messages.modify import EditMessageCommand
 from app.chats.commands.messages.send import SendMessageCommand
 from app.chats.config import chat_config
-from app.chats.dtos.messages import MessageDTO, MessagesDTO
+from app.chats.dtos.messages import ForwardedMessagesDTO, MessageDTO, MessageReadsDTO, MessagesDTO
 from app.chats.keys import ChatIdempotencyScope
 from app.chats.models.message import MessageType
 from app.chats.queries.messages.get_context import GetMessageContextQuery
 from app.chats.queries.messages.get_detail import GetMessageDetailQuery
 from app.chats.queries.messages.get_list import GetMessagesQuery
-from app.chats.schemas.rest import EditMessageRequest, ForwardMessageRequest, MarkReadRequest, SendMessageRequest
+from app.chats.queries.messages.get_reads import GetMessageReadsQuery
+from app.chats.schemas.rest import (
+    EditMessageRequest,
+    ForwardMessageRequest,
+    ForwardMessagesRequest,
+    MarkReadRequest,
+    SendMessageRequest,
+)
 from app.core.api.rate_limiter import ConfigurableRateLimiter
 from app.core.mediators.base import BaseMediator
 from app.core.services.auth.depends import CurrentUserJWTData
@@ -122,6 +130,25 @@ async def get_message_detail(
     )
 
 
+@router.get(
+    "/{message_id}/reads/",
+    status_code=status.HTTP_200_OK
+)
+async def get_message_reads(
+    chat_id: UUID,
+    message_id: UUID,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> MessageReadsDTO:
+    return await mediator.handle_query(
+        GetMessageReadsQuery(
+            user_jwt_data=user_jwt_data,
+            chat_id=chat_id,
+            message_id=message_id,
+        )
+    )
+
+
 @router.patch(
     "/{message_id}/",
     status_code=status.HTTP_200_OK
@@ -187,6 +214,43 @@ async def forward_message(
                 source_chat_id=payload.source_chat_id,
                 source_message_id=payload.source_message_id,
                 target_chat_id=chat_id,
+                comment=payload.comment,
+            )
+        ),
+    )
+
+
+@router.post(
+    "/forward_many/",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(message_write_limiter),
+        Depends(ConfigurableRateLimiter(
+            times=chat_config.FORWARD_MANY_RATE_LIMIT_TIMES,
+            seconds=chat_config.FORWARD_MANY_RATE_LIMIT_SECONDS,
+        )),
+    ],
+)
+async def forward_messages(
+    chat_id: UUID,
+    payload: ForwardMessagesRequest,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+    idempotency: FromDishka[IdempotencyStore],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> ForwardedMessagesDTO:
+    return await idempotency.run(
+        scope=ChatIdempotencyScope.FORWARD_MESSAGES,
+        key=idempotency_key,
+        owner=(user_jwt_data.id, chat_id),
+        model=ForwardedMessagesDTO,
+        operation=lambda: mediator.handle_command(
+            ForwardMessagesCommand(
+                user_jwt_data=user_jwt_data,
+                source_chat_id=payload.source_chat_id,
+                source_message_ids=payload.source_message_ids,
+                target_chat_id=chat_id,
+                hide_author=payload.hide_author,
                 comment=payload.comment,
             )
         ),

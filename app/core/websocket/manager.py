@@ -512,6 +512,9 @@ class ConnectionManager:
 
     async def _process_gateway_stream_entry(self, message_id: Any, fields: dict[Any, Any]) -> Any:
         event = DeliveryDTO.model_validate_json(fields["event"])
+        if event.expires_at is not None and datetime.fromisoformat(event.expires_at) <= now_utc():
+            return message_id
+
         await self.send_to_users_local(event)
         return message_id
 

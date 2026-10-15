@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
@@ -11,7 +12,7 @@ from app.chats.models.message import Message
 from app.core.db.repository import IRepository
 
 
-def _message_load_options() -> list:
+def message_load_options() -> list:
     return [
         selectinload(Message.attachments),
         selectinload(Message.profile),
@@ -39,13 +40,37 @@ class MessageRepository(IRepository[Message]):
             Message.is_deleted.is_(False),
         )
         if with_attachment:
-            stmt = stmt.options(*_message_load_options())
+            stmt = stmt.options(*message_load_options())
 
         result = await self.session.execute(stmt)
         return result.scalar()
 
+    async def get_many_in_chat(
+        self,
+        chat_id: UUID,
+        message_ids: Sequence[UUID],
+    ) -> list[Message]:
+        if not message_ids:
+            return []
+
+        stmt = (
+            select(Message)
+            .where(
+                Message.chat_id == chat_id,
+                Message.id.in_(list(message_ids)),
+                Message.is_deleted.is_(False),
+            )
+            .options(selectinload(Message.attachments))
+            .order_by(Message.seq.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def create(self, message: Message) -> None:
         self.session.add(message)
+
+    async def create_many(self, messages: Sequence[Message]) -> None:
+        self.session.add_all(messages)
 
     async def get_paginated_chat_messages(
         self,
@@ -57,7 +82,7 @@ class MessageRepository(IRepository[Message]):
         stmt = select(Message).where(
             Message.chat_id == chat_id,
             Message.is_deleted.is_(False),
-        ).options(*_message_load_options())
+        ).options(*message_load_options())
 
         if cursor_seq is not None:
             if direction == "backward":
@@ -89,7 +114,7 @@ class MessageRepository(IRepository[Message]):
             )
             .order_by(Message.seq.asc())
             .limit(limit + 1)
-            .options(*_message_load_options())
+            .options(*message_load_options())
         )
         result = await self.session.execute(stmt)
         return list(result.scalars())
@@ -107,7 +132,7 @@ class MessageRepository(IRepository[Message]):
             .where(and_(Message.chat_id == chat_id, Message.seq <= target_seq), Message.is_deleted.is_(False))
             .order_by(Message.seq.desc())
             .limit(half)
-            .options(*_message_load_options())
+            .options(*message_load_options())
         )
 
         newer_stmt = (
@@ -115,7 +140,7 @@ class MessageRepository(IRepository[Message]):
             .where(and_(Message.chat_id == chat_id, Message.seq > target_seq), Message.is_deleted.is_(False))
             .order_by(Message.seq.asc())
             .limit(half)
-            .options(*_message_load_options())
+            .options(*message_load_options())
         )
 
         older_res = await self.session.execute(older_stmt)

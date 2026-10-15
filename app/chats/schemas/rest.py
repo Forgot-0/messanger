@@ -152,6 +152,22 @@ class ForwardMessageRequest(BaseModel):
     comment: str | None = Field(default=None, max_length=chat_config.MAX_MESSAGE_LENGTH)
 
 
+class ForwardMessagesRequest(BaseModel):
+    source_chat_id: UUID
+    source_message_ids: list[UUID] = Field(min_length=1, max_length=chat_config.MAX_FORWARD_MESSAGES)
+    hide_author: bool = False
+    comment: str | None = Field(default=None, max_length=chat_config.MAX_MESSAGE_LENGTH)
+
+
+class GetPinnedMessagesRequest(BaseModel):
+    limit: int = Field(
+        default=chat_config.PINNED_MESSAGES_PAGE_SIZE,
+        ge=1,
+        le=chat_config.PINNED_MESSAGES_MAX_PAGE_SIZE,
+    )
+    before_seq: int | None = Field(default=None, ge=0)
+
+
 class MarkReadRequest(BaseModel):
     message_seq: int = Field(ge=0)
 

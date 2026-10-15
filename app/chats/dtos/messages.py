@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.chats.dtos.attachments import AttachmentDTO
 from app.chats.dtos.profiles import ChatProfileDTO
 from app.chats.dtos.reactions import ReactionGroupDTO
-from app.chats.models.message import MessageType
+from app.chats.models.message import MessageType, SystemMessageAction
 
 
 class MessageDTO(BaseModel):
@@ -15,6 +15,7 @@ class MessageDTO(BaseModel):
     seq: int
     author_id: int | None
     type: MessageType
+    action: SystemMessageAction | None = None
     content: str | None
     reply_to_id: UUID | None
     forwarded_from_chat_id: UUID | None
@@ -47,3 +48,18 @@ class MessagesDTO(BaseModel):
     has_next: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ForwardedMessagesDTO(BaseModel):
+    messages: list[MessageDTO]
+
+
+class MessageReadDTO(BaseModel):
+    user_id: int
+    read_at: datetime
+    profile: ChatProfileDTO | None = None
+
+
+class MessageReadsDTO(BaseModel):
+    message_id: UUID
+    readers: list[MessageReadDTO]
