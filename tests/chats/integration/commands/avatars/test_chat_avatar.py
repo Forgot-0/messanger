@@ -184,6 +184,13 @@ class TestChatAvatarUpload:
         with pytest.raises(ChatAvatarValidationError):
             await request_slot(group_chat, file_size=chat_config.CHAT_AVATAR_MAX_SIZE + 1)
 
+    @pytest.mark.parametrize("mime_type", ["image/heic", "image/heif"])
+    async def test_heic_is_converted_by_the_client_not_the_server(
+        self, request_slot, group_chat: Chat, mime_type: str,
+    ) -> None:
+        with pytest.raises(ChatAvatarValidationError):
+            await request_slot(group_chat, mime_type=mime_type)
+
     async def test_member_without_update_right_cannot_upload(
         self,
         request_container: AsyncContainer,

@@ -155,6 +155,17 @@ class TestRequestAttachmentUpload:
                 )
             )
 
+    @pytest.mark.parametrize("mime_type", ["image/heic", "image/heif"])
+    async def test_heic_photo_must_be_converted_by_the_client(
+        self,
+        handler: RequestAttachmentUploadCommandHandler,
+        group_chat: Chat,
+        user_jwt: UserJWTData,
+        mime_type: str,
+    ) -> None:
+        with pytest.raises(AttachmentValidationError):
+            await handler.handle(self.command(group_chat, user_jwt, upload(mime_type=mime_type)))
+
     async def test_voice_with_a_non_voice_mime_is_rejected(
         self,
         handler: RequestAttachmentUploadCommandHandler,

@@ -16,7 +16,6 @@ from app.chats.config import chat_config
 from app.chats.models.attachment import (
     AttachmentStatus,
     AttachmentType,
-    HlsStatus,
     MessageAttachment,
 )
 from app.chats.models.chat import Chat
@@ -24,16 +23,13 @@ from app.chats.repositories.attachment import AttachmentRepository
 from app.chats.services.attachment_images import AttachmentImageRenderer
 from app.chats.services.attachment_media import AttachmentMediaValidator
 from app.chats.services.attachment_processor import AttachmentMediaProcessor
-from app.chats.tasks.transcode_attachment import AttachmentTranscodeTask
 from app.core.services.media.exceptions import MediaTranscodeFailedError, MediaTranscodeUnavailableError
-from app.core.services.queues.service import QueueService
 from app.core.services.storage.aioboto.client import S3Client
 from app.core.services.storage.exceptions import ObjectNotFoundError
 from app.core.services.storage.service import StorageService
 from app.core.websocket.manager import ConnectionManager
 from app.core.websocket.presence import PresenceService
 from tests.chats.integration.conftest import GATEWAY_ID
-from tests.mocks import FakeQueueService
 from tests.support.media import (
     GPS_LATITUDE,
     FakeMediaProbe,
@@ -45,7 +41,6 @@ from tests.support.media import (
 )
 
 MP4_BYTES = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2avc1mp41" + b"\x00" * 256
-HEIC_BYTES = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic" + b"\x00" * 256
 
 
 async def read_object(storage: StorageService, key: str) -> bytes:
@@ -79,13 +74,6 @@ class TestAttachmentMediaPipeline:
         return FakeMediaTranscoder()
 
     @pytest.fixture
-    async def queue(self, request_container: AsyncContainer) -> FakeQueueService:
-        queue = await request_container.get(QueueService)
-        assert isinstance(queue, FakeQueueService)
-        queue.pushed.clear()
-        return queue
-
-    @pytest.fixture
     async def handler(
         self,
         db_session: AsyncSession,
@@ -94,7 +82,6 @@ class TestAttachmentMediaPipeline:
         redis_client: Redis,
         probe: FakeMediaProbe,
         transcoder: FakeMediaTranscoder,
-        queue: FakeQueueService,
     ) -> ProccessAttachmentsCommandHandler:
         return ProccessAttachmentsCommandHandler(
             attachment_repository=attachment_repository,
@@ -111,7 +98,6 @@ class TestAttachmentMediaPipeline:
                 image_renderer=AttachmentImageRenderer(),
                 media_transcoder=transcoder,
             ),
-            queue_service=queue,
         )
 
     async def _process(
@@ -172,6 +158,38 @@ class TestAttachmentMediaPipeline:
         assert stored.size == len(original)
         assert not await exists(storage, stored.s3_key, chat_config.ATTACHMENT_BUCKET_PENDING)
 
+    async def test_clean_client_jpeg_is_kept_byte_for_byte(
+        self, handler, attachment_repository, db_session, storage, s3_test_client, group_chat,
+    ) -> None:
+        """Chatix сам жмёт фото и снимает EXIF; повторное сжатие на сервере только портит его."""
+        upload = make_jpeg(1600, 1200)
+
+        stored = await self._process(
+            handler, attachment_repository, db_session, s3_test_client, group_chat,
+            upload, mime_type="image/jpeg",
+        )
+
+        assert stored.attachment_status is AttachmentStatus.SUCCESS
+        assert await read_object(storage, stored.s3_key) == upload
+        assert stored.size == len(upload)
+        assert [p["size"] for p in stored.previews or []] == [320, 800, 1280]
+
+    async def test_exif_is_cut_out_without_re_encoding(
+        self, handler, attachment_repository, db_session, storage, s3_test_client, group_chat,
+    ) -> None:
+        plain = make_jpeg(800, 600)
+        upload = make_jpeg(800, 600, orientation=1, gps=True)
+
+        stored = await self._process(
+            handler, attachment_repository, db_session, s3_test_client, group_chat,
+            upload, mime_type="image/jpeg",
+        )
+
+        original = await read_object(storage, stored.s3_key)
+        assert GPS_LATITUDE not in original
+        assert original == plain
+        assert (stored.width, stored.height) == (800, 600)
+
     async def test_photo_gets_a_preview_ladder_and_a_thumbhash(
         self, handler, attachment_repository, db_session, storage, s3_test_client, group_chat,
     ) -> None:
@@ -227,33 +245,6 @@ class TestAttachmentMediaPipeline:
         assert await read_object(storage, stored.s3_key) == upload
         assert stored.previews and stored.thumbhash
 
-    async def test_heic_is_decoded_by_ffmpeg_and_stored_as_jpeg(
-        self, handler, attachment_repository, db_session, storage, s3_test_client, group_chat, transcoder,
-    ) -> None:
-        stored = await self._process(
-            handler, attachment_repository, db_session, s3_test_client, group_chat,
-            HEIC_BYTES, mime_type="image/heic", filename="IMG_4242.HEIC",
-        )
-
-        assert stored.attachment_status is AttachmentStatus.SUCCESS
-        assert transcoder.calls == ["decode_image"]
-        assert stored.mime_type == "image/jpeg"
-        assert stored.original_filename == "IMG_4242.jpg"
-        assert magic.from_buffer(await read_object(storage, stored.s3_key), mime=True) == "image/jpeg"
-
-    async def test_heic_ffmpeg_cannot_decode_is_rejected(
-        self, handler, attachment_repository, db_session, storage, s3_test_client, group_chat, transcoder,
-    ) -> None:
-        transcoder.decode_error = MediaTranscodeFailedError()
-
-        stored = await self._process(
-            handler, attachment_repository, db_session, s3_test_client, group_chat,
-            HEIC_BYTES, mime_type="image/heic",
-        )
-
-        assert stored.attachment_status is AttachmentStatus.ERROR
-        assert not await exists(storage, stored.s3_key)
-
     async def test_bytes_that_only_look_like_a_jpeg_are_rejected(
         self, handler, attachment_repository, db_session, storage, s3_test_client, group_chat,
     ) -> None:
@@ -282,9 +273,9 @@ class TestAttachmentMediaPipeline:
         assert stored.attachment_status is AttachmentStatus.ERROR
         assert not await exists(storage, stored.s3_key)
 
-    async def test_video_gets_a_poster_and_is_queued_for_hls(
+    async def test_video_gets_a_poster_and_a_metadata_free_faststart_copy(
         self, handler, attachment_repository, db_session, storage, s3_test_client, group_chat,
-        probe, transcoder, queue,
+        probe, transcoder,
     ) -> None:
         probe.media_info = video_info(width=1920, height=1080, duration=12.4, rotation=90)
 
@@ -300,8 +291,6 @@ class TestAttachmentMediaPipeline:
         assert stored.size == len(b"clean:" + MP4_BYTES)
         assert [p["size"] for p in stored.previews or []] == [320, 800, 1280]
         assert stored.thumbhash
-        assert stored.hls_status is HlsStatus.PENDING
-        assert queue.pushed == [(AttachmentTranscodeTask, {"attachment_id": str(stored.id)})]
 
     async def test_hdr_video_poster_is_tone_mapped(
         self, handler, attachment_repository, db_session, s3_test_client, group_chat, probe, transcoder,
@@ -327,7 +316,6 @@ class TestAttachmentMediaPipeline:
 
         assert stored.attachment_status is AttachmentStatus.SUCCESS
         assert stored.previews is None and stored.thumbhash is None
-        assert stored.hls_status is HlsStatus.PENDING
 
     async def test_remux_failure_keeps_the_uploaded_bytes(
         self, handler, attachment_repository, db_session, storage, s3_test_client, group_chat, transcoder,
@@ -343,7 +331,7 @@ class TestAttachmentMediaPipeline:
         assert await read_object(storage, stored.s3_key) == MP4_BYTES
 
     async def test_missing_ffmpeg_fails_the_upload_instead_of_hiding_it(
-        self, handler, attachment_repository, db_session, s3_test_client, group_chat, transcoder, queue,
+        self, handler, attachment_repository, db_session, s3_test_client, group_chat, transcoder,
     ) -> None:
         transcoder.frame_error = MediaTranscodeUnavailableError()
 
@@ -353,10 +341,9 @@ class TestAttachmentMediaPipeline:
         )
 
         assert stored.attachment_status is AttachmentStatus.ERROR
-        assert queue.pushed == []
 
-    async def test_video_note_gets_a_poster_but_no_hls(
-        self, handler, attachment_repository, db_session, s3_test_client, group_chat, probe, transcoder, queue,
+    async def test_video_note_gets_a_poster_and_keeps_its_bytes(
+        self, handler, attachment_repository, db_session, s3_test_client, group_chat, probe, transcoder,
     ) -> None:
         probe.media_info = video_info(width=480, height=480, duration=9.0)
         transcoder.frame_size = (480, 480)
@@ -369,20 +356,4 @@ class TestAttachmentMediaPipeline:
         assert stored.attachment_status is AttachmentStatus.SUCCESS
         assert [(p["size"], p["width"]) for p in stored.previews or []] == [(320, 320), (800, 480)]
         assert transcoder.calls == ["extract_frame:hdr=False"]
-        assert stored.hls_status is None
-        assert queue.pushed == []
 
-    async def test_source_too_large_for_transcoding_is_played_as_is(
-        self, handler, attachment_repository, db_session, s3_test_client, group_chat, probe, queue,
-    ) -> None:
-        side = chat_config.VIDEO_TRANSCODE_MAX_SOURCE_SIDE + 2
-        probe.media_info = video_info(width=side, height=side // 2)
-
-        stored = await self._process(
-            handler, attachment_repository, db_session, s3_test_client, group_chat,
-            MP4_BYTES, mime_type="video/mp4", attachment_type=AttachmentType.VIDEO,
-        )
-
-        assert stored.attachment_status is AttachmentStatus.SUCCESS
-        assert stored.hls_status is None
-        assert queue.pushed == []

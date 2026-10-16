@@ -9,14 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chats.config import chat_config
 from app.chats.exceptions import AccessDeniedChatError, AttachmentMediaValidationError
 from app.chats.metrics import ATTACHMENT_PROCESSING_SECONDS
-from app.chats.models.attachment import AttachmentStatus, HlsStatus, MessageAttachment
 from app.chats.repositories.attachment import AttachmentRepository
 from app.chats.schemas.ws import AttachmentSuccessPayload, WSEventType
 from app.chats.services.attachment_processor import AttachmentMediaProcessor
-from app.chats.tasks.transcode_attachment import AttachmentTranscodeTask
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.services.media.exceptions import MediaProbeUnavailableError, MediaTranscodeUnavailableError
-from app.core.services.queues.service import QueueService
 from app.core.services.storage.exceptions import ObjectChangedError, ObjectNotFoundError, StorageError
 from app.core.services.storage.service import StorageService
 from app.core.utils import now_utc
@@ -42,7 +39,6 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
     connection_manager: ConnectionManager
     session: AsyncSession
     media_processor: AttachmentMediaProcessor
-    queue_service: QueueService
 
     async def handle(self, command: ProccessAttachmentsCommand) -> None:
         slots = await self.attachment_repository.get_by_ids(
@@ -107,7 +103,6 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                         "width": slot.width,
                         "height": slot.height,
                         "previews": len(slot.previews or ()),
-                        "hls": slot.hls_status,
                     },
                 )
 
@@ -191,7 +186,6 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                 ).observe(time.monotonic() - started)
 
         await self.session.commit()
-        await self._schedule_transcodes(slots)
 
         try:
             successful_tokens = [t for t in processed_tokens if t not in failed_tokens]
@@ -229,15 +223,3 @@ class ProccessAttachmentsCommandHandler(BaseCommandHandler[ProccessAttachmentsCo
                 )
         except Exception:
             logger.exception("Failed to notify user of upload results")
-
-    async def _schedule_transcodes(self, slots: list[MessageAttachment]) -> None:
-        for slot in slots:
-            if slot.attachment_status != AttachmentStatus.SUCCESS or slot.hls_status != HlsStatus.PENDING:
-                continue
-            try:
-                await self.queue_service.push(AttachmentTranscodeTask, data={"attachment_id": str(slot.id)})
-            except Exception:
-                logger.exception(
-                    "Failed to enqueue HLS transcode, the sweeper will retry it",
-                    extra={"slot_id": str(slot.id)},
-                )

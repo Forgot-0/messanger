@@ -52,13 +52,6 @@ class AttachmentKeys:
     def download_url(s3_key: str) -> str:
         return f"attachment:{s3_key}"
 
-    @staticmethod
-    def transcode_lock(attachment_id: str) -> str:
-        return f"chats:attachment:transcode:lock:{attachment_id}"
-
-    @staticmethod
-    def hls_playlist(object_key: str) -> str:
-        return f"chats:attachment:hls:playlist:{object_key}"
 
 
 class AttachmentStorageKeys:
@@ -69,7 +62,3 @@ class AttachmentStorageKeys:
     @classmethod
     def preview(cls, chat_id: object, attachment_id: object, size: int, extension: str) -> str:
         return f"{cls.media_prefix(chat_id, attachment_id)}/previews/{size}.{extension}"
-
-    @classmethod
-    def hls_dir(cls, chat_id: object, attachment_id: object) -> str:
-        return f"{cls.media_prefix(chat_id, attachment_id)}/hls"

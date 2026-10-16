@@ -7,13 +7,12 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from app.chats.config import chat_config
-from app.chats.exceptions import AttachmentMediaValidationError, AttachmentRejectionReason
+from app.chats.exceptions import AttachmentMediaValidationError
 from app.chats.keys import AttachmentStorageKeys
 from app.chats.metrics import ATTACHMENT_MEDIA_DEGRADED
 from app.chats.models.attachment import AttachmentType, MessageAttachment
 from app.chats.services.attachment_images import AttachmentImageRenderer, RenderedMedia
 from app.chats.services.attachment_media import AttachmentMediaValidator
-from app.chats.services.hls import hls_eligible
 from app.core.services.media.dtos import MediaInfo
 from app.core.services.media.exceptions import MediaTranscodeError
 from app.core.services.media.service import MediaTranscoder
@@ -21,8 +20,6 @@ from app.core.services.storage.dtos import ObjectStat, UploadFile
 from app.core.services.storage.service import StorageService
 
 logger = logging.getLogger(__name__)
-
-HEIF_MIMES = frozenset({"image/heic", "image/heif"})
 
 VIDEO_CONTAINERS: dict[str, str] = {
     "video/mp4": "mp4",
@@ -64,36 +61,13 @@ class AttachmentMediaProcessor:
     async def _promote_image(
         self, attachment: MessageAttachment, stat: ObjectStat, source: Path, workdir: Path
     ) -> None:
-        decoded = source
-        if attachment.mime_type in HEIF_MIMES:
-            decoded = workdir / "decoded.png"
-            try:
-                await self.media_transcoder.decode_image(
-                    source, decoded, max_pixels=chat_config.ATTACHMENT_IMAGE_MAX_PIXELS
-                )
-            except MediaTranscodeError as exc:
-                if not exc.permanent:
-                    raise
-                raise AttachmentMediaValidationError(
-                    reason=AttachmentRejectionReason.INVALID_MEDIA,
-                    attachment_id=str(attachment.id),
-                    attachment_type=attachment.attachment_type.value,
-                ) from exc
-
-        rendered = await self.image_renderer.render_photo(attachment, decoded, workdir)
+        rendered = await self.image_renderer.render_photo(attachment, source, workdir)
         previews = await self._upload_previews(attachment, rendered.media)
 
         if rendered.original is None:
             await self._copy_original(attachment, stat)
         else:
-            size = await self._upload_original(
-                attachment, rendered.original.path, rendered.original.mime_type
-            )
-            attachment.replace_original(
-                mime_type=rendered.original.mime_type,
-                size=size,
-                extension=rendered.original.extension,
-            )
+            await self._upload_original(attachment, rendered.original)
 
         attachment.apply_media(
             width=rendered.width,
@@ -140,17 +114,9 @@ class AttachmentMediaProcessor:
         if original is source:
             await self._copy_original(attachment, stat)
         else:
-            size = await self._upload_original(attachment, original, attachment.mime_type)
-            attachment.replace_original(
-                mime_type=attachment.mime_type, size=size, extension=original.suffix.lstrip(".")
-            )
+            await self._upload_original(attachment, original)
 
         attachment.apply_media(width=None, height=None, previews=previews, thumbhash=thumbhash)
-
-        if attachment.attachment_type == AttachmentType.VIDEO and hls_eligible(
-            attachment.width, attachment.height, attachment.duration_seconds
-        ):
-            attachment.request_hls()
 
     async def _strip_video_metadata(
         self, attachment: MessageAttachment, source: Path, workdir: Path
@@ -206,7 +172,7 @@ class AttachmentMediaProcessor:
             for key, preview in zip(keys, media.previews, strict=True)
         ]
 
-    async def _upload_original(self, attachment: MessageAttachment, path: Path, mime_type: str) -> int:
+    async def _upload_original(self, attachment: MessageAttachment, path: Path) -> None:
         size = path.stat().st_size
         with path.open("rb") as content:
             await self.storage_service.upload_file(
@@ -215,10 +181,10 @@ class AttachmentMediaProcessor:
                     file_key=attachment.s3_key,
                     file_content=content,
                     size=size,
-                    content_type=mime_type,
+                    content_type=attachment.mime_type,
                 )
             )
-        return size
+        attachment.replace_original(size)
 
     async def _copy_original(self, attachment: MessageAttachment, stat: ObjectStat) -> None:
         await self.storage_service.copy_object(

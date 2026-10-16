@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chats.config import chat_config
 from app.chats.dtos.attachments import SharedMediaDTO, SharedMediaType
 from app.chats.exceptions import NotChatMemberError
-from app.chats.models.attachment import AttachmentType, HlsStatus, MessageAttachment
+from app.chats.models.attachment import AttachmentType, MessageAttachment
 from app.chats.models.chat import Chat
 from app.chats.models.message import Message, MessageType
 from app.chats.queries.attachments.get_shared_media import GetSharedMediaQuery, GetSharedMediaQueryHandler
@@ -151,8 +151,6 @@ class TestSharedMedia:
             "s3_key": f"media/{group_chat.id}/{video.id}/previews/320.webp",
         }]
         video.thumbhash = "1QcSHQRnh493V4dIh4eXh1h4kJUI"
-        video.hls_status = HlsStatus.READY
-        video.hls_key = f"media/{group_chat.id}/{video.id}/hls/master.m3u8"
         await db_session.commit()
 
         (item,) = (await self._page(handler, group_chat, user_jwt, SharedMediaType.VIDEO)).items
@@ -162,9 +160,6 @@ class TestSharedMedia:
         (preview,) = item.attachment.previews
         assert_presigned_url(preview.url or "", bucket=chat_config.ATTACHMENT_BUCKET, file_key="320.webp")
         assert item.attachment.thumbhash == "1QcSHQRnh493V4dIh4eXh1h4kJUI"
-        assert item.attachment.hls_url is not None
-        assert item.attachment.hls_url.endswith("/master.m3u8")
-        assert "hls_key" not in item.attachment.model_dump()
 
     async def test_other_chats_media_does_not_leak_in(
         self, handler, history, group_chat, user_jwt, db_session,

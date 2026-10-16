@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.chats.models.attachment import AttachmentStatus, AttachmentType, HlsStatus
+from app.chats.models.attachment import AttachmentStatus, AttachmentType
 
 
 class AttachmentPreviewDTO(BaseModel):
@@ -39,9 +39,6 @@ class AttachmentDTO(BaseModel):
 
     thumbhash: str | None = None
     previews: list[AttachmentPreviewDTO] = Field(default_factory=list)
-    hls_status: HlsStatus | None = None
-    hls_url: str | None = None
-    hls_key: str | None = Field(default=None, exclude=True)
 
     created_at: datetime
 
@@ -57,7 +54,6 @@ class AttachmentDownloadUrlDTO(BaseModel):
     attachment_id: UUID
     url: str
     expires_in: int
-    hls_url: str | None = None
 
 
 class SharedMediaType(StrEnum):

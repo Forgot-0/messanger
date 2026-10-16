@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from app.core.services.media.dtos import HlsJob, HlsRendition, StreamInfo
+from app.core.services.media.dtos import StreamInfo
 from app.core.services.media.exceptions import (
     MediaTranscodeFailedError,
     MediaTranscodeTimeoutError,
@@ -19,21 +19,6 @@ def probe_payload(**video: Any) -> dict[str, Any]:
         "format": {"duration": "4.5", "format_name": "mov,mp4,m4a,3gp,3g2,mj2"},
         "streams": [{"index": 0, "codec_type": "video", "width": 1920, "height": 1080, **video}],
     }
-
-
-def job(*, hdr: bool = False, audio: bool = True) -> HlsJob:
-    return HlsJob(
-        renditions=(
-            HlsRendition("v0", 640, 360, 800, 128),
-            HlsRendition("v1", 1280, 720, 2500, 128),
-        ),
-        has_audio=audio,
-        hdr=hdr,
-        segment_seconds=4,
-        crf=23,
-        preset="veryfast",
-        max_fps=60,
-    )
 
 
 @pytest.mark.unit
@@ -73,78 +58,6 @@ class TestProbeParsing:
 
 
 @pytest.mark.unit
-class TestFfmpegArguments:
-
-    def test_every_rendition_gets_its_own_scaled_output(self) -> None:
-        args = FfmpegMediaTranscoder().hls_args(Path("/in.mov"), Path("/out"), job())
-
-        graph = args[args.index("-filter_complex") + 1]
-        assert graph.startswith("[0:v:0]split=2[s0][s1];")
-        assert "[s0]scale=640:360" in graph and "[s1]scale=1280:720" in graph
-        assert HDR_TO_SDR_FILTER not in graph
-        assert args.count("-f") == 2 and args.count("hls") == 2
-        assert "/out/v0.m3u8" in args and "/out/v1.m3u8" in args
-        assert args[args.index("-hls_segment_filename") + 1] == "/out/v0.mp4"
-        assert "single_file+independent_segments" in args
-        assert args.count("-map_metadata") == 2
-
-    def test_hdr_source_is_tone_mapped_once_before_the_split(self) -> None:
-        args = FfmpegMediaTranscoder().hls_args(Path("/in.mov"), Path("/out"), job(hdr=True))
-
-        graph = args[args.index("-filter_complex") + 1]
-        assert graph.startswith(f"[0:v:0]{HDR_TO_SDR_FILTER},split=2")
-
-    def test_silent_video_maps_no_audio(self) -> None:
-        args = FfmpegMediaTranscoder().hls_args(Path("/in.mov"), Path("/out"), job(audio=False))
-
-        assert "0:a:0" not in args
-        assert "aac" not in args
-
-    def test_tile_grid_is_stacked_and_cropped(self) -> None:
-        layout = FfmpegMediaTranscoder._grid_layout({
-            "type": "Tile Grid",
-            "components": [{
-                "width": 1000, "height": 700, "horizontal_offset": 0, "vertical_offset": 0,
-                "subcomponents": [
-                    {"stream_index": 0, "tile_horizontal_offset": 0, "tile_vertical_offset": 0},
-                    {"stream_index": 1, "tile_horizontal_offset": 512, "tile_vertical_offset": 0},
-                    {"stream_index": 2, "tile_horizontal_offset": 0, "tile_vertical_offset": 512},
-                    {"stream_index": 3, "tile_horizontal_offset": 512, "tile_vertical_offset": 512},
-                ],
-            }],
-        })
-
-        assert (layout["width"], layout["height"]) == (1000, 700)
-        assert layout["graph"] == (
-            "[0:0][0:1][0:2][0:3]xstack=inputs=4:layout=0_0|512_0|0_512|512_512:fill=black,"
-            "crop=1000:700:0:0[img]"
-        )
-
-    def test_rotated_tile_grid_swaps_the_dimensions(self) -> None:
-        layout = FfmpegMediaTranscoder._grid_layout({
-            "side_data_list": [{"side_data_type": "Display Matrix", "rotation": -90}],
-            "components": [{
-                "width": 800, "height": 600,
-                "subcomponents": [{"stream_index": 0, "tile_horizontal_offset": 0, "tile_vertical_offset": 0}],
-            }],
-        })
-
-        assert (layout["width"], layout["height"]) == (600, 800)
-        assert layout["graph"].endswith(",transpose=clock[img]")
-
-    @pytest.mark.parametrize(
-        "group",
-        [
-            {"components": [{"width": 10, "height": 10, "subcomponents": []}]},
-            {"components": [{"height": 10, "subcomponents": [{"stream_index": 0}]}]},
-        ],
-    )
-    def test_broken_tile_grid_is_a_permanent_failure(self, group: dict[str, Any]) -> None:
-        with pytest.raises(MediaTranscodeFailedError):
-            FfmpegMediaTranscoder._grid_layout(group)
-
-
-@pytest.mark.unit
 @pytest.mark.asyncio
 class TestFfmpegProcess:
 
@@ -176,6 +89,13 @@ class TestFfmpegProcess:
 
         with pytest.raises(MediaTranscodeFailedError):
             await transcoder.strip_metadata(tmp_path / "a", tmp_path / "b.mkv", container="mkv")
+
+    async def test_hdr_frame_is_tone_mapped_before_scaling(self, tmp_path: Path) -> None:
+        args = FfmpegMediaTranscoder()._frame_args(
+            tmp_path / "a", tmp_path / "b.png", offset=0.0, max_side=1280, hdr=True
+        )
+
+        assert args[args.index("-vf") + 1].startswith(f"{HDR_TO_SDR_FILTER},scale=")
 
     async def test_successful_run_without_output_is_a_failure(self, tmp_path: Path) -> None:
         transcoder = FfmpegMediaTranscoder(binary="true")

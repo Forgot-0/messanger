@@ -1,11 +1,10 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import and_, func, literal, or_, select, text, tuple_, update
+from sqlalchemy import and_, literal, select, tuple_
 
-from app.chats.models.attachment import AttachmentStatus, AttachmentType, HlsStatus, MessageAttachment
+from app.chats.models.attachment import AttachmentStatus, AttachmentType, MessageAttachment
 from app.chats.models.message import Message
 from app.core.db.repository import CacheRepository, IRepository
 
@@ -69,41 +68,3 @@ class AttachmentRepository(IRepository[MessageAttachment], CacheRepository):
 
         rows.sort(key=lambda row: (row[0].message_seq or 0, row[0].id), reverse=True)
         return rows[:limit]
-
-    async def set_hls_state(self, root_id: UUID, status: HlsStatus, hls_key: str | None) -> None:
-        await self.session.execute(
-            update(MessageAttachment)
-            .where(
-                or_(
-                    MessageAttachment.id == root_id,
-                    MessageAttachment.source_attachment_id == root_id,
-                )
-            )
-            .values(hls_status=status, hls_key=hls_key)
-            .execution_options(synchronize_session=False)
-        )
-
-    async def find_stale_transcodes(self, older_than: datetime, limit: int) -> list[MessageAttachment]:
-        stmt = (
-            select(MessageAttachment)
-            .where(
-                text("message_attachments.hls_status = 'PENDING'"),
-                MessageAttachment.source_attachment_id.is_(None),
-                MessageAttachment.updated_at < older_than,
-            )
-            .order_by(MessageAttachment.updated_at)
-            .limit(limit)
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
-    async def touch(self, attachment_ids: Sequence[UUID]) -> None:
-        if not attachment_ids:
-            return
-
-        await self.session.execute(
-            update(MessageAttachment)
-            .where(MessageAttachment.id.in_(list(attachment_ids)))
-            .values(updated_at=func.now())
-            .execution_options(synchronize_session=False)
-        )

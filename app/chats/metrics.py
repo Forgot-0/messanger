@@ -30,15 +30,3 @@ ATTACHMENT_MEDIA_DEGRADED = Counter(
     "Attachments promoted without an optional derivative (poster, metadata-free remux)",
     labelnames=("stage",),
 )
-
-ATTACHMENT_TRANSCODE_SECONDS = Histogram(
-    "chat_attachment_transcode_seconds",
-    "Wall time of one HLS transcode, download and upload included",
-    buckets=(1, 5, 10, 30, 60, 120, 300, 600, 900, 1800),
-)
-
-ATTACHMENT_TRANSCODE_RESULTS = Counter(
-    "chat_attachment_transcode_total",
-    "HLS transcode attempts by result (ready, failed, retry, skipped, locked)",
-    labelnames=("result",),
-)

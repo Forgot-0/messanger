@@ -178,24 +178,18 @@ HTTP route (app/<module>/routes/v1/*.py)
   (`chat-pending-attachments` → валидация/обработка → `chat-attachments`). Лимиты MIME и размеров — в `config.py`.
 - **Медиаконвейер** (`services/attachment_processor.py` → `AttachmentMediaProcessor`, зовётся из
   `ProccessAttachmentsCommandHandler`): файл качается из pending один раз (пиннится `stat`), дальше по типу.
-  Фото — оригинал **перекодируется** pyvips'ом без EXIF/XMP/IPTC, поворот вшивается в пиксели, ICC остаётся
-  (`services/attachment_images.py`); HEIC/HEIF декодирует ffmpeg (в бандле pyvips нет libde265; сетка тайлов
-  айфона собирается `xstack`'ом) и сохраняется JPEG'ом; GIF — как есть. Видео — ремукс без метаданных
-  (`-map_metadata -1`, `+faststart`), первый кадр — постер (HDR тонмапится). Фото и постеры дают `previews`
-  (WebP 320/800/1280, JSONB) и `thumbhash` (`app/core/services/media/thumbhash.py`, чистый Python).
-  ffmpeg — порт `MediaTranscoder` (`app/core/services/media/service.py`), реализация
-  `transcode/ffmpeg.py`, провайдится в `ChatModuleProvider`. Производные лежат в том же приватном бакете под
+  Модель как в Telegram/WhatsApp: тяжёлое (сжатие фото и видео, HEIC → JPEG) делает клиент, сервер чистит
+  метаданные и строит превью. Фото: JPEG без EXIF-поворота чистится **без перекодирования**
+  (`app/core/services/media/jpeg.py` вырезает APP1/APP13/COM и хвост после EOI, ICC и Adobe остаются; чистый
+  JPEG от клиента выходит байт в байт); JPEG с поворотом, PNG и WebP перекодируются pyvips'ом
+  (`services/attachment_images.py`); GIF — как есть; HEIC/HEIF в `ALLOWED_IMAGE_MIMES` нет. Видео — ремукс без
+  метаданных (`-map_metadata -1`, `+faststart`), первый кадр — постер (HDR тонмапится); **HLS и серверного
+  перекодирования видео нет**: играется оригинал, перемотка — Range по presigned-ссылке. Фото и постеры дают
+  `previews` (WebP 320/800/1280, JSONB) и `thumbhash` (`app/core/services/media/thumbhash.py`, чистый Python).
+  ffmpeg — порт `MediaTranscoder` (`extract_frame`, `strip_metadata`; реализация `transcode/ffmpeg.py`,
+  провайдится в `ChatModuleProvider`). Производные лежат в том же приватном бакете под
   `media/{chat_id}/{attachment_id}/…` (`AttachmentStorageKeys`), не под `chats/…`: SeaweedFS хранит S3 на
   filer'е, файл и одноимённый каталог не уживутся.
-- **HLS**: видео получает `hls_status = pending`, после коммита ставится taskiq-задача `chats.attachment.transcode`
-  (`TranscodeAttachmentCommand`): Redis-лок, `hls_attempts` растёт до работы, ffmpeg пишет fMP4 `single_file`
-  (один файл на рендицию + `BYTERANGE`), мастер собирается в Python. `READY`/`FAILED` проставляются корню и
-  всем пересылкам одним UPDATE по `source_attachment_id` — поэтому `create_for_forward` пишет туда **корень**,
-  а не непосредственный источник. Потерянные задачи (Redis-список taskiq, рестарт деплоем) подбирает
-  `chats.attachment.transcode_sweep` по partial-индексу `ix_msg_attachments_hls_pending`. Плейлисты отдаёт
-  `GET /api/v1/chats/media/hls/{token}/{name}` (`routes/v1/media.py`, подключён раньше `/chats/{chat_id}`,
-  без слэша — исключение из инварианта 1): токен — HMAC от `SECRET_KEY` (`HlsUrlSigner`), без БД, медиафайл
-  рендиции подписывается presigned-ссылкой. Пиковая память ffmpeg на 1080p → 3 рендиции ≈ 460 MB.
 - **Общие медиа** `GET /chats/{chat_id}/media/?type=photo|video|media|file|voice|link`: `message_seq`
   денормализован в `message_attachments` (ставит `Message.create`), индекс
   `ix_msg_attachments_shared_media`; по запросу на тип и слияние в Python (не `IN (...)` — иначе сортировка
@@ -236,7 +230,7 @@ HTTP route (app/<module>/routes/v1/*.py)
 `chats` (+ `username`, `avatars`), `chat_members` (+ per-user состояние: `pinned_at`, `archived_at`, `notifications_muted_until`,
 `draft`, `draft_updated_at`), `chat_member_bans`, `chat_roles`, `chat_user_profiles`, `chat_user_blocks` (проекция
 `blocked_users`), `chat_invite_links`, `chat_pinned_messages`, `messages` (+ `action` у системных, `has_links`),
-`message_attachments` (+ `message_seq`, `previews`, `thumbhash`, `hls_status`, `hls_key`, `hls_attempts`), `message_reactions`, `message_reaction_counters`, `read_receipts`, `read_receipt_marks`,
+`message_attachments` (+ `message_seq`, `previews`, `thumbhash`), `message_reactions`, `message_reaction_counters`, `read_receipts`, `read_receipt_marks`,
 `notifications`, `user_device_tokens`,
 `outbox_messages`.
 
@@ -280,7 +274,7 @@ HTTP route (app/<module>/routes/v1/*.py)
 18. **Предикат запроса должен буквально совпадать с предикатом partial-индекса.** Postgres не выводит
     `is_deleted = false` из `is_deleted IS false` (так рендерится `.is_(False)`) и уходит в seq scan.
     Для partial-индексов писать `~Model.flag` / `Model.flag` (см. `get_link_messages_page`), а значения
-    в предикате — литералами, не bind-параметрами (`text("hls_status = 'PENDING'")`). Проверять EXPLAIN'ом.
+    в предикате — литералами, не bind-параметрами (`text("status = 'PENDING'")`). Проверять EXPLAIN'ом.
 
 ## Команды
 

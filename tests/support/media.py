@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pyvips  # type: ignore[import-untyped]
 
-from app.core.services.media.dtos import HlsJob, MediaInfo, StreamInfo
+from app.core.services.media.dtos import MediaInfo, StreamInfo
 from app.core.services.media.service import MediaProbeService, MediaTranscoder
 
 GPS_LATITUDE = struct.pack("<6I", 55, 1, 45, 1, 2112, 100)
@@ -110,22 +110,12 @@ class FakeMediaProbe(MediaProbeService):
 
 @dataclass
 class FakeMediaTranscoder(MediaTranscoder):
-    """Пишет то же, что пишет ffmpeg, но pyvips'ом и без видео: кадр — PNG нужного размера,
-    ремукс — копия, HLS — пустые на вид, но непустые файлы рендиций."""
+    """Пишет то же, что ffmpeg, но pyvips'ом: кадр — PNG нужного размера, ремукс — копия."""
 
     frame_size: tuple[int, int] = (1280, 720)
     frame_error: Exception | None = None
     remux_error: Exception | None = None
-    hls_error: Exception | None = None
-    decode_error: Exception | None = None
     calls: list[str] = field(default_factory=list)
-    hls_jobs: list[HlsJob] = field(default_factory=list)
-
-    async def decode_image(self, source: Path, destination: Path, *, max_pixels: int) -> None:
-        self.calls.append("decode_image")
-        if self.decode_error is not None:
-            raise self.decode_error
-        solid_image(*self.frame_size).write_to_file(str(destination))
 
     async def extract_frame(
         self, source: Path, destination: Path, *, offset_seconds: float, max_side: int, hdr: bool
@@ -140,19 +130,6 @@ class FakeMediaTranscoder(MediaTranscoder):
         if self.remux_error is not None:
             raise self.remux_error
         destination.write_bytes(b"clean:" + source.read_bytes())
-
-    async def transcode_hls(self, source: Path, output_dir: Path, job: HlsJob) -> None:
-        self.calls.append("transcode_hls")
-        self.hls_jobs.append(job)
-        if self.hls_error is not None:
-            raise self.hls_error
-        for rendition in job.renditions:
-            (output_dir / f"{rendition.name}.mp4").write_bytes(b"\x00" * 64)
-            (output_dir / f"{rendition.name}.m3u8").write_text(
-                "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:4\n#EXT-X-PLAYLIST-TYPE:VOD\n"
-                f'#EXT-X-MAP:URI="{rendition.name}.mp4",BYTERANGE="16@0"\n'
-                f"#EXTINF:4.000000,\n#EXT-X-BYTERANGE:48@16\n{rendition.name}.mp4\n#EXT-X-ENDLIST\n"
-            )
 
 
 def media_tool(name: str) -> str | None:

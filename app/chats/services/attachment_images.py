@@ -8,17 +8,16 @@ import pyvips  # type: ignore[import-untyped]
 from app.chats.config import chat_config
 from app.chats.exceptions import AttachmentMediaValidationError, AttachmentRejectionReason
 from app.chats.models.attachment import MessageAttachment
+from app.core.services.media.jpeg import strip_jpeg_metadata
 from app.core.services.media.thumbhash import (
     MAX_SIDE as THUMBHASH_MAX_SIDE,
     encode_thumbhash,
 )
 
-SANITIZED_FORMATS: dict[str, tuple[str, str]] = {
-    "image/jpeg": ("image/jpeg", "jpg"),
-    "image/png": ("image/png", "png"),
-    "image/webp": ("image/webp", "webp"),
-    "image/heic": ("image/jpeg", "jpg"),
-    "image/heif": ("image/jpeg", "jpg"),
+ORIGINAL_EXTENSIONS: dict[str, str] = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
 }
 
 PASSTHROUGH_MIMES = frozenset({"image/gif"})
@@ -48,18 +47,11 @@ class RenderedMedia:
 
 
 @dataclass(frozen=True)
-class SanitizedImage:
-    path: Path
-    mime_type: str
-    extension: str
-
-
-@dataclass(frozen=True)
 class RenderedPhoto:
     width: int
     height: int
     media: RenderedMedia
-    original: SanitizedImage | None
+    original: Path | None
 
 
 @dataclass
@@ -94,28 +86,36 @@ class AttachmentImageRenderer:
                 detected={"width": width, "height": height},
             )
 
-        original: SanitizedImage | None = None
+        original: Path | None = None
         if attachment.mime_type not in PASSTHROUGH_MIMES:
             original = self._sanitize(attachment, header, source, workdir)
-            sanitized = self._open(attachment, original.path)
+            sanitized = self._open(attachment, original)
             width, height = int(sanitized.width), int(sanitized.height)
 
-        media = self._render_previews(attachment, original.path if original else source)
+        media = self._render_previews(attachment, original or source)
         return RenderedPhoto(width=width, height=height, media=media, original=original)
 
     def _sanitize(
         self, attachment: MessageAttachment, header: Any, source: Path, workdir: Path
-    ) -> SanitizedImage:
-        formats = SANITIZED_FORMATS.get(attachment.mime_type)
-        if formats is None:
+    ) -> Path:
+        extension = ORIGINAL_EXTENSIONS.get(attachment.mime_type)
+        if extension is None:
             raise self._rejection(attachment, AttachmentRejectionReason.INVALID_MEDIA)
-        mime_type, extension = formats
 
         fields = set(header.get_fields())
         orientation = int(header.get("orientation")) if "orientation" in fields else 1
         pages = int(header.get("n-pages")) if "n-pages" in fields else 1
         animated = pages > 1 and extension == "webp"
         rotate = orientation != 1 and not animated
+        target = workdir / f"original.{extension}"
+
+        # Клиент уже прислал сжатый JPEG: пережатие только раздувает файл и мылит картинку.
+        # Перекодируем, лишь когда поворот из EXIF надо вшить в пиксели.
+        if extension == "jpg" and not rotate:
+            stripped = strip_jpeg_metadata(source.read_bytes())
+            if stripped is not None:
+                target.write_bytes(stripped)
+                return target
 
         options: dict[str, Any] = {"access": "random" if rotate else "sequential"}
         if animated:
@@ -128,12 +128,11 @@ class AttachmentImageRenderer:
             if extension == "jpg" and image.hasalpha():
                 image = image.flatten(background=[255, 255, 255])
 
-            target = workdir / f"original.{extension}"
             image.write_to_file(str(target), **self._original_options(extension))
         except pyvips.Error as exc:
             raise self._rejection(attachment, AttachmentRejectionReason.INVALID_MEDIA) from exc
 
-        return SanitizedImage(path=target, mime_type=mime_type, extension=extension)
+        return target
 
     def _render_previews(self, attachment: MessageAttachment, source: Path) -> RenderedMedia:
         sizes = sorted(set(chat_config.ATTACHMENT_PREVIEW_SIZES))

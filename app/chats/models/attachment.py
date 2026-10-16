@@ -9,7 +9,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    SmallInteger,
     String,
     text,
 )
@@ -31,12 +30,6 @@ class AttachmentStatus(StrEnum):
     PENDING = "pending"
     SUCCESS = "success"
     ERROR = "error"
-
-
-class HlsStatus(StrEnum):
-    PENDING = "pending"
-    READY = "ready"
-    FAILED = "failed"
 
 
 class MessageAttachment(BaseModel, DateMixin):
@@ -74,30 +67,12 @@ class MessageAttachment(BaseModel, DateMixin):
     thumbhash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     previews: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
-    hls_status: Mapped[HlsStatus | None] = mapped_column(
-        Enum(HlsStatus, native_enum=False, length=16), nullable=True
-    )
-    hls_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    hls_attempts: Mapped[int] = mapped_column(
-        SmallInteger, nullable=False, default=0, server_default=text("0")
-    )
-
     __table_args__ = (
         Index("ix_msg_attachments_chat_uploader", "chat_id", "uploader_id"),
         Index(
             "ix_msg_attachments_shared_media",
             "chat_id", "attachment_type", "message_seq", "id",
             postgresql_where=text("message_seq IS NOT NULL"),
-        ),
-        Index(
-            "ix_msg_attachments_source",
-            "source_attachment_id",
-            postgresql_where=text("source_attachment_id IS NOT NULL"),
-        ),
-        Index(
-            "ix_msg_attachments_hls_pending",
-            "updated_at",
-            postgresql_where=text("hls_status = 'PENDING'"),
         ),
     )
 
@@ -126,19 +101,11 @@ class MessageAttachment(BaseModel, DateMixin):
             original_filename=self.original_filename, size=self.size,
             attachment_status=AttachmentStatus.SUCCESS,
             width=self.width, height=self.height, duration_seconds=self.duration_seconds,
-            source_attachment_id=self.media_root_id,
+            source_attachment_id=self.id,
             thumbhash=self.thumbhash,
             previews=list(self.previews) if self.previews else None,
-            hls_status=self.hls_status,
-            hls_key=self.hls_key,
         )
         return instance
-
-    @property
-    def media_root_id(self) -> UUID:
-        """Вложение, под которое залиты байты. Пересылка пересылки указывает на корень,
-        поэтому HLS, готовый позже пересылки, проставляется всем копиям одним UPDATE."""
-        return self.source_attachment_id or self.id
 
     def bind_to_message(self, message_seq: int) -> None:
         self.message_seq = message_seq
@@ -156,20 +123,8 @@ class MessageAttachment(BaseModel, DateMixin):
         self.previews = previews or None
         self.thumbhash = thumbhash
 
-    def replace_original(self, *, mime_type: str, size: int, extension: str) -> None:
-        if mime_type != self.mime_type:
-            stem, dot, _ = self.original_filename.rpartition(".")
-            stem = stem if dot and stem else self.original_filename
-            self.original_filename = f"{stem[:255 - len(extension)]}.{extension}"
-        self.mime_type = mime_type
+    def replace_original(self, size: int) -> None:
         self.size = size
-
-    def request_hls(self) -> None:
-        self.hls_status = HlsStatus.PENDING
-        self.hls_attempts = 0
-
-    def start_hls_attempt(self) -> None:
-        self.hls_attempts += 1
 
     def set_resolution(self, width: int, height: int) -> None:
         self.width = width

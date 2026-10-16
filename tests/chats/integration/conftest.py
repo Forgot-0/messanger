@@ -17,7 +17,6 @@ from app.chats.repositories.message import MessageRepository
 from app.chats.repositories.reaction import MessageReactionRepository
 from app.chats.repositories.reads import ReadReceiptRepository
 from app.chats.services.access import ChatAccessService
-from app.chats.services.hls import HlsUrlSigner
 from app.chats.services.livekit_service import LiveKitService
 from app.chats.services.messages import MessageService
 from app.core.services.auth.dto import UserJWTData
@@ -121,7 +120,6 @@ def message_service(
         redis=redis_client,
         access_service=chat_access_service,
         storage_service=mock_storage_service,
-        hls_signer=HlsUrlSigner.from_config(),
     )
 
 @pytest.fixture

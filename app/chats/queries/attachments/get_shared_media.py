@@ -59,12 +59,12 @@ class GetSharedMediaQueryHandler(BaseQueryHandler[GetSharedMediaQuery, SharedMed
             messages = await self.message_repository.get_link_messages_page(
                         query.chat_id, limit + 1, before_seq=before[0] if before else None
                     )
-            page = messages[:limit]
+            link_page = messages[:limit]
             has_next = len(messages) > limit
             return SharedMediaDTO(
-                items=[self._item(message) for message in page],
+                items=[self._item(message) for message in link_page],
                 has_next=has_next,
-                next_cursor=str(page[-1].seq) if has_next and page else None,
+                next_cursor=str(link_page[-1].seq) if has_next and link_page else None,
             )
 
 

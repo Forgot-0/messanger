@@ -8,13 +8,13 @@ from app.chats.config import chat_config
 from app.chats.dtos.attachments import AttachmentDTO, AttachmentPreviewDTO
 from app.chats.dtos.messages import MessageDTO
 from app.chats.keys import AttachmentKeys
-from app.chats.models.attachment import AttachmentStatus, AttachmentType, HlsStatus
+from app.chats.models.attachment import AttachmentStatus, AttachmentType
 from app.chats.models.message import MessageType
 from app.chats.services.messages import MessageService
 from tests.support.http import assert_presigned_url
 
 
-def attachment_dto(s3_key: str, *previews: str, hls_key: str | None = None) -> AttachmentDTO:
+def attachment_dto(s3_key: str, *previews: str) -> AttachmentDTO:
     return AttachmentDTO(
         id=uuid4(), message_id=uuid4(), chat_id=uuid4(), uploader_id=1,
         attachment_type=AttachmentType.VIDEO, attachment_status=AttachmentStatus.SUCCESS,
@@ -24,8 +24,6 @@ def attachment_dto(s3_key: str, *previews: str, hls_key: str | None = None) -> A
             AttachmentPreviewDTO(size=320, width=320, height=180, mime_type="image/webp", file_size=1, s3_key=key)
             for key in previews
         ],
-        hls_status=HlsStatus.READY if hls_key else None,
-        hls_key=hls_key,
     )
 
 
@@ -47,19 +45,14 @@ class TestMessageAttachmentUrls:
         self, message_service: MessageService,
     ) -> None:
         quoted = attachment_dto("chats/q/1/photo.jpg", "media/q/1/previews/320.webp")
-        video = attachment_dto(
-            "chats/c/2/clip.mp4", "media/c/2/previews/320.webp", hls_key="media/c/2/hls/master.m3u8"
-        )
+        video = attachment_dto("chats/c/2/clip.mp4", "media/c/2/previews/320.webp")
 
-        message = await message_service.attach_download_urls(message_dto(video, reply_to=message_dto(quoted)))
+        await message_service.attach_download_urls(message_dto(video, reply_to=message_dto(quoted)))
 
         for item in (video, quoted):
             assert_presigned_url(item.url or "", bucket=chat_config.ATTACHMENT_BUCKET, file_key=item.s3_key)
             assert_presigned_url(item.previews[0].url or "", bucket=chat_config.ATTACHMENT_BUCKET, file_key="320.webp")
             assert item.url_expires_in == item.previews[0].url_expires_in == chat_config.DOWNLOAD_URL_TTL
-        assert message.attachments[0].hls_url is not None
-        assert message.attachments[0].hls_url.endswith("/master.m3u8")
-        assert quoted.hls_url is None
 
     async def test_links_are_cached_per_key_and_reused(
         self, message_service: MessageService, redis_client: Redis,

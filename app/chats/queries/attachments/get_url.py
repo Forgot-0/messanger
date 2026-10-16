@@ -7,10 +7,8 @@ from app.chats.exceptions import (
     AttachmentNotFoundError,
     NotChatMemberError,
 )
-from app.chats.models.attachment import HlsStatus
 from app.chats.repositories.attachment import AttachmentRepository
 from app.chats.repositories.chat import ChatRepository
-from app.chats.services.hls import HlsUrlSigner
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
 from app.core.services.storage.service import StorageService
@@ -31,7 +29,6 @@ class GetAttachmentDownloadUrlQueryHandler(
     chat_repository: ChatRepository
     attachment_repository: AttachmentRepository
     storage_service: StorageService
-    hls_signer: HlsUrlSigner
 
     async def handle(self, query: GetAttachmentDownloadUrlQuery) -> AttachmentDownloadUrlDTO:
         user_id = int(query.user_jwt_data.id)
@@ -48,14 +45,10 @@ class GetAttachmentDownloadUrlQueryHandler(
         ):
             raise AttachmentNotFoundError(attachment_id=str(query.attachment_id))
 
-        dto = await self.attachment_repository.cache(
+        return await self.attachment_repository.cache(
             AttachmentDownloadUrlDTO,  self._handle, chat_config.DOWNLOAD_URL_TTL,
             attachment_id=attachment.id, s3_key=attachment.s3_key
         )
-        if attachment.hls_status == HlsStatus.READY and attachment.hls_key:
-            dto = dto.model_copy(update={"hls_url": self.hls_signer.url(attachment.hls_key)})
-
-        return dto
 
     async def _handle(self, attachment_id: UUID, s3_key: str) -> AttachmentDownloadUrlDTO:
         url = await self.storage_service.generate_presigned_url(

@@ -59,9 +59,8 @@
 | 31 | **Пакетная пересылка — один push на пакет.** `POST /chats/{chat_id}/messages/forward_many/` создаёт N сообщений и N `new_message`, но у всех, кроме последнего, в дельте `notify: false` — на них push не уходит. Порядок — порядок сообщений в исходном чате, а не в запросе; удалённые и чужие id молча пропускаются. См. 5.4. |
 | 32 | **«Кто прочитал» — только автору, только в маленьких группах и только 7 дней.** `GET /chats/{chat_id}/messages/{message_id}/reads/` работает для group/supergroup до 100 участников, только для своего сообщения и только пока сообщению меньше 7 дней; иначе `400 READ_RECEIPTS_UNAVAILABLE` с `reason`. Время — момент, когда курсор чтения участника впервые прошёл это сообщение, а не время последнего чтения. См. 5.4.2. |
 | 28 | **Три новых статических пути под `/chats/`**: `/chats/search/`, `/chats/u/{username}/`, `/chats/invites/{code}/` (и `/chats/invites/{code}/join/`). Они объявлены **до** `/chats/{chat_id}/`; без слэша в конце — `404`, а не попадание в чат. Публичное имя чата и username пользователя — **разные пространства имён**: `@name` может одновременно быть и каналом (`/chats/u/name/`), и человеком (`/profiles/u/name/`). |
-| 33 | **Фото на сервере перекодируется, байты оригинала меняются.** После обработки у `image` нет EXIF/XMP/IPTC (GPS, модель камеры), поворот из EXIF вшит в пиксели, `width`/`height` — уже после поворота; `size` — размер сохранённого файла, а не загруженного. HEIC/HEIF сохраняется JPEG'ом: `mime_type` становится `image/jpeg`, расширение в `original_filename` — `.jpg`. GIF хранится как есть. У видео метаданные (геотег QuickTime) вырезаются ремуксом без перекодирования. Сравнивать загруженный файл с сохранённым по размеру или хэшу нельзя. См. 5.5. |
+| 33 | **С фото и видео на сервере снимаются метаданные.** У `image` нет EXIF/XMP/IPTC (GPS, модель камеры). JPEG без поворота чистится без перекодирования — пиксели те же, `size` уменьшается на размер метаданных (у фото, сжатого клиентом, байты не меняются вовсе). JPEG с тегом поворота, PNG и WebP перекодируются: поворот вшивается в пиксели, `width`/`height` — уже после поворота. GIF хранится как есть. HEIC/HEIF как фото не принимаются (`400 ATTACHMENT_VALIDATION`) — клиент перегоняет их в JPEG сам, как Telegram и WhatsApp. У видео метаданные (геотег QuickTime) вырезаются ремуксом без перекодирования. Сравнивать загруженный файл с сохранённым по размеру или хэшу нельзя. См. 5.5. |
 | 34 | **Ленту рисуют превью, а не оригиналы.** У фото, видео и кружков есть `previews` (WebP по большей стороне 320/800/1280, без апскейла — у маленьких картинок одна ступень своего размера) и `thumbhash` — заглушка до загрузки. Кэшировать превью по их `s3_key` (ссылки живут 300 с). `previews` пуст, если постер видео не удалось снять — плитку рисовать по `thumbhash`/`width`/`height`, а если и их нет, как раньше. См. 5.5. |
-| 35 | **`hls_url` появляется не сразу.** HLS-поток видео собирается в фоне после того, как вложение стало `success` и сообщение уже отправлено: пока `hls_status: "pending"`, `hls_url` — `null`, играть оригинал по `url`. Ссылка на плейлист — путь без завершающего слэша (`.../master.m3u8`) и без `Authorization`: токен в пути, живёт ≥ 2 ч. См. 5.13. |
 
 ---
 
@@ -287,7 +286,6 @@ interface ErrorResponse {
 | `CHAT_AVATAR_VALIDATION` | 400 | `{ "reason": string, "mime_type": string \| null, "file_size": number \| null }` — синхронно только на шаге запроса слота (`mime_type`, `size`, `direct_chat`); проверка содержимого файла асинхронная, см. 5.10 |
 | `USER_BLOCKED` | 403 | `{ "chat_id": string \| null, "user_id": number }` — личка заблокирована: один из собеседников заблокировал другого (`user_id` — собеседник). `chat_id: null` — при попытке создать новый direct. См. 4.13 |
 | `USER_PRIVACY_RESTRICTED` | 403 | `{ "user_ids": number[] }` — эти пользователи заблокировали вызывающего и не могут быть добавлены им в группу/канал. См. 4.13 |
-| `HLS_PLAYLIST_NOT_FOUND` | 404 | `{}` — токен в ссылке на HLS-плейлист подделан или истёк, либо такого плейлиста нет; получить свежий `hls_url` из сообщения или `download-url/`. См. 5.13 |
 
 ⚠️ `ATTACHMENT_MEDIA_VALIDATION` (класс `AttachmentMediaValidationError`) в этой таблице **намеренно не указан** — он никогда не долетает до HTTP-ответа: возникает только внутри фонового воркера `ProccessAttachmentsCommandHandler` (см. 6.5), там же перехватывается и сворачивается в `attachment_status: "error"`. Клиенту как код ошибки API не отдаётся.
 
@@ -624,7 +622,7 @@ interface ProfileLinkDTO { profile_id: number; provider: string; contact: string
 ```
 Ответ `200`, тело `"OK"` (строка). Эндпоинт только ставит фоновую задачу в очередь и сразу отвечает — никакой валидации файла на этом шаге не происходит.
 
-**Фоновая обработка** (без обратной связи в API): задача скачивает файл из `pending_avatar`, определяет реальный MIME-тип по содержимому (`python-magic`, не по расширению/заголовку), проверяет размер (≤ 5 МБ, `AVATAR_MAX_SIZE`) — при нарушении генерируется `AVATAR_SIZE`/`AVATAR_NOT_TYPE_IMAGE`, но это не долетает до клиента как HTTP-ответ (см. раздел 2.5), просто новый аватар не появится. При успехе генерируются 4 размера (32/64/256/512) × 3 формата (jpg/webp/avif), заливаются в бакет `profiles` и складываются в `ProfileDTO.avatars`. Клиенту стоит после шага 3 подождать и переопросить `GET /profiles/{id}/` (например с retry/poll в течение нескольких секунд), а если `avatars` не изменился — считать, что загрузка не удалась, и позволить попробовать снова.
+**Фоновая обработка** (без обратной связи в API): задача скачивает файл из `pending_avatar`, определяет реальный MIME-тип по содержимому (`python-magic`, не по расширению/заголовку; допустимы `image/jpeg`, `image/png`, `image/webp` — HEIC клиент перегоняет в JPEG сам), проверяет размер (≤ 5 МБ, `AVATAR_MAX_SIZE`) — при нарушении генерируется `AVATAR_SIZE`/`AVATAR_NOT_TYPE_IMAGE`, но это не долетает до клиента как HTTP-ответ (см. раздел 2.5), просто новый аватар не появится. При успехе генерируются 4 размера (32/64/256/512) × 3 формата (jpg/webp/avif), заливаются в бакет `profiles` и складываются в `ProfileDTO.avatars`. Клиенту стоит после шага 3 подождать и переопросить `GET /profiles/{id}/` (например с retry/poll в течение нескольких секунд), а если `avatars` не изменился — считать, что загрузка не удалась, и позволить попробовать снова.
 
 ### 4.6 Ссылки на внешние профили (`links`)
 
@@ -877,7 +875,6 @@ interface BlockedListDTO {
 | `/chats/{chat_id}/messages` | `routes/v1/messages.py` | `chat-messages` | ✅ |
 | `/chats/{chat_id}/pinned_messages` | `routes/v1/pins.py` | `chat-pinned-messages` | ✅ |
 | `/chats/{chat_id}` | `routes/v1/attachments.py` (в т.ч. `/media/`) | `chat-attachments` | ✅ |
-| `/chats/media/hls/{token}/{name}` | `routes/v1/media.py` (подключён раньше `/chats/{chat_id}`; без слэша в конце) | `chat-media` | ✅ |
 | `/chats/{chat_id}/calls` | `routes/v1/calls.py` | `chat-calls` | ✅ |
 | `/chats` (ws) | `routes/v1/ws.py` | `chats-ws` | ✅ |
 | `/chats/{chat_id}/messages/{message_id}/reactions` | `routes/v1/reactions.py` | `chat-reactions` | ✅ |
@@ -1379,7 +1376,7 @@ interface MessageSearchDTO {      // курсорная пагинация, has_
 ⚠️ **Правило эксклюзивности**: `voice` и `video_note` нельзя смешивать ни друг с другом, ни с media/file в одном запросе. Нарушение → `400 ATTACHMENT_LIMIT_EXCEEDED`.
 
 **Разрешённые MIME** (полные списки из `chat_config`):
-- Изображения: `image/jpeg, image/png, image/gif, image/webp, image/heic, image/heif`
+- Изображения: `image/jpeg, image/png, image/gif, image/webp` (HEIC/HEIF клиент перегоняет в JPEG до отправки)
 - Видео: `video/mp4, video/webm, video/quicktime, video/x-msvideo`
 - Файлы: `application/pdf, application/zip, application/x-zip-compressed, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/plain, text/csv`
 - Голосовые: `audio/ogg, audio/opus, audio/mpeg, audio/mp4, audio/aac, audio/webm, audio/x-m4a`
@@ -1423,9 +1420,9 @@ Array<{
 
 | Тип | Проверка | Что сохраняется | Производные |
 |---|---|---|---|
-| `image` | декодируется целиком (pyvips; HEIC/HEIF — ffmpeg, включая сетку тайлов айфона); не больше 100 Мпикс (`ATTACHMENT_IMAGE_MAX_PIXELS`) | **перекодированный** оригинал без EXIF/XMP/IPTC, поворот из EXIF вшит в пиксели, ICC-профиль сохранён; JPEG q92 прогрессивный, PNG без потерь, WebP (анимация сохраняется). HEIC/HEIF → JPEG. **GIF — байт в байт** | `previews` 320/800/1280 + `thumbhash` |
-| `video` | ffprobe: есть видеодорожка, длительность и размеры читаются | ремукс без метаданных (геотег, title) с `+faststart`, без перекодирования; если ремукс не удался — исходные байты | постер = первый кадр (HDR тонмапится в SDR) → `previews` + `thumbhash`; затем в фоне HLS (5.13) |
-| `video_note` | как раньше (≤ 60 с, ≤ 640 px, ≤ 60 fps) | байты как есть | постер → `previews` + `thumbhash`, без HLS |
+| `image` | декодируется (pyvips); не больше 100 Мпикс (`ATTACHMENT_IMAGE_MAX_PIXELS`) | оригинал без EXIF/XMP/IPTC и без данных после конца картинки, ICC-профиль сохранён. **JPEG без поворота — без перекодирования** (вырезаются сегменты метаданных); JPEG с поворотом — перекодирование q92 с поворотом в пикселях; PNG — без потерь; WebP — перекодирование (анимация сохраняется). **GIF — байт в байт** | `previews` 320/800/1280 + `thumbhash` |
+| `video` | ffprobe: есть видеодорожка, длительность и размеры читаются | ремукс без метаданных (геотег, title) с `+faststart`, без перекодирования; если ремукс не удался — исходные байты | постер = первый кадр (HDR тонмапится в SDR) → `previews` + `thumbhash` |
+| `video_note` | как раньше (≤ 60 с, ≤ 640 px, ≤ 60 fps) | байты как есть | постер → `previews` + `thumbhash` |
 | `voice` | как раньше | байты как есть | — |
 | `file` | — | байты как есть | — |
 
@@ -1435,7 +1432,7 @@ Array<{
 
 **Шаг 4 — отправить сообщение**, передав `upload_tokens` из шагов 1/3 в `POST /chats/{chat_id}/messages/` (раздел 5.4) с корректным `message_type`.
 
-**Скачивание:** `GET /chats/{chat_id}/messages/{message_id}/attachments/{attachment_id}/download-url/` → `AttachmentDownloadUrlDTO { attachment_id: string; url: string; expires_in: number; hls_url: string | null }` (ссылка живёт 300 секунд, генерировать заново при истечении; `hls_url` — см. 5.13).
+**Скачивание:** `GET /chats/{chat_id}/messages/{message_id}/attachments/{attachment_id}/download-url/` → `AttachmentDownloadUrlDTO { attachment_id: string; url: string; expires_in: number }` (ссылка живёт 300 секунд, генерировать заново при истечении; видео по ней играется с перемоткой — см. 5.13).
 
 ```ts
 interface AttachmentDTO {
@@ -1448,8 +1445,6 @@ interface AttachmentDTO {
   duration_seconds: number | null;
   thumbhash: string | null;                       // base64 (с паддингом), ThumbHash: заглушка + пропорции
   previews: AttachmentPreviewDTO[];               // [] у file/voice и пока не обработано
-  hls_status: "pending" | "ready" | "failed" | null;  // только у video; null — не video или исходник больше лимитов 5.13
-  hls_url: string | null;                         // только при hls_status = "ready", см. 5.13
   created_at: string;
 }
 
@@ -1712,7 +1707,7 @@ interface ChatInvitePreviewDTO { chat: ChatPreviewDTO; expires_at: string | null
 либо `403`, если нет права).
 
 **Шаг 1 — `POST /chats/{chat_id}/avatar/upload-requests/`** `{ mime_type, file_size }`
-- `mime_type` ∈ `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`;
+- `mime_type` ∈ `image/jpeg`, `image/png`, `image/webp` (HEIC клиент перегоняет в JPEG сам);
   `file_size` ≤ 5 МБ. Иначе — `400 CHAT_AVATAR_VALIDATION` сразу.
 ```ts
 interface ChatAvatarUploadSlotDTO {
@@ -1806,7 +1801,7 @@ interface PinnedMessagesDTO {
     author_id: number | null;
     content: string | null;        // подпись к медиа / текст сообщения со ссылкой
     created_at: string;            // время сообщения
-    attachment: AttachmentDTO | null;  // null только у type = "link"; ссылки, previews, thumbhash, hls_url — как в 5.5
+    attachment: AttachmentDTO | null;  // null только у type = "link"; ссылки, previews, thumbhash — как в 5.5
   }>;
   has_next: boolean;
   next_cursor: string | null;
@@ -1827,23 +1822,14 @@ interface PinnedMessagesDTO {
 - Удалённые сообщения и вложения не в статусе `success` не попадают. Права — как у ленты: участник без бана, иначе `403 NOT_CHAT_MEMBER`.
 - Под капотом: `message_attachments.message_seq` (проставляется при отправке/пересылке) + индекс `ix_msg_attachments_shared_media (chat_id, attachment_type, message_seq, id)`; для `link` — флаг `messages.has_links` и partial-индекс `ix_messages_chat_links`. Страница — обратный проход по индексу и `limit` строк, независимо от размера чата.
 
-### 5.13 Видеопоток (HLS)
+### 5.13 Воспроизведение видео
 
-После того как видео стало `success`, воркер в фоне перекодирует его в H.264 High / AAC и собирает HLS (fMP4, сегменты по 4 с, независимые). Рендиции — по короткой стороне без апскейла: 360p (800 кбит/с), 720p (2.5 Мбит/с), 1080p (5 Мбит/с); вертикальное видео — так же, по ширине. HDR (HLG/PQ с айфона) тонмапится в SDR BT.709. Видео больше 4096 px по длинной стороне или длиннее 3 ч в HLS не перекодируются (`hls_status: null`) — играть оригинал.
+Как в Telegram и WhatsApp: отдельного потокового формата нет, видео играется из оригинала по `url`.
 
-Жизненный цикл `hls_status`: `pending` → `ready` | `failed`. Пока `pending` — играть оригинал по `url` (после ремукса у MP4/MOV `moov` в начале, перемотка по Range работает). Нового WS-события о готовности нет: `hls_url` появляется в любом следующем чтении сообщения (лента, `download-url/`, общие медиа). Пересланные копии получают поток вместе с оригиналом.
-
-**Ссылка.** `hls_url` = `{HLS_PUBLIC_BASE_URL}/api/v1/chats/media/hls/{token}/master.m3u8`. Если `HLS_PUBLIC_BASE_URL` на сервере не задан — это **путь** от origin API (дополнить базовым URL клиента). Запрос по ней — **без** `Authorization`: доступ даёт токен в пути (HMAC, живёт не меньше `HLS_URL_TTL` = 2 ч и одинаков в пределах часа, так что кэш плеера не сбрасывается). Подставлять заголовок нельзя ещё и потому, что плеер понесёт его на presigned-ссылки сегментов, а S3 отвергает запрос с двумя способами авторизации.
-
-```
-GET /api/v1/chats/media/hls/{token}/master.m3u8   → application/vnd.apple.mpegurl
-GET /api/v1/chats/media/hls/{token}/v0.m3u8       → плейлист рендиции
-```
-
-- Мастер ссылается на рендиции относительными путями (`v0.m3u8`), они резолвятся в тот же `{token}`. Путь **без слэша на конце** — исключение из правила 1.1, иначе относительные ссылки не сработают.
-- В плейлисте рендиции один медиафайл на всю рендицию (`EXT-X-MAP` + `EXT-X-BYTERANGE`), он подписан presigned-ссылкой на `HLS_SEGMENT_URL_TTL` = 3 ч; плеер качает только нужные байтовые диапазоны — перемотка без скачивания файла целиком.
-- `Cache-Control: private, max-age=300`. Истёкший или подделанный токен, неизвестное имя плейлиста — `404 HLS_PLAYLIST_NOT_FOUND`.
-- Flutter: `VideoPlayerController.networkUrl(Uri.parse(hlsUrl))` без `httpHeaders`; `formatHint: VideoFormat.hls` можно указать явно.
+- При обработке MP4/MOV ремуксятся с `+faststart`: индекс `moov` переносится в начало файла (у записи с телефона он в конце). Плеер читает первые килобайты, сразу показывает видео и при перемотке запрашивает нужный кусок через `Range` — presigned-ссылка SeaweedFS отвечает `206 Partial Content`. Скачивать файл целиком не нужно.
+- Flutter: `VideoPlayerController.networkUrl(Uri.parse(url))`. `url` живёт 300 с: если плеер открыт дольше и получил `403`, запросить свежий через `download-url/` и продолжить с той же позиции.
+- Сервер видео **не перекодирует** — какой кодек и битрейт загрузили, такой и играется. Поэтому, как в Telegram, сжимать видео перед отправкой должен клиент: H.264 (AVC) + AAC в MP4, длинная сторона до 1280 (или 1920 для «HD»), 1.5–3 Мбит/с. HEVC с айфона без сжатия играется не везде на Android.
+- Постер и заглушка до загрузки — `previews` и `thumbhash` вложения (5.5).
 
 ## 6. Чаты — WebSocket
 

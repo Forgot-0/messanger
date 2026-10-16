@@ -10,7 +10,7 @@ class ProfileConfig(BaseConfig):
     AVATAR_MAX_SIZE: int = 5*1024*1024
     AVATAR_MAX_PIXELS: int = 10_000_000
     AVATAR_ALLOWED_MIMES: frozenset[str] = frozenset(
-        {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+        {"image/jpeg", "image/png", "image/webp"}
     )
 
 

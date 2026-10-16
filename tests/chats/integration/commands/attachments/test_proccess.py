@@ -16,7 +16,6 @@ from app.chats.repositories.attachment import AttachmentRepository
 from app.chats.services.attachment_images import AttachmentImageRenderer
 from app.chats.services.attachment_media import AttachmentMediaValidator
 from app.chats.services.attachment_processor import AttachmentMediaProcessor
-from app.core.services.queues.service import QueueService
 from app.core.services.storage.aioboto.client import S3Client
 from app.core.services.storage.exceptions import ObjectNotFoundError, StorageError
 from app.core.services.storage.service import StorageService
@@ -83,7 +82,6 @@ class TestProccessAttachments:
                 image_renderer=AttachmentImageRenderer(),
                 media_transcoder=FakeMediaTranscoder(),
             ),
-            queue_service=await request_container.get(QueueService),
         )
 
     async def _slot(

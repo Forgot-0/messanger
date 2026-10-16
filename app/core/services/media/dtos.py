@@ -55,27 +55,3 @@ class MediaInfo:
     @property
     def audio_streams(self) -> tuple[StreamInfo, ...]:
         return tuple(stream for stream in self.streams if stream.codec_type == "audio")
-
-
-@dataclass(frozen=True)
-class HlsRendition:
-    name: str
-    width: int
-    height: int
-    video_kbps: int
-    audio_kbps: int
-
-    @property
-    def bandwidth(self) -> int:
-        return (self.video_kbps + self.audio_kbps) * 1000
-
-
-@dataclass(frozen=True)
-class HlsJob:
-    renditions: tuple[HlsRendition, ...]
-    has_audio: bool
-    hdr: bool
-    segment_seconds: int
-    crf: int
-    preset: str
-    max_fps: int

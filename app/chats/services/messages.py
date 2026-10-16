@@ -10,11 +10,9 @@ from app.chats.dtos.messages import MessageDTO
 from app.chats.dtos.profiles import ChatProfileDTO
 from app.chats.exceptions import SlowModeLimitError
 from app.chats.keys import AttachmentKeys
-from app.chats.models.attachment import HlsStatus
 from app.chats.models.chat import Chat
 from app.chats.models.chat_members import ChatMember
 from app.chats.services.access import ChatAccessService
-from app.chats.services.hls import HlsUrlSigner
 from app.core.services.storage.service import StorageService
 
 if TYPE_CHECKING:
@@ -43,7 +41,6 @@ class MessageService:
     redis: Redis
     access_service: ChatAccessService
     storage_service: StorageService
-    hls_signer: HlsUrlSigner
 
     async def is_slow(self, chat: Chat, user_id: int, member: ChatMember | None) -> None:
         if chat.slow_mode_seconds <= 0 or self.access_service.can_bypass_slow_mode(member):
@@ -99,8 +96,6 @@ class MessageService:
             for preview in item.previews:
                 preview.url = urls.get(preview.s3_key)
                 preview.url_expires_in = chat_config.DOWNLOAD_URL_TTL
-            if item.hls_status == HlsStatus.READY and item.hls_key:
-                item.hls_url = self.hls_signer.url(item.hls_key)
 
     async def presigned_attachment_urls(self, keys: Iterable[str]) -> dict[str, str]:
         unique = list(dict.fromkeys(key for key in keys if key))

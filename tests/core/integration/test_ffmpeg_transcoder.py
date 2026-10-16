@@ -4,8 +4,6 @@ from pathlib import Path
 import pytest
 import pyvips  # type: ignore[import-untyped]
 
-from app.chats.services.hls import plan_renditions
-from app.core.services.media.dtos import HlsJob
 from app.core.services.media.probe.ffprobe import FfprobeMediaProbeService
 from app.core.services.media.transcode.ffmpeg import FfmpegMediaTranscoder
 from tests.support.media import media_tool
@@ -49,7 +47,7 @@ async def make_clip(path: Path, *, rotation: int = 0, hdr: bool = False, locatio
 
 @pytest.fixture
 def transcoder() -> FfmpegMediaTranscoder:
-    return FfmpegMediaTranscoder(binary=FFMPEG, probe_binary=FFPROBE, nice=0)  # type: ignore[arg-type]
+    return FfmpegMediaTranscoder(binary=FFMPEG, nice=0)  # type: ignore[arg-type]
 
 
 @pytest.fixture
@@ -102,30 +100,3 @@ class TestFfmpegTranscoder:
         cleaned = (tmp_path / "clean.mov").read_bytes()
         assert b"+55.7558+037.6173" not in cleaned
         assert b"secret" not in cleaned
-
-    async def test_hls_has_one_byte_ranged_file_per_rendition(
-        self, tmp_path: Path, transcoder: FfmpegMediaTranscoder, probe: FfprobeMediaProbeService
-    ) -> None:
-        source = tmp_path / "clip.mov"
-        await make_clip(source)
-        output = tmp_path / "hls"
-        output.mkdir()
-        renditions = plan_renditions(640, 360)
-
-        await transcoder.transcode_hls(
-            source,
-            output,
-            HlsJob(
-                renditions=renditions, has_audio=True, hdr=False, segment_seconds=2,
-                crf=30, preset="ultrafast", max_fps=30,
-            ),
-        )
-
-        playlist = (output / "v0.m3u8").read_text()
-        assert '#EXT-X-MAP:URI="v0.mp4",BYTERANGE=' in playlist
-        assert "#EXT-X-BYTERANGE:" in playlist
-        assert "#EXT-X-ENDLIST" in playlist
-        assert {line for line in playlist.splitlines() if not line.startswith("#")} == {"v0.mp4"}
-        info = await probe.probe(output / "v0.mp4")
-        assert info.video_streams[0].codec_name == "h264"
-        assert info.video_streams[0].display_size == (renditions[0].width, renditions[0].height)
