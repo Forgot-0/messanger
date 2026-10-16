@@ -12,6 +12,7 @@ from app.auth.models.role import Role, UserRoles
 from app.profiles.models.profile_link import ProfileLink
 from app.profiles.models.profile import Profile
 from app.profiles.models.contacts import BlockedUser, PendingContact, UserContact, UserIdentifier
+from app.profiles.models.privacy import ProfilePrivacy, ProfilePrivacyException
 
 from app.chats.models.attachment import MessageAttachment
 from app.chats.models.chat import Chat
@@ -23,6 +24,7 @@ from app.chats.models.pinned_message import ChatPinnedMessage
 from app.chats.models.profile import ChatUserProfile
 from app.chats.models.reaction import MessageReaction, MessageReactionCounter
 from app.chats.models.blocks import ChatUserBlock
+from app.chats.models.privacy import ChatUserContact, ChatUserPrivacyException
 from app.chats.models.invite import ChatInviteLink
 
 from app.notifications.models.device import UserDeviceToken

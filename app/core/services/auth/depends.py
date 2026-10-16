@@ -26,5 +26,21 @@ class UserJWTDataGetter:
         )
         return user_jwt_data
 
+class OptionalUserJWTDataGetter:
+    @inject
+    async def __call__(
+        self,
+        jwt_manager: FromDishka[JWTManager],
+        credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    ) -> UserJWTData | None:
+        if credentials is None:
+            return None
+
+        return UserJWTData.create_from_token(
+            await jwt_manager.validate_token(credentials.credentials)
+        )
+
+
 CurrentUserJWTData = Annotated[UserJWTData, Depends(UserJWTDataGetter())]
+OptionalCurrentUserJWTData = Annotated[UserJWTData | None, Depends(OptionalUserJWTDataGetter())]
 

@@ -6,6 +6,8 @@ from app.profiles.dtos.profiles import ProfileDTO
 from app.profiles.filters.profiles import ProfileFilter
 from app.profiles.repositories.contacts import BlockedUserRepository
 from app.profiles.repositories.profiles import ProfileRepository
+from app.profiles.services.avatar_urls import ProfileAvatarUrlService
+from app.profiles.services.privacy import ProfilePrivacyService
 
 
 @dataclass(frozen=True)
@@ -19,6 +21,8 @@ class GetProfilesQuery(BaseQuery):
 class GetProfilesQueryHandler(BaseQueryHandler[GetProfilesQuery, PageResult[ProfileDTO]]):
     profile_repository: ProfileRepository
     blocked_repository: BlockedUserRepository
+    avatar_url_service: ProfileAvatarUrlService
+    privacy_service: ProfilePrivacyService
 
     async def handle(self, query: GetProfilesQuery) -> PageResult[ProfileDTO]:
         if query.query is not None:
@@ -35,6 +39,9 @@ class GetProfilesQueryHandler(BaseQueryHandler[GetProfilesQuery, PageResult[Prof
         for profile in page.items:
             if profile.id in hidden:
                 profile.avatars = {}
+
+        await self.privacy_service.hide_photos(query.viewer_id, page.items)
+        await self.avatar_url_service.attach(page.items)
 
         return page
 

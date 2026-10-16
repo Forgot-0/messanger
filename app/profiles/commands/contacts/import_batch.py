@@ -23,8 +23,10 @@ from app.profiles.repositories.contacts import (
     ContactUpsert,
     PendingUpsert,
 )
+from app.profiles.services.avatar_urls import ProfileAvatarUrlService
 from app.profiles.services.contact_access import check_contact_owner
 from app.profiles.services.identifier_hasher import IdentifierHasher
+from app.profiles.services.privacy import ProfilePrivacyService
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,8 @@ class ImportContactsCommandHandler(
     hasher: IdentifierHasher
     rbac_manager: RBACManagerInterface
     event_bus: BaseEventBus
+    avatar_url_service: ProfileAvatarUrlService
+    privacy_service: ProfilePrivacyService
 
     async def handle(self, command: ImportContactsCommand) -> ImportContactsResultDTO:
         check_contact_owner(self.rbac_manager, command.owner_id, command.user_jwt_data)
@@ -118,13 +122,19 @@ class ImportContactsCommandHandler(
             },
         )
 
+        contact_dtos = [UserContactDTO.model_validate(contact) for contact in contacts]
+        await self.privacy_service.hide_photos(
+            command.owner_id, [item.profile for item in contact_dtos]
+        )
+        await self.avatar_url_service.attach(item.profile for item in contact_dtos)
+
         return ImportContactsResultDTO(
             status=ImportStatus.DONE,
             accepted=len(command.entries),
             matched=len(matched),
             pending=len(pending),
             invalid=invalid,
-            contacts=[UserContactDTO.model_validate(contact) for contact in contacts],
+            contacts=contact_dtos,
         )
 
     def _hash_entries(

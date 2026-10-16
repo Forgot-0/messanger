@@ -12,7 +12,9 @@ from app.profiles.dtos.contacts import (
 )
 from app.profiles.repositories.contacts import BlockedUserRepository, ContactRepository
 from app.profiles.repositories.profiles import ProfileRepository
+from app.profiles.services.avatar_urls import ProfileAvatarUrlService
 from app.profiles.services.contact_access import check_contact_owner
+from app.profiles.services.privacy import ProfilePrivacyService
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,8 @@ class SearchContactsQueryHandler(BaseQueryHandler[SearchContactsQuery, ContactSe
     profile_repository: ProfileRepository
     blocked_repository: BlockedUserRepository
     rbac_manager: RBACManagerInterface
+    avatar_url_service: ProfileAvatarUrlService
+    privacy_service: ProfilePrivacyService
 
     async def handle(self, query: SearchContactsQuery) -> ContactSearchDTO:
         check_contact_owner(self.rbac_manager, query.owner_id, query.user_jwt_data)
@@ -51,6 +55,11 @@ class SearchContactsQueryHandler(BaseQueryHandler[SearchContactsQuery, ContactSe
         for item in result.items:
             if item.user_id in hidden and item.profile is not None:
                 item.profile.avatars = {}
+
+        await self.privacy_service.hide_photos(
+            query.owner_id, [item.profile for item in result.items]
+        )
+        await self.avatar_url_service.attach(item.profile for item in result.items)
 
         return result
 

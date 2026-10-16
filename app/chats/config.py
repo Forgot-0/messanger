@@ -186,7 +186,7 @@ class ChatConfig(BaseConfig):
         "image/jpeg", "image/png", "image/webp",
     })
     CHAT_AVATAR_SIZES: tuple[int, ...] = (32, 64, 256, 512)
-    CHAT_AVATAR_FORMATS: tuple[str, ...] = ("jpg", "webp", "avif")
+    CHAT_AVATAR_FORMATS: tuple[str, ...] = ("jpg", "webp")
     CHAT_AVATAR_UPLOAD_TTL: int = 600
     CHAT_AVATAR_RATE_LIMIT_TIMES: int = 10
     CHAT_AVATAR_RATE_LIMIT_SECONDS: int = 300
@@ -224,5 +224,12 @@ class ChatConfig(BaseConfig):
     BLOCK_PROJECTION_GROUP_ID: str = "chat_block_projection"
     USER_BLOCKED_EVENT: str = "profiles.user.blocked"
     USER_UNBLOCKED_EVENT: str = "profiles.user.unblocked"
+
+    CONTACTS_PROJECTION_GROUP_ID: str = "chat_contacts_projection"
+    CONTACT_ADDED_EVENT: str = "profiles.contact.added"
+    CONTACT_REMOVED_EVENT: str = "profiles.contact.removed"
+
+    PRIVACY_PROJECTION_GROUP_ID: str = "chat_privacy_projection"
+    PRIVACY_UPDATED_EVENT: str = "profiles.privacy.updated"
 
 chat_config = ChatConfig()

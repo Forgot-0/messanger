@@ -40,6 +40,7 @@ from app.chats.commands.chats.unban_member import UnbanMemberCommand, UnbanMembe
 from app.chats.commands.chats.unmute_member import UnmuteMemberCommand, UnmuteMemberCommandHandler
 from app.chats.commands.chats.update import UpdateChatCommand, UpdateChatCommandHandler
 from app.chats.commands.chats.update_state import UpdateChatStateCommand, UpdateChatStateCommandHandler
+from app.chats.commands.contacts.apply import ApplyUserContactCommand, ApplyUserContactCommandHandler
 from app.chats.commands.invites.create import CreateInviteLinkCommand, CreateInviteLinkCommandHandler
 from app.chats.commands.invites.join import JoinChatByInviteCommand, JoinChatByInviteCommandHandler
 from app.chats.commands.invites.revoke import RevokeInviteLinkCommand, RevokeInviteLinkCommandHandler
@@ -51,6 +52,10 @@ from app.chats.commands.messages.modify import EditMessageCommand, EditMessageCo
 from app.chats.commands.messages.send import SendMessageCommand, SendMessageCommandHandler
 from app.chats.commands.pins.pin import PinMessageCommand, PinMessageCommandHandler
 from app.chats.commands.pins.unpin import UnpinMessagesCommand, UnpinMessagesCommandHandler
+from app.chats.commands.privacy.apply import (
+    ApplyProfilePrivacyCommand,
+    ApplyProfilePrivacyCommandHandler,
+)
 from app.chats.commands.profiles.upsert import UpsertProfileProjectionCommand, UpsertProfileProjectionCommandHandler
 from app.chats.commands.reactions.remove import RemoveReactionCommand, RemoveReactionCommandHandler
 from app.chats.commands.reactions.set import SetReactionCommand, SetReactionCommandHandler
@@ -92,6 +97,7 @@ from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.invite import ChatInviteLinkRepository
 from app.chats.repositories.message import MessageRepository
 from app.chats.repositories.pinned_message import ChatPinnedMessageRepository
+from app.chats.repositories.privacy import ChatPrivacyProjectionRepository
 from app.chats.repositories.reaction import MessageReactionRepository
 from app.chats.repositories.reads import ReadReceiptRepository
 from app.chats.repositories.user_profile import ChatUserProfileRepository
@@ -186,6 +192,8 @@ class ChatModuleProvider(Provider):
         ProcessChatAvatarCommandHandler,
         RemoveChatAvatarCommandHandler,
         ApplyUserBlockCommandHandler,
+        ApplyUserContactCommandHandler,
+        ApplyProfilePrivacyCommandHandler,
         PinMessageCommandHandler,
         UnpinMessagesCommandHandler,
         scope=Scope.REQUEST,
@@ -220,6 +228,7 @@ class ChatModuleProvider(Provider):
         ReadReceiptRepository,
         ChatUserProfileRepository,
         ChatUserBlockRepository,
+        ChatPrivacyProjectionRepository,
         ChatInviteLinkRepository,
         ChatPinnedMessageRepository,
         scope=Scope.REQUEST,
@@ -283,6 +292,10 @@ class ChatModuleProvider(Provider):
         command_registry.register_command(ProcessChatAvatarCommand, ProcessChatAvatarCommandHandler)
         command_registry.register_command(RemoveChatAvatarCommand, RemoveChatAvatarCommandHandler)
         command_registry.register_command(ApplyUserBlockCommand, ApplyUserBlockCommandHandler)
+        command_registry.register_command(ApplyUserContactCommand, ApplyUserContactCommandHandler)
+        command_registry.register_command(
+            ApplyProfilePrivacyCommand, ApplyProfilePrivacyCommandHandler
+        )
         command_registry.register_command(PinMessageCommand, PinMessageCommandHandler)
         command_registry.register_command(UnpinMessagesCommand, UnpinMessagesCommandHandler)
         return command_registry

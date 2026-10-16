@@ -12,7 +12,7 @@ from app.core.services.storage.dtos import UploadFile
 from app.core.services.storage.service import StorageService
 from app.profiles.config import profile_config
 from app.profiles.exceptions import AvatarFileKeyError, AvatarNotImageTypeError, AvatarSizeError, NotFoundProfileError
-from app.profiles.models.profile import SizeAvatar
+from app.profiles.models.profile import SizeAvatar, TypeImageAvatar
 from app.profiles.repositories.profiles import ProfileRepository
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,12 @@ class ProccessAvatarCommandHandler(BaseCommandHandler[ProccessAvatarCommand, Non
                 current_size=stat.size
             )
 
-        data = await self.storage_service.download(profile_config.PENDING_AVATAR_BUCKET, command.file_key)
+        data = await self.storage_service.download_bytes(
+            profile_config.PENDING_AVATAR_BUCKET,
+            command.file_key,
+            max_bytes=profile_config.AVATAR_MAX_SIZE,
+            stat=stat,
+        )
         mime = magic.from_buffer(data, mime=True)
 
         if mime not in profile_config.AVATAR_ALLOWED_MIMES:
@@ -56,39 +61,25 @@ class ProccessAvatarCommandHandler(BaseCommandHandler[ProccessAvatarCommand, Non
         if img.width <= 0 or img.height <= 0 or img.width * img.height > profile_config.AVATAR_MAX_PIXELS: # type: ignore
             raise AvatarSizeError(current_size=img.width * img.height) # type: ignore
 
-        versions = {}
+        versions: dict[int, dict[str, str]] = {}
 
-        for s in SizeAvatar:
-            thumb = img.thumbnail_image(s, height=s, crop="centre") # type: ignore
+        for size in SizeAvatar:
+            thumb = img.thumbnail_image(size, height=size, crop="centre") # type: ignore
 
-            webp = thumb.write_to_buffer(".webp") # type: ignore
-            avif = thumb.write_to_buffer(".avif") # type: ignore
-            jpg = thumb.write_to_buffer(".jpg") # type: ignore
+            variants: dict[str, str] = {}
+            for image_type in TypeImageAvatar:
+                content: bytes = thumb.write_to_buffer(f".{image_type.value}", strip=True) # type: ignore
+                file_key = f"{command.user_id}/{size.value}.{image_type.value}"
 
-            key_webp = f"{command.user_id}/{s.value}.webp"
-            key_avif = f"{command.user_id}/{s.value}.avif"
-            key_jpg = f"{command.user_id}/{s.value}.jpg"
-
-            webp_url = await self.storage_service.upload_file(
-                upload_file=UploadFile(
-                    bucket_name=profile_config.AVATAR_BUCKET,
-                    file_key=key_webp, file_content=io.BytesIO(webp), size=len(webp)
+                await self.storage_service.upload_file(
+                    upload_file=UploadFile(
+                        bucket_name=profile_config.AVATAR_BUCKET,
+                        file_key=file_key, file_content=io.BytesIO(content), size=len(content)
+                    )
                 )
-            )
-            avif_url = await self.storage_service.upload_file(
-                upload_file=UploadFile(
-                    bucket_name=profile_config.AVATAR_BUCKET,
-                    file_key=key_avif, file_content=io.BytesIO(avif), size=len(avif)
-                )
-            )
-            jpg_url = await self.storage_service.upload_file(
-                upload_file=UploadFile(
-                    bucket_name=profile_config.AVATAR_BUCKET,
-                    file_key=key_jpg, file_content=io.BytesIO(jpg), size=len(jpg)
-                )
-            )
+                variants[image_type.value] = file_key
 
-            versions[s.value] = {"webp": webp_url, "avif": avif_url, "jpg": jpg_url}
+            versions[size.value] = variants
 
         profile.update_avatar(versions)
         await self.event_bus.publish(profile.pull_events())

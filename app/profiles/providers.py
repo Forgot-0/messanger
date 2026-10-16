@@ -13,6 +13,10 @@ from app.profiles.commands.contacts.register_identifier import (
 from app.profiles.commands.contacts.remove import RemoveContactCommand, RemoveContactCommandHandler
 from app.profiles.commands.contacts.unblock import UnblockUserCommand, UnblockUserCommandHandler
 from app.profiles.commands.contacts.update import UpdateContactCommand, UpdateContactCommandHandler
+from app.profiles.commands.privacy.update import (
+    UpdatePrivacySettingsCommand,
+    UpdatePrivacySettingsCommandHandler,
+)
 from app.profiles.commands.profiles.add_link import AddLinkToProfileCommand, AddLinkToProfileCommandHandler
 from app.profiles.commands.profiles.create import CreateProfileCommand, CreateProfileCommandHanler
 from app.profiles.commands.profiles.get_or_create import GetOrCreateProfileCommand, GetOrCreateProfileCommandHanler
@@ -27,6 +31,7 @@ from app.profiles.config import profile_config
 from app.profiles.queries.contacts.get_blocked import GetBlockedUsersQuery, GetBlockedUsersQueryHandler
 from app.profiles.queries.contacts.get_list import GetContactsQuery, GetContactsQueryHandler
 from app.profiles.queries.contacts.search import SearchContactsQuery, SearchContactsQueryHandler
+from app.profiles.queries.privacy.get import GetPrivacySettingsQuery, GetPrivacySettingsQueryHandler
 from app.profiles.queries.profiles.get_by_id import GetProfileByIdQuery, GetProfileByIdQueryHandler
 from app.profiles.queries.profiles.get_by_username import GetProfileByUsernameQuery, GetProfileByUsernameQueryHandler
 from app.profiles.queries.profiles.get_list import GetProfilesQuery, GetProfilesQueryHandler
@@ -35,8 +40,11 @@ from app.profiles.repositories.contacts import (
     ContactIdentifierRepository,
     ContactRepository,
 )
+from app.profiles.repositories.privacy import ProfilePrivacyRepository
 from app.profiles.repositories.profiles import ProfileRepository
+from app.profiles.services.avatar_urls import ProfileAvatarUrlService
 from app.profiles.services.identifier_hasher import IdentifierHasher
+from app.profiles.services.privacy import ProfilePrivacyService
 
 
 class ProfileModuleProvider(Provider):
@@ -46,12 +54,17 @@ class ProfileModuleProvider(Provider):
         ProfileRepository,
         ContactRepository,
         ContactIdentifierRepository,
-        BlockedUserRepository
+        BlockedUserRepository,
+        ProfilePrivacyRepository
     )
+
+    privacy_service = provide(ProfilePrivacyService, scope=Scope.REQUEST)
 
     @provide(scope=Scope.APP)
     def identifier_hasher(self) -> IdentifierHasher:
         return IdentifierHasher(pepper=profile_config.CONTACT_IDENTIFIER_PEPPER)
+
+    avatar_url_service = provide(ProfileAvatarUrlService, scope=Scope.APP)
 
     handlers = provide_all(
         CreateProfileCommandHanler,
@@ -68,13 +81,15 @@ class ProfileModuleProvider(Provider):
         RegisterUserIdentifierCommandHandler,
         BlockUserCommandHandler,
         UnblockUserCommandHandler,
+        UpdatePrivacySettingsCommandHandler,
 
         GetProfileByIdQueryHandler,
         GetProfileByUsernameQueryHandler,
         GetProfilesQueryHandler,
         GetContactsQueryHandler,
         SearchContactsQueryHandler,
-        GetBlockedUsersQueryHandler
+        GetBlockedUsersQueryHandler,
+        GetPrivacySettingsQueryHandler
 
     )
 
@@ -124,6 +139,9 @@ class ProfileModuleProvider(Provider):
         command_registry.register_command(
             UnblockUserCommand, UnblockUserCommandHandler
         )
+        command_registry.register_command(
+            UpdatePrivacySettingsCommand, UpdatePrivacySettingsCommandHandler
+        )
 
         return command_registry
 
@@ -153,11 +171,14 @@ class ProfileModuleProvider(Provider):
         query_registry.register_query(
             GetBlockedUsersQuery, GetBlockedUsersQueryHandler
         )
+        query_registry.register_query(
+            GetPrivacySettingsQuery, GetPrivacySettingsQueryHandler
+        )
 
         return query_registry
 
     @decorate
     def bucket_policy(self, policy: dict[str, Policy]) -> dict[str, Policy]:
-        policy[profile_config.AVATAR_BUCKET] = Policy.GET
-        policy[profile_config.PENDING_AVATAR_BUCKET] = Policy.GET
+        policy[profile_config.AVATAR_BUCKET] = Policy.NONE
+        policy[profile_config.PENDING_AVATAR_BUCKET] = Policy.NONE
         return policy

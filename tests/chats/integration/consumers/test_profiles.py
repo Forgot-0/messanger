@@ -123,6 +123,8 @@ class TestProfileProjectionConsumer:
         consumer_broker: KafkaBroker,
         profile_projection_repository: ChatUserProfileRepository,
     ) -> None:
-        await self.publish(consumer_broker, profile_message("profiles.contact.added"))
+        # Имя, которого не ждёт ни один консьюмер топика: contact.added и privacy.updated
+        # теперь разбирают проекции адресной книги и приватности со своими payload'ами
+        await self.publish(consumer_broker, profile_message("profiles.profile.archived"))
 
         assert await profile_projection_repository.get_by_id(USER_ID) is None

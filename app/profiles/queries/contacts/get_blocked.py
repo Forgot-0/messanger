@@ -6,7 +6,9 @@ from app.core.services.auth.rbac import RBACManagerInterface
 from app.profiles.config import profile_config
 from app.profiles.dtos.contacts import BlockedListDTO, BlockedUserDTO
 from app.profiles.repositories.contacts import BlockedUserRepository
+from app.profiles.services.avatar_urls import ProfileAvatarUrlService
 from app.profiles.services.contact_access import check_contact_owner
+from app.profiles.services.privacy import ProfilePrivacyService
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,8 @@ class GetBlockedUsersQuery(BaseQuery):
 class GetBlockedUsersQueryHandler(BaseQueryHandler[GetBlockedUsersQuery, BlockedListDTO]):
     blocked_repository: BlockedUserRepository
     rbac_manager: RBACManagerInterface
+    avatar_url_service: ProfileAvatarUrlService
+    privacy_service: ProfilePrivacyService
 
     async def handle(self, query: GetBlockedUsersQuery) -> BlockedListDTO:
         check_contact_owner(self.rbac_manager, query.owner_id, query.user_jwt_data)
@@ -35,9 +39,13 @@ class GetBlockedUsersQueryHandler(BaseQueryHandler[GetBlockedUsersQuery, Blocked
         )
 
         blocked = [BlockedUserDTO.model_validate(row) for row in rows]
+        await self.privacy_service.hide_photos(
+            query.owner_id, [item.profile for item in blocked]
+        )
+        await self.avatar_url_service.attach(item.profile for item in blocked)
 
         return BlockedListDTO(
-            blocked=[BlockedUserDTO.model_validate(row) for row in rows],
+            blocked=blocked,
             has_next=has_next,
             next_target_id=blocked[-1].target_id if has_next and blocked else None,
         )

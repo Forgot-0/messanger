@@ -3,10 +3,11 @@ from dishka import AsyncContainer
 
 from app.core.services.auth.dto import UserJWTData
 from app.core.services.storage.aioboto.client import S3Client
+from app.core.services.storage.service import StorageService
 from app.profiles.commands.profiles.proccess_avatar import ProccessAvatarCommand, ProccessAvatarCommandHandler
 from app.profiles.config import profile_config
 from app.profiles.exceptions import AvatarNotImageTypeError
-from app.profiles.models.profile import Profile
+from app.profiles.models.profile import Profile, SizeAvatar, TypeImageAvatar
 from app.profiles.repositories.profiles import ProfileRepository
 from tests.support.media import make_jpeg
 
@@ -32,6 +33,7 @@ class TestProccessAvatarCommand:
         user_jwt: UserJWTData,
         s3_test_client: S3Client,
         profile_repository: ProfileRepository,
+        storage_service: StorageService,
     ) -> None:
         key = f"{user_jwt.id}/avatar.jpg"
         await self._upload(s3_test_client, key, make_jpeg(600, 600))
@@ -40,6 +42,15 @@ class TestProccessAvatarCommand:
 
         profile = await profile_repository.get_by_id(persisted_profile.id)
         assert profile is not None and profile.avatars
+
+        # Бакет приватный: в БД лежат ключи объектов, а не абсолютные публичные URL
+        assert set(profile.avatars) == {int(size) for size in SizeAvatar}
+        for size, variants in profile.avatars.items():
+            assert set(variants) == {image_type.value for image_type in TypeImageAvatar}
+            for image_type, value in variants.items():
+                assert value == f"{user_jwt.id}/{size}.{image_type}"
+                stat = await storage_service.get_stat(profile_config.AVATAR_BUCKET, value)
+                assert stat.size > 0
 
     async def test_heic_is_refused_by_its_content(
         self,

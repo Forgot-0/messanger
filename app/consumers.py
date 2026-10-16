@@ -13,7 +13,7 @@ from faststream.kafka.prometheus import KafkaPrometheusMiddleware
 from prometheus_client import CollectorRegistry, make_asgi_app
 
 from app.auth.consumers import user as auth_user
-from app.chats.consumers import blocks, delivery, profiles
+from app.chats.consumers import blocks, contacts, delivery, privacy, profiles
 from app.chats.services.reaction_coalescer import ReactionCoalesceQueue
 from app.chats.services.read_coalescer import ReadReceiptCoalesceQueue
 from app.chats.tasks.coalescer import run_reaction_coalescer
@@ -66,6 +66,8 @@ def setup_router(broker: KafkaBroker) -> None:
     broker.include_router(delivery.router)
     broker.include_router(profiles.router)
     broker.include_router(blocks.router)
+    broker.include_router(contacts.router)
+    broker.include_router(privacy.router)
     broker.include_router(user.router)
     broker.include_router(chat_offline_delivery.router)
 

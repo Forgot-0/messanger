@@ -24,7 +24,6 @@ class SizeAvatar(int, Enum):
 class TypeImageAvatar(StrEnum):
     JPG = "jpg"
     WEBP = "webp"
-    AVIF = "avif"
 
 
 AvatarMap = dict[SizeAvatar, dict[TypeImageAvatar, str]]

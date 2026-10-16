@@ -7,6 +7,8 @@ from app.core.configs.base import BaseConfig
 class ProfileConfig(BaseConfig):
     PENDING_AVATAR_BUCKET: str = "pending-avatar"
     AVATAR_BUCKET: str = "profiles"
+    AVATAR_URL_TTL: int = 300
+    AVATAR_URL_CACHE_SKEW: int = 30
     AVATAR_MAX_SIZE: int = 5*1024*1024
     AVATAR_MAX_PIXELS: int = 10_000_000
     AVATAR_ALLOWED_MIMES: frozenset[str] = frozenset(
@@ -51,6 +53,10 @@ class ProfileConfig(BaseConfig):
     CONTACTS_SEARCH_MIN_PREFIX: int = 2
 
     BLOCK_LIST_CACHE_TTL: int = 300
+
+    MAX_PRIVACY_EXCEPTIONS_PER_RULE: int = 100
+    PRIVACY_UPDATE_RATE_TIMES: int = 20
+    PRIVACY_UPDATE_RATE_SECONDS: int = 60
 
     PENDING_RESOLVE_BATCH_SIZE: int = 500
     PENDING_RESOLVE_MAX_EVENTS: int = 100

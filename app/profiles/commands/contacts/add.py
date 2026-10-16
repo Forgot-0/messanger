@@ -19,7 +19,9 @@ from app.profiles.exceptions import (
 from app.profiles.models.contacts import ContactSource, UserContact
 from app.profiles.repositories.contacts import BlockedUserRepository, ContactRepository
 from app.profiles.repositories.profiles import ProfileRepository
+from app.profiles.services.avatar_urls import ProfileAvatarUrlService
 from app.profiles.services.contact_access import check_contact_owner
+from app.profiles.services.privacy import ProfilePrivacyService
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,8 @@ class AddContactCommandHandler(BaseCommandHandler[AddContactCommand, UserContact
     blocked_repository: BlockedUserRepository
     rbac_manager: RBACManagerInterface
     event_bus: BaseEventBus
+    avatar_url_service: ProfileAvatarUrlService
+    privacy_service: ProfilePrivacyService
 
     async def handle(self, command: AddContactCommand) -> UserContactDTO:
         check_contact_owner(self.rbac_manager, command.owner_id, command.user_jwt_data)
@@ -111,5 +115,9 @@ class AddContactCommandHandler(BaseCommandHandler[AddContactCommand, UserContact
         if contact is None:
             raise NotFoundContactError(contact_id=profile.id)
 
-        return UserContactDTO.model_validate(contact)
+        dto = UserContactDTO.model_validate(contact)
+        await self.privacy_service.hide_photos(command.owner_id, [dto.profile])
+        await self.avatar_url_service.attach([dto.profile])
+
+        return dto
 

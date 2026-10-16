@@ -10,6 +10,16 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.base_model import BaseModel, DateMixin
+from app.core.privacy import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility
+
+
+def _privacy_column() -> Mapped[str]:
+    return mapped_column(
+        String(16),
+        default=DEFAULT_VISIBILITY.value,
+        server_default=DEFAULT_VISIBILITY.value,
+        nullable=False,
+    )
 
 
 class ChatUserProfile(BaseModel, DateMixin):
@@ -28,6 +38,35 @@ class ChatUserProfile(BaseModel, DateMixin):
     source_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    privacy_last_seen: Mapped[str] = _privacy_column()
+    privacy_photo: Mapped[str] = _privacy_column()
+    privacy_messages: Mapped[str] = _privacy_column()
+    privacy_group_invites: Mapped[str] = _privacy_column()
+    privacy_calls: Mapped[str] = _privacy_column()
+
+    privacy_source_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    @staticmethod
+    def privacy_column_name(rule: PrivacyRule) -> str:
+        return f"privacy_{rule.value}"
+
+    def visibility(self, rule: PrivacyRule) -> PrivacyVisibility:
+        return ChatUserProfile.parse_visibility(
+            getattr(self, ChatUserProfile.privacy_column_name(rule))
+        )
+
+    @staticmethod
+    def parse_visibility(value: str | None) -> PrivacyVisibility:
+        if value is None:
+            return PrivacyVisibility.NOBODY
+
+        try:
+            return PrivacyVisibility(value)
+        except ValueError:
+            return PrivacyVisibility.NOBODY
 
     @classmethod
     def create(

@@ -34,7 +34,9 @@ class GetChatMembersQueryHandler(BaseQueryHandler[GetChatMembersQuery, ListMembe
         if chat is None:
             raise NotFoundChatError(chat_id=str(query.chat_id))
 
-        requester = await self.chat_repository.get_member_chat(query.chat_id, requester_id, with_role=False)
+        requester = await self.chat_repository.get_member_chat(
+            query.chat_id, requester_id, with_role=False, with_profile=True
+        )
         if requester is None or requester.is_banned:
             raise NotChatMemberError(chat_id=str(query.chat_id), user_id=requester_id)
 
@@ -47,21 +49,24 @@ class GetChatMembersQueryHandler(BaseQueryHandler[GetChatMembersQuery, ListMembe
         page = members[:limit]
         user_ids = [int(member.user_id) for member in page]
 
-        hidden = await self.privacy_service.hidden_from(requester_id, user_ids)
+        hidden_photos = await self.privacy_service.hidden_photos(requester_id, user_ids)
 
         presence: list[MemberPresenceDTO] = []
         if query.include_presence and user_ids:
+            hidden_presence = await self.privacy_service.hidden_presence(requester_id, user_ids)
             online_by_user = await self.presence_service.get_online_status(user_ids)
             presence = [
                 MemberPresenceDTO(
                     user_id=user_id,
-                    is_online=online_by_user.get(user_id, False) and user_id not in hidden,
+                    is_online=(
+                        online_by_user.get(user_id, False) and user_id not in hidden_presence
+                    ),
                 )
                 for user_id in user_ids
             ]
 
         member_dtos = [MemberChatDTO.model_validate(member) for member in page]
-        self.privacy_service.strip_avatars([dto.profile for dto in member_dtos], hidden)
+        self.privacy_service.strip_avatars([dto.profile for dto in member_dtos], hidden_photos)
         await self.message_service.image_urls(
             [dto.profile for dto in member_dtos]
         )

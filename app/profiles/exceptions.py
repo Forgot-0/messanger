@@ -290,3 +290,21 @@ class IdentifierPepperNotConfiguredError(ApplicationError):
     @property
     def detail(self) -> dict:
         return {}
+
+
+@dataclass(kw_only=True)
+class PrivacyExceptionsLimitError(ApplicationError):
+    rule: str
+    limit: int
+    current: int
+
+    code: str = "PRIVACY_EXCEPTIONS_LIMIT"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "Too many privacy exceptions for this rule"
+
+    @property
+    def detail(self) -> dict:
+        return {"rule": self.rule, "limit": self.limit, "current": self.current}

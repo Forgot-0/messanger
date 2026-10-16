@@ -7,7 +7,11 @@ from uuid import UUID, uuid7
 
 from app.chats.config import chat_config
 from app.chats.dtos.delivery import WsEvent
-from app.chats.exceptions import NotFoundChatError, UserBlockedError
+from app.chats.exceptions import (
+    MessagesPrivacyRestrictedError,
+    NotFoundChatError,
+    UserBlockedError,
+)
 from app.chats.models.chat import ChatFanoutStrategy, ChatType
 from app.chats.repositories.chat import ChatRepository
 from app.chats.schemas.ws import TypingAction, WSClientOp, WSEventType
@@ -105,6 +109,8 @@ class TypingCommandHandler(BaseCommandHandler[TypingCommand, None]):
             await self.privacy_service.ensure_can_message(chat, user_id)
         except UserBlockedError:
             return TypingContext(chat.fanout_strategy, "USER_BLOCKED", now)
+        except MessagesPrivacyRestrictedError:
+            return TypingContext(chat.fanout_strategy, "MESSAGES_PRIVACY_RESTRICTED", now)
 
         return TypingContext(chat.fanout_strategy, None, now)
 

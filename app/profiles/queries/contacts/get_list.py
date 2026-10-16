@@ -7,7 +7,9 @@ from app.core.services.auth.rbac import RBACManagerInterface
 from app.profiles.config import profile_config
 from app.profiles.dtos.contacts import ContactListDTO, UserContactDTO
 from app.profiles.repositories.contacts import BlockedUserRepository, ContactRepository
+from app.profiles.services.avatar_urls import ProfileAvatarUrlService
 from app.profiles.services.contact_access import check_contact_owner
+from app.profiles.services.privacy import ProfilePrivacyService
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,8 @@ class GetContactsQueryHandler(BaseQueryHandler[GetContactsQuery, ContactListDTO]
     contact_repository: ContactRepository
     blocked_repository: BlockedUserRepository
     rbac_manager: RBACManagerInterface
+    avatar_url_service: ProfileAvatarUrlService
+    privacy_service: ProfilePrivacyService
 
     async def handle(self, query: GetContactsQuery) -> ContactListDTO:
         check_contact_owner(self.rbac_manager, query.owner_id, query.user_jwt_data)
@@ -46,6 +50,11 @@ class GetContactsQueryHandler(BaseQueryHandler[GetContactsQuery, ContactListDTO]
         for contact in contacts:
             if contact.contact_id in hidden and contact.profile is not None:
                 contact.profile.avatars = {}
+
+        await self.privacy_service.hide_photos(
+            query.owner_id, [contact.profile for contact in contacts]
+        )
+        await self.avatar_url_service.attach(contact.profile for contact in contacts)
 
         version = None if has_next else await self.contact_repository.max_updated_at(query.owner_id)
 

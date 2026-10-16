@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 
+from app.chats.config import chat_config
 from app.core.services.storage.aioboto.client import S3Client
 from app.core.services.storage.aioboto.service import AioBotoStorageService
 from app.core.services.storage.dtos import ContentTypeFilter, UploadFile, UploadFilePost
@@ -15,10 +16,9 @@ from app.core.services.storage.exceptions import (
     ObjectTooLargeError,
 )
 from app.core.services.storage.policy import Policy
-from app.profiles.config import profile_config
 
 PRIVATE_BUCKET = "base"
-PUBLIC_BUCKET = profile_config.AVATAR_BUCKET
+PUBLIC_BUCKET = chat_config.CHAT_AVATAR_BUCKET
 
 
 def _key(suffix: str = ".bin") -> str:
@@ -215,6 +215,28 @@ class TestAioBotoStorageService:
 
         assert response.status_code == 204
         assert await storage.download(PRIVATE_BUCKET, f"{prefix}form.txt") == b"form-body"
+
+    async def test_public_bucket_turns_private_on_the_next_start(
+        self, storage: AioBotoStorageService, storage_endpoint: str
+    ) -> None:
+        """Деплой на уже публичный бакет: `ensure_buckets` обязан снять с него политику."""
+        bucket = f"policy-flip-{uuid4().hex[:12]}"
+        key = _key(".jpg")
+
+        public = replace(storage, bucket_policy={bucket: Policy.GET})
+        await public.ensure_buckets()
+        await self._put(public, key, b"was-public", bucket=bucket)
+
+        async with AsyncClient(base_url=storage_endpoint) as client:
+            assert (await client.get(f"/{bucket}/{key}")).status_code == 200
+
+        private = replace(storage, bucket_policy={bucket: Policy.NONE})
+        await private.ensure_buckets()
+
+        async with AsyncClient(base_url=storage_endpoint) as client:
+            assert (await client.get(f"/{bucket}/{key}")).status_code in (401, 403, 404)
+
+        assert await private.download(bucket, key) == b"was-public"
 
     async def test_bucket_policy_decides_anonymous_access(
         self, storage: AioBotoStorageService, storage_endpoint: str

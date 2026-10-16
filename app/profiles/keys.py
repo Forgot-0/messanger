@@ -5,6 +5,14 @@ class ProfileIdempotencyScope(StrEnum):
     IMPORT_CONTACTS = "profiles.contacts.import"
 
 
+class ProfileAvatarKeys:
+    _NAMESPACE = "profiles:v1:"
+
+    @staticmethod
+    def download_url(s3_key: str) -> str:
+        return f"{ProfileAvatarKeys._NAMESPACE}avatar:url:{s3_key}"
+
+
 class ContactKeys:
     _NAMESPACE = "profiles:v1:"
 

@@ -52,6 +52,7 @@ class JoinCallCommandHandler(BaseCommandHandler[JoinCallCommand, JoinTokenDTO]):
             raise AccessDeniedChatError(chat_id=str(chat.id), requester_id=user_id)
 
         await self.privacy_service.ensure_can_message(chat, user_id)
+        await self.privacy_service.ensure_can_call(chat, user_id)
 
         token = self.livekit_service.generate_join_token(
             slug=str(chat.id),

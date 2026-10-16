@@ -8,7 +8,7 @@ from app.core.api.rate_limiter import ConfigurableRateLimiter
 from app.core.api.schemas import ORJSONResponse
 from app.core.db.repository import PageResult
 from app.core.mediators.base import BaseMediator
-from app.core.services.auth.depends import CurrentUserJWTData
+from app.core.services.auth.depends import CurrentUserJWTData, OptionalCurrentUserJWTData
 from app.profiles.commands.profiles.add_link import AddLinkToProfileCommand
 from app.profiles.commands.profiles.get_or_create import GetOrCreateProfileCommand
 from app.profiles.commands.profiles.remove_link import RemoveLinkFromProfileCommand
@@ -104,10 +104,12 @@ async def update_profile(
 async def get_profile_by_username(
     username: str,
     mediator: FromDishka[BaseMediator],
+    user_jwt_data: OptionalCurrentUserJWTData,
 ) -> ProfileDTO:
     return await mediator.handle_query(
         GetProfileByUsernameQuery(
-            username=username
+            username=username,
+            viewer_id=int(user_jwt_data.id) if user_jwt_data else None,
         )
     )
 

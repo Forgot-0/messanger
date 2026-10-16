@@ -8,6 +8,7 @@ from app.core.events.service import BaseEventBus
 from app.profiles.dtos.profiles import ProfileDTO
 from app.profiles.models.profile import Profile
 from app.profiles.repositories.profiles import ProfileRepository
+from app.profiles.services.avatar_urls import ProfileAvatarUrlService
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class GetOrCreateProfileCommandHanler(BaseCommandHandler[GetOrCreateProfileComma
     session: AsyncSession
     profile_repository: ProfileRepository
     event_bus: BaseEventBus
+    avatar_url_service: ProfileAvatarUrlService
 
     async def handle(self, command: GetOrCreateProfileCommand) -> ProfileDTO:
         profile = await self.profile_repository.get_by_id(command.user_id)
@@ -44,4 +46,7 @@ class GetOrCreateProfileCommandHanler(BaseCommandHandler[GetOrCreateProfileComma
                 }
             )
 
-        return ProfileDTO.model_validate(profile)
+        dto = ProfileDTO.model_validate(profile)
+        await self.avatar_url_service.attach([dto])
+
+        return dto

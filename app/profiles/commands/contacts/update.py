@@ -9,7 +9,9 @@ from app.core.services.auth.rbac import RBACManagerInterface
 from app.profiles.dtos.contacts import UserContactDTO
 from app.profiles.exceptions import NotFoundContactError
 from app.profiles.repositories.contacts import ContactRepository
+from app.profiles.services.avatar_urls import ProfileAvatarUrlService
 from app.profiles.services.contact_access import check_contact_owner
+from app.profiles.services.privacy import ProfilePrivacyService
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,8 @@ class UpdateContactCommandHandler(BaseCommandHandler[UpdateContactCommand, UserC
     session: AsyncSession
     contact_repository: ContactRepository
     rbac_manager: RBACManagerInterface
+    avatar_url_service: ProfileAvatarUrlService
+    privacy_service: ProfilePrivacyService
 
     async def handle(self, command: UpdateContactCommand) -> UserContactDTO:
         check_contact_owner(self.rbac_manager, command.owner_id, command.user_jwt_data)
@@ -53,4 +57,8 @@ class UpdateContactCommandHandler(BaseCommandHandler[UpdateContactCommand, UserC
             extra={"owner_id": command.owner_id, "contact_id": command.contact_id},
         )
 
-        return UserContactDTO.model_validate(contact)
+        dto = UserContactDTO.model_validate(contact)
+        await self.privacy_service.hide_photos(command.owner_id, [dto.profile])
+        await self.avatar_url_service.attach([dto.profile])
+
+        return dto

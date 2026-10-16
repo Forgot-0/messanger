@@ -75,8 +75,10 @@ HTTP route (app/<module>/routes/v1/*.py)
   в `storage/` активна реализация `aioboto/` на aioboto3, `aminio/` оставлена как legacy и в DI не подключена),
   `websocket/` (manager, presence, keys), `metrics.py`, `models.py`, `routers.py` (`/health`), `tasks.py`.
 - `app/auth` — **эталонный модуль**. Пользователи, сессии, JWT, Argon2, OAuth (Google/Yandex/GitHub), RBAC.
-- `app/profiles` — профили пользователей, аватары, ссылки на внешние профили (`profile_links`)
-  и адресная книга: контакты, блок-лист, слепые идентификаторы (`/contacts`).
+- `app/profiles` — профили пользователей, аватары (бакет приватный, presign — `services/avatar_urls.py`),
+  ссылки на внешние профили (`profile_links`),
+  адресная книга: контакты, блок-лист, слепые идентификаторы (`/contacts`),
+  настройки приватности (`profile_privacy`, `services/privacy.py`, `/profiles/privacy/`).
   Профиль и идентификатор заводит консьюмер `app/profiles/consumers/user.py` по `auth.user.verified`.
 - `app/chats` — самый крупный модуль: чаты, участники, сообщения, вложения, реакции, read receipts, звонки, WS.
 - `app/notifications` — устройства, уведомления, offline-push через Firebase.
@@ -213,6 +215,7 @@ HTTP route (app/<module>/routes/v1/*.py)
 | `profiles.profile.created`, `profiles.profile.updated` | profiles |
 | `profiles.contact.added`, `profiles.contact.removed` | profiles |
 | `profiles.user.blocked`, `profiles.user.unblocked` | profiles |
+| `profiles.privacy.updated` | profiles |
 | `chats.chat.created`, `chats.chat.updated`, `chats.chat.deleted`, `chats.chat.ownership_transferred` | chats |
 | `chats.member.added`, `chats.member.kicked`, `chats.member.banned`, `chats.member.muted`, `chats.member.left` | chats |
 | `chats.message.sent`, `chats.message.readed`, `chats.message.modified`, `chats.message.deleted` | chats |
@@ -227,9 +230,12 @@ HTTP route (app/<module>/routes/v1/*.py)
 
 `users`, `user_permissions`, `user_roles`, `roles`, `permissions`, `role_permissions`, `sessions`, `oauth_accounts`,
 `profiles`, `profile_links`, `user_contacts`, `user_identifiers`, `pending_contacts`, `blocked_users`,
+`profile_privacy`, `profile_privacy_exceptions`,
 `chats` (+ `username`, `avatars`), `chat_members` (+ per-user состояние: `pinned_at`, `archived_at`, `notifications_muted_until`,
-`draft`, `draft_updated_at`), `chat_member_bans`, `chat_roles`, `chat_user_profiles`, `chat_user_blocks` (проекция
-`blocked_users`), `chat_invite_links`, `chat_pinned_messages`, `messages` (+ `action` у системных, `has_links`),
+`draft`, `draft_updated_at`), `chat_member_bans`, `chat_roles`, `chat_user_profiles` (+ копия настроек приватности `privacy_*`),
+`chat_user_blocks` (проекция `blocked_users`), `chat_user_contacts` (проекция `user_contacts`),
+`chat_user_privacy_exceptions` (проекция `profile_privacy_exceptions`),
+`chat_invite_links`, `chat_pinned_messages`, `messages` (+ `action` у системных, `has_links`),
 `message_attachments` (+ `message_seq`, `previews`, `thumbhash`), `message_reactions`, `message_reaction_counters`, `read_receipts`, `read_receipt_marks`,
 `notifications`, `user_device_tokens`,
 `outbox_messages`.
@@ -271,7 +277,27 @@ HTTP route (app/<module>/routes/v1/*.py)
     два aiobotocore-клиента (внутренний и публичный) живут столько же, сколько контейнер.
     Публичный доступ к бакету даёт bucket policy, которую `ensure_buckets()` применяет на старте,
     а не identity в конфиге SeaweedFS. Подпись — SigV4, адресация — path-style.
-18. **Предикат запроса должен буквально совпадать с предикатом partial-индекса.** Postgres не выводит
+18. **Бакеты аватаров профиля приватные.** `profiles` и `pending-avatar` — `Policy.NONE`.
+    В `profiles.avatars` и в проекции `chat_user_profiles.avatar_s3_key` лежат **ключи объектов**
+    (`{user_id}/{size}.{fmt}`), а не абсолютные URL; ссылки подписываются на чтении —
+    `ProfileAvatarUrlService.attach()` (модуль `profiles`, кэш подписей в Redis по ключу объекта,
+    TTL `AVATAR_URL_TTL = 300`) и `MessageService.image_urls()` (модуль `chats`). Новый ответ,
+    отдающий `avatars` или `avatar_s3_key`, обязан пройти через них, иначе клиент получит ключ
+    вместо ссылки. Публичным остался только `chat-avatars` (аватары групп и каналов): там
+    `avatar_s3_key` — готовый URL, presign не нужен.
+19. **Приватность решается в одном порядке: блок → персональное исключение → видимость.**
+    Оси (`PrivacyRule`), значения (`PrivacyVisibility`) и само решение — в `app/core/privacy.py`
+    (`is_allowed`), чтобы profiles и chats считали одинаково. «Контакт» — это тот, кого владелец
+    настройки держит в **своей** адресной книге, поэтому аноним (публичный
+    `GET /profiles/u/{username}/`) контактом не бывает никогда. Строки `profile_privacy` может
+    не быть — это значит «всё открыто» (`DEFAULT_VISIBILITY`), поэтому читать настройки только
+    через `ProfilePrivacyService` / `ChatPrivacyService`, а не `JOIN`'ом в обход. Модуль чатов
+    ходит исключительно в свои проекции (`chat_user_profiles.privacy_*`, `chat_user_contacts`,
+    `chat_user_privacy_exceptions`), наполняемые консьюмерами по `profiles.privacy.updated` и
+    `profiles.contact.added/removed`; в `profile_privacy` и `user_contacts` он не заглядывает.
+    Любой новый ответ с фото, онлайном или новым действием в личке обязан пройти через эти
+    сервисы — иначе настройка просто не сработает.
+20. **Предикат запроса должен буквально совпадать с предикатом partial-индекса.** Postgres не выводит
     `is_deleted = false` из `is_deleted IS false` (так рендерится `.is_(False)`) и уходит в seq scan.
     Для partial-индексов писать `~Model.flag` / `Model.flag` (см. `get_link_messages_page`), а значения
     в предикате — литералами, не bind-параметрами (`text("status = 'PENDING'")`). Проверять EXPLAIN'ом.

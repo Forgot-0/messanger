@@ -1041,6 +1041,11 @@ def bucket_policy(self) -> dict[str, Policy]:
 анонимный доступ к SeaweedFS решается именно bucket policy, отдельной `anonymous`-identity
 в `infra/seaweedfs/entrypoint.sh` нет.
 
+Публичный (`Policy.GET`) сейчас только `chat-avatars` — аватары групп и каналов. Все остальные
+бакеты приватны (`Policy.NONE`), включая аватары профиля (`profiles`) и `pending-avatar`:
+ссылки на них подписываются на чтении — `ProfileAvatarUrlService` в модуле `profiles`,
+`MessageService.image_urls` в модуле `chats`, подписи кешируются в Redis.
+
 Медиа-файлы дополнительно проходят через `MediaProbeService` (`app/core/services/media`, реализация на `ffprobe`) — он определяет реальный тип/длительность/размеры до сохранения.
 
 ---

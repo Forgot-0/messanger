@@ -103,6 +103,19 @@ class ContactRepository(IRepository[UserContact]):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def owners_having_contact(
+        self, contact_id: int, owner_ids: Collection[int]
+    ) -> set[int]:
+        if not owner_ids:
+            return set()
+
+        stmt = select(UserContact.owner_id).where(
+            UserContact.contact_id == contact_id,
+            UserContact.owner_id.in_(list(owner_ids)),
+        )
+        result = await self.session.execute(stmt)
+        return {int(owner_id) for owner_id in result.scalars().all()}
+
     async def max_updated_at(self, owner_id: int) -> datetime | None:
         stmt = select(func.max(UserContact.updated_at)).where(UserContact.owner_id == owner_id)
         result = await self.session.execute(stmt)

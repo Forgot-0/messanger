@@ -657,6 +657,38 @@ class UserBlockedError(ApplicationError):
 
 
 @dataclass(kw_only=True)
+class MessagesPrivacyRestrictedError(ApplicationError):
+    chat_id: str | None
+    user_id: int
+    code: str = "MESSAGES_PRIVACY_RESTRICTED"
+    status: int = 403
+
+    @property
+    def message(self) -> str:
+        return "Privacy settings of this user do not allow messages from you"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "user_id": self.user_id}
+
+
+@dataclass(kw_only=True)
+class CallsPrivacyRestrictedError(ApplicationError):
+    chat_id: str | None
+    user_id: int
+    code: str = "CALLS_PRIVACY_RESTRICTED"
+    status: int = 403
+
+    @property
+    def message(self) -> str:
+        return "Privacy settings of this user do not allow calls from you"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "user_id": self.user_id}
+
+
+@dataclass(kw_only=True)
 class UserPrivacyRestrictedError(ApplicationError):
     user_ids: list[int]
     code: str = "USER_PRIVACY_RESTRICTED"

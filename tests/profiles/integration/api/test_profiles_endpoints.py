@@ -450,6 +450,31 @@ class TestProfileLinkEndpoints:
 @pytest.mark.profiles
 @pytest.mark.asyncio
 class TestAvatarEndpoints:
+    async def test_avatars_come_back_presigned(
+        self,
+        client: AsyncClient,
+        user_jwt: UserJWTData,
+        create_auth_headers,
+        persisted_profile: Profile,
+        db_session,
+    ) -> None:
+        """Бакет аватаров приватный: в БД ключ, в ответе — подписанная ссылка."""
+        file_key = f"{persisted_profile.id}/64.jpg"
+        persisted_profile.avatars = {"64": {"jpg": file_key}}
+        await db_session.commit()
+
+        response = await client.get(
+            api_path(f"profiles/{persisted_profile.id}/"),
+            headers=create_auth_headers(user_jwt),
+        )
+
+        assert response.status_code == 200
+        assert_presigned_url(
+            response.json()["avatars"]["64"]["jpg"],
+            bucket=profile_config.AVATAR_BUCKET,
+            file_key=file_key,
+        )
+
     async def test_upload_complete_queues_the_resize_task(
         self,
         client: AsyncClient,
