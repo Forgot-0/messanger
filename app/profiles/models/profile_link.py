@@ -10,12 +10,6 @@ if TYPE_CHECKING:
 
 
 class ProfileLink(BaseModel, DateMixin):
-    """Ссылка на внешний профиль пользователя: github, telegram, сайт и т.п.
-
-    Это не контакт из адресной книги — те живут в user_contacts
-    (app/profiles/models/contacts.py).
-    """
-
     __tablename__ = "profile_links"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

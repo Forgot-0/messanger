@@ -130,7 +130,6 @@ class ImportContactsCommandHandler(
     def _hash_entries(
         self, entries: list[ImportContactEntry]
     ) -> tuple[dict[bytes, ImportContactEntry], int]:
-        """Хеширует и дедуплицирует батч, считая нераспознанные адреса."""
         by_hash: dict[bytes, ImportContactEntry] = {}
         invalid = 0
 
@@ -151,10 +150,6 @@ class ImportContactsCommandHandler(
         by_hash: dict[bytes, ImportContactEntry],
         resolved: dict[bytes, int],
     ) -> tuple[dict[int, ImportContactEntry], list[PendingUpsert]]:
-        """Делит батч на найденных пользователей и тех, кого ещё нет.
-
-        Себя и заблокированных в контакты не берём.
-        """
         blocked = await self.blocked_repository.get_block_list(owner_id)
         matched: dict[int, ImportContactEntry] = {}
         pending: list[PendingUpsert] = []

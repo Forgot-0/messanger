@@ -52,8 +52,6 @@ class RegisterUserIdentifierCommandHandler(
         return await self._resolve_pending(identifier_hash, command.user_id)
 
     async def _resolve_pending(self, identifier_hash: bytes, user_id: int) -> int:
-        """Ожидающих может быть десятки тысяч, поэтому идём курсором по
-        owner_id батчами и коммитим каждый батч отдельно."""
         resolved = 0
         events_left = profile_config.PENDING_RESOLVE_MAX_EVENTS
         after_owner_id: int | None = None
@@ -82,8 +80,6 @@ class RegisterUserIdentifierCommandHandler(
     async def _apply_batch(
         self, batch: list[PendingContact], user_id: int, events_left: int
     ) -> int:
-        """Батч ожидающих разбирается четырьмя запросами: апсерт, проверка
-        встречных строк, простановка взаимности, удаление pending."""
         events_limit = max(events_left, 0)
         waiting = [pending for pending in batch if pending.owner_id != user_id]
 

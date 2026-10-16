@@ -90,13 +90,11 @@ class AppConfig(BaseConfig):
     @computed_field
     @property
     def storage_endpoint_url(self) -> str:
-        """Endpoint the backend itself talks to, inside the private network."""
         return _with_scheme(self.storage_url, secure=self.STORAGE_SECURE)
 
     @computed_field
     @property
     def storage_public_endpoint_url(self) -> str:
-        """Endpoint that presigned URLs are signed against, reachable by clients."""
         if not self.STORAGE_PUBLIC_URL:
             return self.storage_endpoint_url
         return _with_scheme(self.STORAGE_PUBLIC_URL, secure=self.STORAGE_PUBLIC_SECURE)

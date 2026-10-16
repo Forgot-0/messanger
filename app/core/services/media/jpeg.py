@@ -1,11 +1,3 @@
-"""Вырезание метаданных из JPEG без перекодирования.
-
-Сканы копируются байт в байт, выбрасываются APP1 (EXIF и XMP — там GPS, модель камеры),
-APP13 (IPTC/Photoshop), остальные APPn, COM и всё, что лежит после EOI (MPF-превью,
-«живые фото» Samsung). Остаются JFIF, ICC-профиль и Adobe APP14: без них меняются цвета.
-Вместе с EXIF уходит и тег поворота — файлы с orientation ≠ 1 сюда передавать нельзя.
-"""
-
 SOI = b"\xff\xd8"
 EOI = 0xD9
 SOS = 0xDA
@@ -18,7 +10,6 @@ STANDALONE = frozenset({0x01, *range(0xD0, 0xD8)})
 
 
 def strip_jpeg_metadata(data: bytes) -> bytes | None:
-    """Чистый JPEG или `None`, если структура не читается (тогда — перекодировать)."""
     if not data.startswith(SOI):
         return None
 
@@ -74,8 +65,6 @@ def _keep(data: bytes, marker: int, payload: int) -> bool:
 
 
 def _entropy_end(data: bytes, pos: int) -> int | None:
-    """Внутри скана 0xFF встречается только как `FF 00` (stuffing) или `FF D0..D7` (RST);
-    любой другой байт после 0xFF — начало следующего маркера."""
     while True:
         index = data.find(b"\xff", pos)
         if index < 0 or index + 1 >= len(data):

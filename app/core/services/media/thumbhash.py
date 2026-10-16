@@ -1,13 +1,3 @@
-"""ThumbHash encoder (https://evanw.github.io/thumbhash/, MIT).
-
-Порт эталонного `rgbaToThumbHash` один в один, включая округление `Math.round`
-(половина — вверх), чтобы хэш совпадал с тем, что посчитала бы JS/Dart-реализация.
-
-DCT разделимая: сначала свёртка каждой строки с косинусами по x, затем по y.
-Скалярные произведения — через `math.sumprod` (C), поэтому 100×100 кодируется
-за единицы миллисекунд и почти не держит GIL.
-"""
-
 import base64
 import math
 from collections.abc import Sequence

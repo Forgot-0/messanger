@@ -193,8 +193,6 @@ class MessageRepository(IRepository[Message]):
         limit: int,
         before_seq: int | None = None,
     ) -> list[Message]:
-        # Ровно в форме предиката ix_messages_chat_links: `IS TRUE`/`IS FALSE` планировщик
-        # не сводит к `has_links AND is_deleted = false` и уходит в seq scan.
         conditions = [
             Message.chat_id == chat_id,
             Message.has_links,

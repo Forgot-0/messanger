@@ -16,13 +16,6 @@ class PasswordMixinSchema(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
-        """
-        Validate the password complexity.
-
-        The password must contain at least one uppercase letter,
-        at least one lowercase letter, at least one digit, and
-        at least one special character.
-        """
         if not re.search(r"[A-Z]", value):
             raise ValueError("Password must contain at least one uppercase letter")
         if not re.search(r"[a-z]", value):

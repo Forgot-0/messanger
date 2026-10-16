@@ -16,7 +16,6 @@ from app.core.services.media.service import MediaTranscoder
 
 logger = logging.getLogger(__name__)
 
-# HLG/PQ → SDR BT.709. Без этого кадры HDR-видео с айфона выходят блёклыми.
 HDR_TO_SDR_FILTER = (
     "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
     "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"

@@ -109,8 +109,6 @@ class AttachmentImageRenderer:
         rotate = orientation != 1 and not animated
         target = workdir / f"original.{extension}"
 
-        # Клиент уже прислал сжатый JPEG: пережатие только раздувает файл и мылит картинку.
-        # Перекодируем, лишь когда поворот из EXIF надо вшить в пиксели.
         if extension == "jpg" and not rotate:
             stripped = strip_jpeg_metadata(source.read_bytes())
             if stripped is not None:
