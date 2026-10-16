@@ -18,3 +18,7 @@ class ProfileDTO(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class AvatarPresign(BaseModel):
+    url: str
+    file_key: str
+

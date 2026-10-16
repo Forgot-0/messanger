@@ -27,6 +27,7 @@ from app.profiles.commands.profiles.remove_link import (
 )
 from app.profiles.commands.profiles.update import UpdateProfileCommand, UpdateProfileCommandHandler
 from app.profiles.commands.profiles.update_avatar import UpdateProfileAvatarCommand, UpdateProfileAvatarCommandHandler
+from app.profiles.commands.profiles.upload_avatar import UloadProfileAvatarCommand, UloadProfileAvatarCommandHandler
 from app.profiles.config import profile_config
 from app.profiles.queries.contacts.get_blocked import GetBlockedUsersQuery, GetBlockedUsersQueryHandler
 from app.profiles.queries.contacts.get_list import GetContactsQuery, GetContactsQueryHandler
@@ -69,6 +70,7 @@ class ProfileModuleProvider(Provider):
     handlers = provide_all(
         CreateProfileCommandHanler,
         UpdateProfileCommandHandler,
+        UloadProfileAvatarCommandHandler,
         UpdateProfileAvatarCommandHandler,
         ProccessAvatarCommandHandler,
         AddLinkToProfileCommandHandler,
@@ -105,6 +107,9 @@ class ProfileModuleProvider(Provider):
         )
         command_registry.register_command(
             UpdateProfileCommand, UpdateProfileCommandHandler
+        )
+        command_registry.register_command(
+            UloadProfileAvatarCommand, UloadProfileAvatarCommandHandler
         )
         command_registry.register_command(
             UpdateProfileAvatarCommand, UpdateProfileAvatarCommandHandler
