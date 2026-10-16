@@ -70,8 +70,6 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
-    # Перекодирование повёрнутого фото 48 Мп берёт до ~400 MB сверх процесса; на 512M
-    # такой файл убивал бы воркер по OOM вместе со всеми задачами.
     deploy:
       resources:
         limits:

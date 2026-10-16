@@ -2,8 +2,6 @@ from enum import StrEnum
 
 
 class PrivacyRule(StrEnum):
-    """Оси приватности. Значение = имя колонки в `profile_privacy`."""
-
     LAST_SEEN = "last_seen"
     PHOTO = "photo"
     MESSAGES = "messages"
