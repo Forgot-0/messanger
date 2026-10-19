@@ -28,6 +28,7 @@ class UpdateChatCommand(BaseCommand):
     permissions: dict[str, bool] | None = None
     reactions_mode: ChatReactionsMode | None = None
     allowed_reactions: list[str] | None = None
+    join_by_request: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class UpdateChatCommandHandler(BaseCommandHandler[UpdateChatCommand, ChatDTO]):
             permissions=command.permissions,
             reactions_mode=command.reactions_mode,
             allowed_reactions=command.allowed_reactions,
+            join_by_request=command.join_by_request,
         )
 
         await self.event_bus.publish(chat.pull_events())

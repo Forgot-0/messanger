@@ -760,3 +760,101 @@ class ReadReceiptsUnavailableError(ApplicationError):
             "max_members": chat_config.READ_MARKS_MAX_MEMBERS,
             "retention_days": chat_config.READ_MARKS_RETENTION_DAYS,
         }
+
+
+@dataclass(kw_only=True)
+class NotFoundJoinRequestError(ApplicationError):
+    chat_id: str
+    user_id: int
+    code: str = "NOT_FOUND_JOIN_REQUEST"
+    status: int = 404
+
+    @property
+    def message(self) -> str:
+        return "Join request not found"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "user_id": self.user_id}
+
+
+@dataclass(kw_only=True)
+class JoinRequestPendingError(ApplicationError):
+    chat_id: str
+    user_id: int
+    code: str = "JOIN_REQUEST_PENDING"
+    status: int = 409
+
+    @property
+    def message(self) -> str:
+        return "Join request is already waiting for approval"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "user_id": self.user_id}
+
+
+@dataclass(kw_only=True)
+class JoinRequestNotPendingError(ApplicationError):
+    chat_id: str
+    user_id: int
+    status_value: str
+    code: str = "JOIN_REQUEST_NOT_PENDING"
+    status: int = 409
+
+    @property
+    def message(self) -> str:
+        return "Join request is already resolved"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "user_id": self.user_id, "status": self.status_value}
+
+
+@dataclass(kw_only=True)
+class JoinRequestRetryLaterError(ApplicationError):
+    chat_id: str
+    user_id: int
+    retry_after: int
+    code: str = "JOIN_REQUEST_RETRY_LATER"
+    status: int = 429
+
+    @property
+    def message(self) -> str:
+        return "Previous join request was declined, try again later"
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        return {"chat_id": self.chat_id, "user_id": self.user_id, "retry_after": self.retry_after}
+
+
+@dataclass(kw_only=True)
+class JoinRequestsLimitExceededError(ApplicationError):
+    chat_id: str
+    limit: int = chat_config.MAX_PENDING_JOIN_REQUESTS
+    code: str = "JOIN_REQUESTS_LIMIT_EXCEEDED"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return f"Pending join requests limit reached ({self.limit})"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "limit": self.limit}
+
+
+@dataclass(kw_only=True)
+class JoinRequestNotAllowedError(ApplicationError):
+    chat_id: str
+    reason: str
+    code: str = "JOIN_REQUEST_NOT_ALLOWED"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "This chat does not accept join requests"
+
+    @property
+    def detail(self) -> dict:
+        return {"chat_id": self.chat_id, "reason": self.reason}

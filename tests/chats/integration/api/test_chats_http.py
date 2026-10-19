@@ -114,7 +114,9 @@ class TestChatsHttpEndpoints:
         join_headers = create_auth_headers(joiner)
 
         join_resp = await client.post(api_path(f"chats/{chat_id}/join/"), headers=join_headers)
-        assert join_resp.status_code == 204
+        assert join_resp.status_code == 200
+        assert join_resp.json()["status"] == "joined"
+        assert join_resp.json()["chat"]["id"] == chat_id
 
         detail = await client.get(api_path(f"chats/{chat_id}/"), headers=join_headers)
         assert detail.status_code == 200

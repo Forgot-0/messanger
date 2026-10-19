@@ -6,6 +6,7 @@ from app.chats.exceptions import InviteLinkExpiredError, NotFoundInviteLinkError
 from app.chats.models.chat import ChatType
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.invite import ChatInviteLinkRepository
+from app.chats.repositories.join_request import ChatJoinRequestRepository
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
 
@@ -20,6 +21,7 @@ class GetInvitePreviewQuery(BaseQuery):
 class GetInvitePreviewQueryHandler(BaseQueryHandler[GetInvitePreviewQuery, ChatInvitePreviewDTO]):
     chat_repository: ChatRepository
     invite_repository: ChatInviteLinkRepository
+    join_request_repository: ChatJoinRequestRepository
 
     async def handle(self, query: GetInvitePreviewQuery) -> ChatInvitePreviewDTO:
         invite = await self.invite_repository.get_by_code(query.code)
@@ -34,10 +36,19 @@ class GetInvitePreviewQueryHandler(BaseQueryHandler[GetInvitePreviewQuery, ChatI
         if chat is None or chat.type == ChatType.DIRECT:
             raise NotFoundInviteLinkError(invite=query.code)
 
-        member_of = await self.chat_repository.member_chat_ids(
-            int(query.user_jwt_data.id), [chat.id]
-        )
+        user_id = int(query.user_jwt_data.id)
+        member_of = await self.chat_repository.member_chat_ids(user_id, [chat.id])
 
         preview = ChatPreviewDTO.model_validate(chat)
         preview.is_member = chat.id in member_of
-        return ChatInvitePreviewDTO(chat=preview, expires_at=invite.expires_at)
+
+        join_request = None
+        if invite.creates_join_request and not preview.is_member:
+            join_request = await self.join_request_repository.get(chat.id, user_id)
+
+        return ChatInvitePreviewDTO(
+            chat=preview,
+            expires_at=invite.expires_at,
+            creates_join_request=invite.creates_join_request,
+            join_request_status=join_request.status if join_request is not None else None,
+        )

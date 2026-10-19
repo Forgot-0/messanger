@@ -27,6 +27,7 @@ from app.chats.models.reaction import MessageReaction, MessageReactionCounter
 from app.chats.models.blocks import ChatUserBlock
 from app.chats.models.privacy import ChatUserContact, ChatUserPrivacyException
 from app.chats.models.invite import ChatInviteLink
+from app.chats.models.join_request import ChatJoinRequest
 
 from app.notifications.models.device import UserDeviceToken
 from app.notifications.models.notification import Notification

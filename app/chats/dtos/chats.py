@@ -44,6 +44,7 @@ class ChatDTO(MutedByMeMixin, ChatAvatarMixin):
     username: str | None = None
 
     is_public: bool
+    join_by_request: bool = False
     admin_only: bool = False
     slow_mode_seconds: int = 0
     permissions: dict[str, bool] = Field(default_factory=dict)
@@ -92,6 +93,7 @@ class ChatDetailDTO(ChatAvatarMixin):
     username: str | None = None
 
     is_public: bool
+    join_by_request: bool = False
     admin_only: bool = False
     slow_mode_seconds: int = 0
     permissions: dict[str, bool] = Field(default_factory=dict)
@@ -117,6 +119,7 @@ class ChatPreviewDTO(ChatAvatarMixin):
     description: str | None
     username: str | None = None
     is_public: bool
+    join_by_request: bool = False
     member_count: int
     is_member: bool = False
 

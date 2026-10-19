@@ -8,6 +8,7 @@ from app.chats.commands.invites.create import CreateInviteLinkCommand, CreateInv
 from app.chats.commands.invites.join import JoinChatByInviteCommand, JoinChatByInviteCommandHandler
 from app.chats.commands.invites.revoke import RevokeInviteLinkCommand, RevokeInviteLinkCommandHandler
 from app.chats.dtos.invites import ChatInviteLinkDTO
+from app.chats.dtos.join_requests import JoinResultStatus
 from app.chats.exceptions import (
     AccessDeniedChatError,
     AlreadyMemberError,
@@ -99,9 +100,10 @@ class TestInviteLinks:
         invite = await create(group_chat)
         count_before = group_chat.member_count
 
-        dto = await join.handle(JoinChatByInviteCommand(user_jwt_data=make_user_jwt(id="42"), code=invite.code))
+        result = await join.handle(JoinChatByInviteCommand(user_jwt_data=make_user_jwt(id="42"), code=invite.code))
 
-        assert dto.id == group_chat.id
+        assert result.status == JoinResultStatus.JOINED
+        assert result.chat is not None and result.chat.id == group_chat.id
         member = await chat_repository.get_member_chat(group_chat.id, 42)
         assert member is not None and member.role_id == ChatRoleId.MEMBER
         chat = await chat_repository.get_by_id(group_chat.id)

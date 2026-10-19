@@ -31,6 +31,7 @@ class CreateInviteLinkCommand(BaseCommand):
     name: str | None = None
     expires_at: datetime | None = None
     usage_limit: int | None = None
+    creates_join_request: bool = False
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,7 @@ class CreateInviteLinkCommandHandler(BaseCommandHandler[CreateInviteLinkCommand,
             name=command.name,
             expires_at=command.expires_at,
             usage_limit=command.usage_limit,
+            creates_join_request=command.creates_join_request,
         )
         await self.invite_repository.create(invite)
         await self.session.commit()

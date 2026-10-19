@@ -27,6 +27,7 @@ class CreateChatRequest(BaseModel):
     chat_type: ChatType = ChatType.DIRECT
     member_ids: list[int] = Field(default_factory=list, max_length=chat_config.MAX_BULK_ADD_MEMBERS)
     is_public: bool = False
+    join_by_request: bool = False
     admin_only: bool = False
     slow_mode_seconds: int = Field(default=0, ge=0, le=chat_config.MAX_SLOW_MODE_SECONDS)
     permissions: dict[str, bool] = Field(default_factory=dict)
@@ -36,6 +37,7 @@ class UpdateChatRequest(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=1024)
     is_public: bool | None = None
+    join_by_request: bool | None = None
     admin_only: bool | None = None
     slow_mode_seconds: int | None = Field(default=None, ge=0, le=chat_config.MAX_SLOW_MODE_SECONDS)
     permissions: dict[str, bool] | None = None
@@ -116,6 +118,7 @@ class CreateInviteLinkRequest(BaseModel):
     name: str | None = Field(default=None, max_length=chat_config.INVITE_LINK_NAME_MAX_LENGTH)
     expires_at: datetime | None = None
     usage_limit: int | None = Field(default=None, ge=1, le=chat_config.INVITE_LINK_MAX_USAGE_LIMIT)
+    creates_join_request: bool = False
 
 
 class GetInviteLinksRequest(BaseModel):
@@ -125,6 +128,16 @@ class GetInviteLinksRequest(BaseModel):
         le=chat_config.INVITE_LINKS_MAX_PAGE_SIZE,
     )
     last_invite_id: UUID | None = None
+
+
+class GetJoinRequestsRequest(BaseModel):
+    limit: int = Field(
+        default=chat_config.JOIN_REQUESTS_PAGE_SIZE,
+        ge=1,
+        le=chat_config.JOIN_REQUESTS_MAX_PAGE_SIZE,
+    )
+    last_requested_at: datetime | None = None
+    last_user_id: int | None = Field(default=None, ge=1)
 
 
 class RequestChatAvatarUploadRequest(BaseModel):

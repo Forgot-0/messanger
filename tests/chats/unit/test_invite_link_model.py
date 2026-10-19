@@ -43,6 +43,19 @@ class TestChatInviteLink:
         assert link.inactive_reason == InviteLinkInactiveReason.REVOKED
         assert not link.is_active
 
+    def test_request_link_cannot_have_usage_limit(self) -> None:
+        with pytest.raises(InvalidInviteLinkError) as exc:
+            ChatInviteLink.create(
+                chat_id=uuid7(), created_by=1, usage_limit=5, creates_join_request=True
+            )
+        assert exc.value.reason == "request_link_with_usage_limit"
+
+    def test_request_link_is_marked(self) -> None:
+        link = ChatInviteLink.create(chat_id=uuid7(), created_by=1, creates_join_request=True)
+
+        assert link.creates_join_request is True
+        assert link.is_active is True
+
     def test_revoke_is_idempotent(self) -> None:
         link = ChatInviteLink.create(chat_id=uuid7(), created_by=1)
         link.revoke()

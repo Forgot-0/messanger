@@ -500,3 +500,53 @@ class TestDeliveryRouterPinsAndSilentMessages:
             "unpinned_by": 1,
             "all": False,
         }
+
+    async def test_join_request_reaches_only_chat_staff(
+        self,
+        delivery_router: ChatDeliveryRouter,
+        group_chat: Chat,
+        user_jwt: UserJWTData,
+        go_online,
+        delivered_frames,
+    ) -> None:
+        # 1 — владелец, 2 — обычный участник: заявка не его дело.
+        await go_online(int(user_jwt.id))
+        await go_online(2)
+
+        await delivery_router.route_broker_message(chat_event(
+            "chats.join_request.created",
+            {
+                "chat_id": str(group_chat.id),
+                "user_id": 42,
+                "invite_link_id": None,
+                "requested_at": now_utc().isoformat(),
+            },
+        ))
+
+        frames = await delivered_frames()
+        assert len(frames) == 1
+        assert frames[0]["type"] == "join_request_created"
+        assert frames[0]["delivery"]["recipients"] == [int(user_jwt.id)]
+        assert frames[0]["delivery"]["require_subscription"] is False
+        assert frames[0]["payload"]["event"]["user_id"] == 42
+
+    async def test_decision_also_reaches_the_applicant(
+        self,
+        delivery_router: ChatDeliveryRouter,
+        group_chat: Chat,
+        user_jwt: UserJWTData,
+        go_online,
+        delivered_frames,
+    ) -> None:
+        await go_online(int(user_jwt.id))
+        await go_online(42)
+
+        await delivery_router.route_broker_message(chat_event(
+            "chats.join_request.declined",
+            {"chat_id": str(group_chat.id), "user_id": 42, "resolved_by": int(user_jwt.id)},
+        ))
+
+        frames = await delivered_frames()
+        assert len(frames) == 1
+        assert frames[0]["type"] == "join_request_declined"
+        assert frames[0]["delivery"]["recipients"] == [int(user_jwt.id), 42]

@@ -6,11 +6,13 @@ from uuid import UUID, uuid7
 from sqlalchemy import (
     UUID as SAUUID,
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     String,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +40,10 @@ class ChatInviteLink(BaseModel, DateMixin):
     usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    creates_join_request: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
     __table_args__ = (
         Index("ix_chat_invite_links_chat_id_id", "chat_id", "id"),
     )
@@ -50,6 +56,7 @@ class ChatInviteLink(BaseModel, DateMixin):
         name: str | None = None,
         expires_at: datetime | None = None,
         usage_limit: int | None = None,
+        creates_join_request: bool = False,
     ) -> Self:
         if expires_at is not None and expires_at <= now_utc():
             raise InvalidInviteLinkError(reason="expires_at_in_past")
@@ -58,6 +65,9 @@ class ChatInviteLink(BaseModel, DateMixin):
             1 <= usage_limit <= chat_config.INVITE_LINK_MAX_USAGE_LIMIT
         ):
             raise InvalidInviteLinkError(reason="usage_limit_out_of_range")
+
+        if creates_join_request and usage_limit is not None:
+            raise InvalidInviteLinkError(reason="request_link_with_usage_limit")
 
         cleaned_name = name.strip() if name is not None else None
 
@@ -71,6 +81,7 @@ class ChatInviteLink(BaseModel, DateMixin):
             usage_limit=usage_limit,
             usage_count=0,
             revoked_at=None,
+            creates_join_request=creates_join_request,
         )
 
     def revoke(self) -> None:

@@ -28,6 +28,7 @@ from app.chats.exceptions import (
     InvalidChatUsernameError,
     InvalidMessageError,
     InvalidOwnershipTransferError,
+    JoinRequestNotAllowedError,
     MemberLimitExceededError,
     NotFoundMessageError,
     PinnedMessagesLimitExceededError,
@@ -90,6 +91,7 @@ class UpdatedChatEvent(BaseEvent):
     allowed_reactions: list[str]
     username: str | None = None
     avatar_s3_key: str | None = None
+    join_by_request: bool = False
     avatars: dict[str, dict[str, str]] = field(default_factory=dict)
 
     __event_name__ = "chats.chat.updated"
@@ -204,6 +206,9 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
         JSONB, server_default="{}", default=dict, nullable=False
     )
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
+    join_by_request: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
     created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
     member_count: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -257,6 +262,14 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
         return chat_config.MAX_MEMBERS
 
     @staticmethod
+    def default_member_role(chat_type: ChatType) -> ChatRoleId:
+        if chat_type == ChatType.DIRECT:
+            return ChatRoleId.DIRECT_MEMBER
+        if chat_type == ChatType.CHANNEL:
+            return ChatRoleId.VIEWER
+        return ChatRoleId.MEMBER
+
+    @staticmethod
     def resolve_fanout_strategy(
         chat_type: ChatType, member_count: int
     ) -> ChatFanoutStrategy:
@@ -296,6 +309,7 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
         admin_only: bool = False,
         slow_mode_seconds: int = 0,
         permissions: dict[str, bool] | None = None,
+        join_by_request: bool = False,
     ) -> Self:
         if created_by in members_ids:
             members_ids.remove(created_by)
@@ -320,6 +334,7 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
             name=name,
             description=description,
             is_public=is_public,
+            join_by_request=join_by_request and chat_type != ChatType.DIRECT,
             admin_only=admin_only,
             slow_mode_seconds=slow_mode_seconds,
             member_count=0,
@@ -370,7 +385,11 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
         permissions: dict[str, bool] | None = None,
         reactions_mode: ChatReactionsMode | None = None,
         allowed_reactions: list[str] | None = None,
+        join_by_request: bool | None = None,
     ) -> None:
+        if join_by_request is not None:
+            self.set_join_by_request(join_by_request)
+
         if slow_mode_seconds is not None:
             self._validate_slow_mode(slow_mode_seconds)
             self.slow_mode_seconds = slow_mode_seconds
@@ -400,6 +419,12 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
                 self.username = None
 
         self._register_updated(updated_by)
+
+    def set_join_by_request(self, join_by_request: bool) -> None:
+        if join_by_request and self.type == ChatType.DIRECT:
+            raise JoinRequestNotAllowedError(chat_id=str(self.id), reason="direct_chat")
+
+        self.join_by_request = join_by_request
 
     def set_username(self, updated_by: int, username: str | None) -> None:
         if username is None:
@@ -479,6 +504,7 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
                 allowed_reactions=list(self.allowed_reactions or []),
                 username=self.username,
                 avatar_s3_key=self.avatar_s3_key,
+                join_by_request=self.join_by_request,
                 avatars=dict(self.avatars or {}),
             )
         )

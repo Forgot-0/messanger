@@ -53,6 +53,7 @@ class GetChatDetailQueryHandler(BaseQueryHandler[GetChatDetailQuery, ChatDetailD
             avatar_s3_key=chat.avatar_s3_key,
             avatars=chat.avatars or {},
             is_public=chat.is_public,
+            join_by_request=chat.join_by_request,
             admin_only=chat.admin_only,
             slow_mode_seconds=chat.slow_mode_seconds,
             permissions=chat.permissions or {},

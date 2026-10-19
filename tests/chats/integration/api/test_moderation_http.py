@@ -153,7 +153,8 @@ class TestModerationHttp:
 
         joined = await client.post(api_path(f"chats/invites/{invite['code']}/join/"), headers=guest_headers)
         assert joined.status_code == 200, joined.text
-        assert joined.json()["id"] == chat_id
+        assert joined.json()["status"] == "joined"
+        assert joined.json()["chat"]["id"] == chat_id
 
         again = await client.post(api_path(f"chats/invites/{invite['code']}/join/"), headers=guest_headers)
         assert again.status_code == 409

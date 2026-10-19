@@ -38,6 +38,7 @@ async def create_invite_link(
             name=payload.name,
             expires_at=payload.expires_at,
             usage_limit=payload.usage_limit,
+            creates_join_request=payload.creates_join_request,
         )
     )
 

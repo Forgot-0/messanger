@@ -27,6 +27,7 @@ from app.chats.dtos.chats import (
     PublicChatSearchDTO,
 )
 from app.chats.dtos.invites import ChatInvitePreviewDTO
+from app.chats.dtos.join_requests import JoinChatResultDTO
 from app.chats.dtos.reactions import ReactionsCatalogDTO
 from app.chats.dtos.search import MessageSearchDTO
 from app.chats.queries.chats.get_by_username import GetChatByUsernameQuery
@@ -95,6 +96,7 @@ async def create_chat(
             admin_only=payload.admin_only,
             slow_mode_seconds=payload.slow_mode_seconds,
             permissions=payload.permissions,
+            join_by_request=payload.join_by_request,
             user_jwt_data=user_jwt_data,
         )
     )
@@ -225,7 +227,7 @@ async def join_chat_by_invite(
     code: str,
     user_jwt_data: CurrentUserJWTData,
     mediator: FromDishka[BaseMediator],
-) -> ChatDTO:
+) -> JoinChatResultDTO:
     return await mediator.handle_command(
         JoinChatByInviteCommand(user_jwt_data=user_jwt_data, code=code)
     )
@@ -265,6 +267,7 @@ async def update_chat(
             permissions=payload.permissions,
             reactions_mode=payload.reactions_mode,
             allowed_reactions=payload.allowed_reactions,
+            join_by_request=payload.join_by_request,
             user_jwt_data=user_jwt_data,
         )
     )
@@ -310,15 +313,17 @@ async def delete_chat(
 
 @router.post(
     "/{chat_id}/join/",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
     dependencies=[Depends(ConfigurableRateLimiter(times=10, seconds=5*60))]
 )
 async def join_public_chat(
     chat_id: UUID,
     user_jwt_data: CurrentUserJWTData,
     mediator: FromDishka[BaseMediator],
-) -> None:
-    await mediator.handle_command(JoinChatCommand(user_jwt_data=user_jwt_data, chat_id=chat_id))
+) -> JoinChatResultDTO:
+    return await mediator.handle_command(
+        JoinChatCommand(user_jwt_data=user_jwt_data, chat_id=chat_id)
+    )
 
 
 @router.post(

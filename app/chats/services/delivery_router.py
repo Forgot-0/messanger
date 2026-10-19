@@ -11,6 +11,8 @@ from app.chats.config import chat_config
 from app.chats.dtos.delivery import (
     CHAT_DELETED_EVENT_NAME,
     CHAT_EVENT_TO_WS_TYPE,
+    JOIN_REQUEST_APPLICANT_EVENTS,
+    JOIN_REQUEST_STAFF_EVENTS,
     MESSAGE_HYDRATED_EVENTS,
     REACTION_EVENT_NAME,
     MessagePayloadWS,
@@ -147,6 +149,10 @@ class ChatDeliveryRouter:
             message=message,
             reaction=reaction,
         ).model_dump(mode="json")
+
+        if ws_event.event_name in JOIN_REQUEST_STAFF_EVENTS:
+            return await self._route_join_request(ws_event=ws_event, payload=payload)
+
         await self._route_to_removed_member(ws_event=ws_event, payload=payload)
 
 
@@ -219,6 +225,30 @@ class ChatDeliveryRouter:
                 require_subscription=True,
                 expires_at=expires_at,
             )
+
+    async def _route_join_request(
+        self,
+        ws_event: WsEvent,
+        payload: dict[str, Any],
+    ) -> None:
+        recipients = set(
+            await self.chat_repository.staff_user_ids(
+                chat_id=ws_event.chat_id,
+                min_role_level=chat_config.CHAT_STAFF_MIN_ROLE_LEVEL,
+                limit=chat_config.JOIN_REQUEST_STAFF_FANOUT_LIMIT,
+            )
+        )
+
+        if ws_event.event_name in JOIN_REQUEST_APPLICANT_EVENTS:
+            recipients.add(int(ws_event.delta["user_id"]))
+
+        routes = await self._lookup_online_routes(recipients)
+        await self._enqueue_gateway_deliveries(
+            routes,
+            ws_event,
+            payload,
+            require_subscription=False,
+        )
 
     async def _route_to_removed_member(
         self,

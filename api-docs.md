@@ -37,7 +37,7 @@
 | 9 | **Аватар профиля**: `avatars: { "32"\|"64"\|"256"\|"512": { "jpg": url, "webp": url } }` — 4 размера × 2 формата на размер, столько же у аватара группы/канала. Бакет аватаров **приватный**: это presigned-ссылки с TTL `300` сек, как у вложений чата. Их нельзя складывать в свою БД и переиспользовать позже — после истечения они отдают `403`, нужен повторный запрос профиля. См. раздел 4.5. |
 | 10 | **Загрузка аватара — presigned PUT**, тем же механизмом, что и вложения чата (раздел 6.5), но валидация типа/размера файла происходит **асинхронно**, уже после подтверждения загрузки — `POST /profiles/avatar/upload_complete/` всегда отвечает `200 OK`, даже если файл в итоге окажется невалидным и аватар не обновится. См. раздел 4.5. |
 | 11 | Раздела "realtime" (`/chats/realtime/presence/`, `/chats/realtime/ws/status/`) в коде нет. Presence отдаётся через `GET /chats/{chat_id}/members/?include_presence=true` и через WS. |
-| 12 | **WebSocket-протокол** — полноценный протокол с 5 командами клиента (`subscribe`, `unsubscribe`, `resume`, `typing`, `ping`/`pong`) и ~17 типами server-push событий (`new_message`, `message_edited`, `message_deleted`, `messages_read`, `message_pinned`, `message_unpinned`, `typing_start`, `typing_stop`, `member_joined`, `member_left`, `member_kick`, `member_banned`, `chat_created`, `chat_updated`, `attachment_success`, `chat_deleted`, `reaction_update`, плюс служебные `ws.ready/subscribed/unsubscribed/history/pong/ping/error`). В `payload` каждого доменного события лежит дельта `event` (поля конкретного типа: `reader_id`, `target_user_id`, `deleted_by`, ...) и `event_id` для дедупликации — доставка at-least-once. Полный `MessageDTO` приходит только в `new_message`/`message_edited`. Полностью расписан в разделе 7. |
+| 12 | **WebSocket-протокол** — полноценный протокол с 5 командами клиента (`subscribe`, `unsubscribe`, `resume`, `typing`, `ping`/`pong`) и ~21 типом server-push событий (`new_message`, `message_edited`, `message_deleted`, `messages_read`, `message_pinned`, `message_unpinned`, `typing_start`, `typing_stop`, `member_joined`, `member_left`, `member_kick`, `member_banned`, `join_request_created`, `join_request_approved`, `join_request_declined`, `join_request_cancelled`, `chat_created`, `chat_updated`, `attachment_success`, `chat_deleted`, `reaction_update`, плюс служебные `ws.ready/subscribed/unsubscribed/history/pong/ping/error`). В `payload` каждого доменного события лежит дельта `event` (поля конкретного типа: `reader_id`, `target_user_id`, `deleted_by`, ...) и `event_id` для дедупликации — доставка at-least-once. Полный `MessageDTO` приходит только в `new_message`/`message_edited`. Полностью расписан в разделе 7. |
 | 13 | **Роли проекта** — реальные сид-роли: `owner(id=1)`, `maintainer(id=2)`, `developer(id=4, id=3 не существует)`, `user(id=5)`, с непустой картой прав. См. раздел 8. |
 | 14 | **429 Too Many Requests** не проходит через `ApplicationError` — это обычный FastAPI `HTTPException`, отдаётся как `{"detail": "Too Many Requests"}`, без `error/status/request_id/timestamp`. Обрабатывать нужно отдельной веткой по HTTP-статусу 429. |
 | 15 | **`GET /users/me/`** возвращает облегчённый `UserResponse`: только `{id, username, email}`. Роли/права/сессии — через `GET /users/` (админский, постранично) или `GET /users/sessions/`. |
@@ -64,6 +64,7 @@
 | 34 | **Ленту рисуют превью, а не оригиналы.** У фото, видео и кружков есть `previews` (WebP по большей стороне 320/800/1280, без апскейла — у маленьких картинок одна ступень своего размера) и `thumbhash` — заглушка до загрузки. Кэшировать превью по их `s3_key` (ссылки живут 300 с). `previews` пуст, если постер видео не удалось снять — плитку рисовать по `thumbhash`/`width`/`height`, а если и их нет, как раньше. См. 5.5. |
 | 36 | **Username меняется в auth, профиль и чаты догоняют событием.** `PUT /users/me/username/` отвечает новым именем сразу, логин по нему работает сразу, а `ProfileDTO.username`, `GET /profiles/u/{name}/` и `username` в чатах (`peer`, участники, авторы) обновляются через доли секунды (`auth.user.username_changed` → профиль → `profiles.profile.updated` → проекция чатов). В access-токене до ближайшего `POST /auth/refresh/` остаётся старое имя — после смены стоит сразу обновить токен. Новое имя: 5–32 символа, латиница, цифры и `_`, с буквы, не на `_`; занятость и `GET /profiles/u/{username}/` — **без учёта регистра**. Регистрация пока принимает прежний формат (`^[a-zA-Z0-9 ,.'-]+$`), такие имена остаются как есть до первой смены. См. 3.17. |
 | 37 | **У профиля история фото, а не один аватар.** `ProfileDTO.avatars` — по-прежнему текущее фото; вся история — `GET /profiles/{id}/photos/` (текущее первым, `is_main: true`). Новая загрузка становится текущим фото, прежние остаются в истории (до 100). `DELETE /profiles/avatar/` удаляет текущее, и текущим становится предыдущее — как в Telegram; `PUT /profiles/photos/{photo_id}/main/` возвращает старое фото на первое место. Ключи объектов у каждого фото свои (`{user_id}/{photo_id}/{size}.{fmt}`), поэтому картинку можно кэшировать по ключу. Приватность `photo` и блокировка скрывают всю историю. См. 4.5–4.5.1. |
+| 38 | **Вступление может превратиться в заявку.** `POST /chats/invites/{code}/join/` и `POST /chats/{chat_id}/join/` теперь отвечают `200 JoinChatResultDTO` со `status: "joined" | "requested"`: у ссылки с `creates_join_request` и у чата с `join_by_request` участником сразу не становятся — создаётся заявка, которую модерация (право `member:invite`) одобряет или отклоняет в `/chats/{chat_id}/join_requests/`. Клиент обязан смотреть на `status`, а не на наличие чата в ответе. После отказа повторная заявка — только через час (`429 JOIN_REQUEST_RETRY_LATER`). События заявок по WS видит только модерация (и заявитель — решение по своей). См. 5.8.1. |
 
 ---
 
@@ -288,8 +289,14 @@ interface ErrorResponse {
 | `INVALID_OWNERSHIP_TRANSFER` | 400 | `{ "chat_id": string, "reason": "direct_chat" \| "already_owner" \| "target_banned" }` |
 | `NOT_FOUND_INVITE_LINK` | 404 | `{ "invite": string }` — код ссылки (или id при отзыве) не найден |
 | `INVITE_LINK_EXPIRED` | 410 | `{ "reason": "expired" \| "revoked" \| "usage_limit_reached" }` — ссылка была, но больше не действует |
-| `INVALID_INVITE_LINK` | 400 | `{ "reason": "expires_at_in_past" \| "usage_limit_out_of_range" \| "direct_chat" }` |
+| `INVALID_INVITE_LINK` | 400 | `{ "reason": "expires_at_in_past" \| "usage_limit_out_of_range" \| "direct_chat" \| "request_link_with_usage_limit" }` |
 | `INVITE_LINKS_LIMIT_EXCEEDED` | 400 | `{ "limit": 100 }` — неотозванных ссылок у чата не больше `MAX_INVITE_LINKS_PER_CHAT` |
+| `NOT_FOUND_JOIN_REQUEST` | 404 | `{ "chat_id": string, "user_id": number }` — ожидающей заявки нет (не подавалась, уже решена или отозвана); см. 5.8.1 |
+| `JOIN_REQUEST_PENDING` | 409 | `{ "chat_id": string, "user_id": number }` — заявка уже ждёт решения |
+| `JOIN_REQUEST_NOT_PENDING` | 409 | `{ "chat_id": string, "user_id": number, "status": "approved" \| "declined" }` — решение уже принято (гонка двух админов) |
+| `JOIN_REQUEST_RETRY_LATER` | 429 | `{ "chat_id": string, "user_id": number, "retry_after": number }` — после отказа повторная заявка возможна через час |
+| `JOIN_REQUESTS_LIMIT_EXCEEDED` | 400 | `{ "chat_id": string, "limit": 5000 }` — очередь ожидающих заявок переполнена |
+| `JOIN_REQUEST_NOT_ALLOWED` | 400 | `{ "chat_id": string, "reason": "direct_chat" }` — `join_by_request` нельзя включить в личке |
 | `CHAT_AVATAR_VALIDATION` | 400 | `{ "reason": string, "mime_type": string \| null, "file_size": number \| null }` — синхронно только на шаге запроса слота (`mime_type`, `size`, `direct_chat`); проверка содержимого файла асинхронная, см. 5.10 |
 | `USER_BLOCKED` | 403 | `{ "chat_id": string \| null, "user_id": number }` — личка заблокирована: один из собеседников заблокировал другого (`user_id` — собеседник). `chat_id: null` — при попытке создать новый direct. См. 4.13 |
 | `USER_PRIVACY_RESTRICTED` | 403 | `{ "user_ids": number[] }` — этих пользователей нельзя добавить в группу/канал: они заблокировали вызывающего **или** их настройка `group_invites` его не пускает. См. 4.13, 4.14 |
@@ -1070,6 +1077,7 @@ interface PrivacySettingsDTO {
 | `/chats/search/`, `/chats/u/{username}/` | `routes/v1/chats.py` (статические пути выше `/{chat_id}/`) | `chats` | ✅ |
 | `/chats/invites/{code}/`, `/chats/invites/{code}/join/` | `routes/v1/chats.py` (статические пути выше `/{chat_id}/`) | `chats` | ✅ |
 | `/chats/{chat_id}/invites` | `routes/v1/invites.py` | `chat-invites` | ✅ |
+| `/chats/{chat_id}/join_requests` | `routes/v1/join_requests.py` | `chat-join-requests` | ✅ |
 | `/chats/{chat_id}/members` | `routes/v1/members.py` | `chat-members` | ✅ |
 | `/chats/{chat_id}/messages` | `routes/v1/messages.py` | `chat-messages` | ✅ |
 | `/chats/{chat_id}/pinned_messages` | `routes/v1/pins.py` | `chat-pinned-messages` | ✅ |
@@ -1097,7 +1105,7 @@ interface PrivacySettingsDTO {
 | PATCH | `/chats/{chat_id}/` | 4/5мин | `UpdateChatRequest` | `200`, `ChatDTO` |
 | PATCH | `/chats/{chat_id}/state/` | 60/1мин | `UpdateChatStateRequest` | `200`, `ChatStateDTO` — личное состояние чата: пин, архив, мьют уведомлений, черновик |
 | DELETE | `/chats/{chat_id}/` | 4/5мин | — | `204` |
-| POST | `/chats/{chat_id}/join/` | 10/5мин | — | `204` — вступить в публичный чат |
+| POST | `/chats/{chat_id}/join/` | 10/5мин | — | `200`, `JoinChatResultDTO` — вступить в публичный чат; при `join_by_request` создаётся заявка, см. 5.8.1 |
 | POST | `/chats/{chat_id}/leave/` | 4/5мин | — | `204` |
 | POST | `/chats/{chat_id}/transfer_ownership/` | 4/5мин | `{ user_id: number }` | `204` — передать владение (только текущий владелец), см. ниже |
 | PUT | `/chats/{chat_id}/username/` | 10/5мин | `{ username: string }` | `200`, `ChatDTO` — публичное имя, см. 5.9 |
@@ -1108,7 +1116,7 @@ interface PrivacySettingsDTO {
 | GET | `/chats/search/` | 20/1мин | Query `{ q: string (2..64), limit=20 (≤50) }` | `PublicChatSearchDTO`, см. 5.9 |
 | GET | `/chats/u/{username}/` | 20/1мин | — | `ChatPreviewDTO`, см. 5.9 |
 | GET | `/chats/invites/{code}/` | 30/1мин | — | `ChatInvitePreviewDTO` — превью по ссылке, см. 5.8 |
-| POST | `/chats/invites/{code}/join/` | 10/5мин | — | `200`, `ChatDTO` — вступить по ссылке, см. 5.8 |
+| POST | `/chats/invites/{code}/join/` | 10/5мин | — | `200`, `JoinChatResultDTO` — вступить по ссылке или создать заявку, см. 5.8, 5.8.1 |
 
 ⚠️ **Владелец чата (`created_by`) не может выйти через `/leave/`** — `Chat.leave()` сравнивает `user_id` с полем `created_by` (не с ролью!) и при совпадении кидает `403 CHAT_ACCESS_DENIED`. Сменой роли через `PATCH /members/{user_id}/role/` это не снимается, нужно сначала передать владение.
 
@@ -1837,13 +1845,14 @@ interface ReactionsCatalogDTO {
 | GET | `/chats/{chat_id}/invites/` | — | Query `{ limit=50 (≤100), last_invite_id?: UUID }` | `ListInviteLinks` (новые сверху) |
 | DELETE | `/chats/{chat_id}/invites/{invite_id}/` | — | — | `200`, `ChatInviteLinkDTO` — отозванная ссылка; повторный отзыв ничего не меняет |
 | GET | `/chats/invites/{code}/` | 30/1мин | — | `ChatInvitePreviewDTO` — превью до вступления |
-| POST | `/chats/invites/{code}/join/` | 10/5мин | — | `200`, `ChatDTO` — вступить |
+| POST | `/chats/invites/{code}/join/` | 10/5мин | — | `200`, `JoinChatResultDTO` — вступить или создать заявку |
 
 ```ts
 interface CreateInviteLinkRequest {
   name?: string | null;          // ≤ 32 симв., подпись для админов («Для конференции»)
   expires_at?: string | null;    // ISO, строго в будущем; null — бессрочно
   usage_limit?: number | null;   // 1..99999; null — без лимита
+  creates_join_request?: boolean; // ссылка «по заявке»; несовместима с usage_limit, см. 5.8.1
 }
 interface ChatInviteLinkDTO {
   id: string; chat_id: string;
@@ -1851,16 +1860,27 @@ interface ChatInviteLinkDTO {
   name: string | null; created_by: number; created_at: string;
   expires_at: string | null; usage_limit: number | null; usage_count: number;
   revoked_at: string | null;
+  creates_join_request: boolean; // true — вступление только через заявку (5.8.1)
   is_revoked: boolean; is_expired: boolean;
   is_active: boolean;            // не отозвана, не истекла и лимит не выбран
 }
 interface ListInviteLinks { invites: ChatInviteLinkDTO[]; has_next: boolean; next_invite_id: string | null }
-interface ChatInvitePreviewDTO { chat: ChatPreviewDTO; expires_at: string | null }
+interface ChatInvitePreviewDTO {
+  chat: ChatPreviewDTO; expires_at: string | null;
+  creates_join_request: boolean;                   // показывать «Подать заявку», а не «Вступить»
+  join_request_status: "pending" | "approved" | "declined" | null;  // своя заявка по этой ссылке
+}
+interface JoinChatResultDTO {
+  status: "joined" | "requested";
+  chat: ChatDTO | null;                 // заполнен при "joined"
+  join_request: ChatJoinRequestDTO | null;  // заполнен при "requested", см. 5.8.1
+}
 ```
 
 Поведение:
 - Вступивший по ссылке получает роль `member` (5), в канале — `viewer` (6). Остальным участникам
-  уходит обычный `member_joined`.
+  уходит обычный `member_joined`. У ссылки «по заявке» (`creates_join_request: true`) вступления
+  не происходит — ответ `status: "requested"`, см. 5.8.1.
 - Лимит использований выбирается атомарно (условный `UPDATE ... RETURNING`): при гонке за последний
   слот вступит ровно один. Ошибка при вступлении (уже участник, лимит участников чата) использование
   не тратит.
@@ -1874,6 +1894,67 @@ interface ChatInvitePreviewDTO { chat: ChatPreviewDTO; expires_at: string | null
 `409 ALREADY_CHAT_MEMBER`; `403 CHAT_ACCESS_DENIED` — забанен; `400 MEMBER_LIMIT_EXCEEDED`.
 Создание: `400 INVALID_INVITE_LINK` (`expires_at_in_past`), `403 CHAT_ACCESS_DENIED`, `422` на
 `usage_limit` вне диапазона.
+
+### 5.8.1 Заявки на вступление
+
+Чат можно закрыть «по заявке»: человек просит доступ, модерация одобряет или отклоняет.
+Два входа в этот режим — и оба ведут в одну таблицу заявок:
+
+- **ссылка «по заявке»** — `POST /chats/{chat_id}/invites/` с `creates_join_request: true`
+  (несовместимо с `usage_limit`: `400 INVALID_INVITE_LINK`, `reason: "request_link_with_usage_limit"`);
+- **настройка чата** — `join_by_request` в `POST /chats/` и `PATCH /chats/{chat_id}/`
+  (право `chat:update`), она же приходит в `ChatDTO` / `ChatDetailDTO` / `ChatPreviewDTO`.
+  У direct-чата её нет: `400 JOIN_REQUEST_NOT_ALLOWED` (`reason: "direct_chat"`).
+  Настройка влияет на публичное вступление `POST /chats/{chat_id}/join/`; обычные ссылки
+  (без `creates_join_request`) по-прежнему пускают сразу.
+
+| Метод | Путь | Rate limit | Request | Response |
+|---|---|---|---|---|
+| GET | `/chats/{chat_id}/join_requests/` | — | Query `{ limit=50 (≤100), last_requested_at?: ISO, last_user_id?: number }` | `ListJoinRequests` — только ожидающие, новые сверху |
+| POST | `/chats/{chat_id}/join_requests/{user_id}/approve/` | 60/1мин | — | `204` |
+| POST | `/chats/{chat_id}/join_requests/{user_id}/decline/` | 60/1мин | — | `204` |
+| DELETE | `/chats/{chat_id}/join_requests/me/` | 60/1мин | — | `204` — заявитель отзывает свою заявку |
+
+```ts
+interface ChatJoinRequestDTO {
+  chat_id: string; user_id: number;
+  status: "pending" | "approved" | "declined";
+  invite_link_id: string | null;      // null — заявка из публичного чата, а не по ссылке
+  requested_at: string;
+  resolved_at: string | null; resolved_by: number | null;
+  profile: ChatProfileDTO | null;     // профиль заявителя (аватар — presigned, с учётом приватности)
+}
+interface ListJoinRequests {
+  requests: ChatJoinRequestDTO[];
+  total: number;                      // всего ожидающих в чате — бейдж для админа
+  has_next: boolean;
+  next_requested_at: string | null;   // курсор: передать обе части
+  next_user_id: number | null;
+}
+```
+
+Поведение:
+- Список и решения требуют права `member:invite` (owner, admin) — те же права, что и у ссылок.
+  Обычному участнику — `403 CHAT_ACCESS_DENIED`. `DELETE /join_requests/me/` прав не требует:
+  заявитель не участник чата.
+- Одобрение добавляет участника ровно как вступление по ссылке: роль `member` (в канале `viewer`),
+  `member_count` растёт атомарно (`400 MEMBER_LIMIT_EXCEEDED`, если чат уже полон), участникам
+  уходит обычный `member_joined`. Если заявка пришла по ссылке, одобрение засчитывает ссылке
+  `usage_count` — счётчик ссылки «по заявке» показывает число **принятых**, а не поданных.
+- Решение принимается один раз: строка заявки берётся `FOR UPDATE`, второй админ получит
+  `409 JOIN_REQUEST_NOT_PENDING` с текущим `status`.
+- Запись о заявке не удаляется после решения — на ней живёт кулдаун. Повторная заявка после отказа
+  возможна через `JOIN_REQUEST_RETRY_AFTER_SECONDS` (1 час): раньше — `429 JOIN_REQUEST_RETRY_LATER`
+  с `retry_after` в секундах. Повторная заявка при уже ожидающей — `409 JOIN_REQUEST_PENDING`.
+  Отзыв своей заявки удаляет строку, то есть подать заново можно сразу (ограничивает только
+  rate limit на вступление).
+- Участник, подавший заявку, получает `409 ALREADY_CHAT_MEMBER`, забаненный — `403 CHAT_ACCESS_DENIED`.
+  Ожидающих заявок у чата не больше `MAX_PENDING_JOIN_REQUESTS = 5000` (`400 JOIN_REQUESTS_LIMIT_EXCEEDED`).
+- WS: `join_request_created` и `join_request_cancelled` уходят **только модерации чата**
+  (роли с уровнем ≥ 80, до 200 адресатов), `join_request_approved` / `join_request_declined` —
+  модерации и самому заявителю. Доставка без подписки на чат (`require_subscription: false`),
+  потому что заявитель на чат не подписан. Push по заявкам нет — offline-сигнал в
+  `chats.offline-delivery` шлётся только по сообщениям; клиент добирает заявки списком при открытии.
 
 ### 5.9 Публичное имя (`@username`) и поиск публичных чатов
 
@@ -2176,8 +2257,12 @@ gateway), поэтому один и тот же кадр может прийт�
 | `member_kick` | Участника кикнули | `{ target_user_id, requester_id }` | `null` |
 | `member_banned` | Участника забанили/разбанили | `{ target_user_id, requester_id, ban }` — `ban: true` бан, `false` разбан | `null` |
 | `member_muted` | Модераторский мьют поставлен/снят | `{ target_user_id, requester_id, mute, muted_until }` — `mute: false` снятие, `muted_until` ISO или `null` | `null` |
+| `join_request_created` | Кто-то подал заявку на вступление | `{ user_id, invite_link_id, requested_at }` | `null` — приходит только модерации чата, см. 5.8.1 |
+| `join_request_approved` | Заявка одобрена | `{ user_id, resolved_by, role_id }` | `null` — модерации и заявителю; участникам чата отдельно придёт `member_joined` |
+| `join_request_declined` | Заявка отклонена | `{ user_id, resolved_by }` | `null` — модерации и заявителю |
+| `join_request_cancelled` | Заявитель отозвал заявку | `{ user_id }` | `null` — только модерации |
 | `chat_created` | Чат создан | `{ created_by, name, member_ids, chat_type, member_count }` | `null` |
-| `chat_updated` | Изменены настройки чата, публичное имя или аватар | `{ updated_by, name, description, is_public, admin_only, slow_mode_seconds, permissions, reactions_mode, allowed_reactions, username, avatar_s3_key, avatars }` — последние три, это полный текущий снимок, а не только изменённое | `null` |
+| `chat_updated` | Изменены настройки чата, публичное имя или аватар | `{ updated_by, name, description, is_public, join_by_request, admin_only, slow_mode_seconds, permissions, reactions_mode, allowed_reactions, username, avatar_s3_key, avatars }` — последние три, это полный текущий снимок, а не только изменённое | `null` |
 | `chat_ownership_transferred` | Владение передано | `{ requester_id, previous_owner_id, new_owner_id }` — у нового владельца теперь `role_id=1` и `created_by`, у прежнего `role_id=2` | `null` |
 | `chat_deleted` | Чат удалён | `{ deleted_by }` | `null` — убрать чат из списка |
 | `reaction_update` | Поставили/сняли/заменили реакцию на сообщении | `{ message_id, actor_id, action }` | `null`; снимок групп — в `payload.reaction.groups` (полный текущий набор). Под нагрузкой рассылки коалесятся (окно 500 мс). Подробно — 5.7.6 |

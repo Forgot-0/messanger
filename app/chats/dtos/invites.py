@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from app.chats.dtos.chats import ChatPreviewDTO
+from app.chats.models.join_request import JoinRequestStatus
 
 
 class ChatInviteLinkDTO(BaseModel):
@@ -17,6 +18,7 @@ class ChatInviteLinkDTO(BaseModel):
     usage_limit: int | None
     usage_count: int
     revoked_at: datetime | None
+    creates_join_request: bool = False
     is_revoked: bool
     is_expired: bool
     is_active: bool
@@ -33,3 +35,5 @@ class ListInviteLinks(BaseModel):
 class ChatInvitePreviewDTO(BaseModel):
     chat: ChatPreviewDTO
     expires_at: datetime | None
+    creates_join_request: bool = False
+    join_request_status: JoinRequestStatus | None = None

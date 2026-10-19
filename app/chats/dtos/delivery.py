@@ -26,6 +26,10 @@ CHAT_EVENT_TO_WS_TYPE: dict[str, str] = {
     "chats.member.kicked": WSEventType.MEMBER_KICK.value,
     "chats.member.banned": WSEventType.MEMBER_BANNED.value,
     "chats.member.muted": WSEventType.MEMBER_MUTED.value,
+    "chats.join_request.created": WSEventType.JOIN_REQUEST_CREATED.value,
+    "chats.join_request.approved": WSEventType.JOIN_REQUEST_APPROVED.value,
+    "chats.join_request.declined": WSEventType.JOIN_REQUEST_DECLINED.value,
+    "chats.join_request.cancelled": WSEventType.JOIN_REQUEST_CANCELLED.value,
     "chats.chat.created": WSEventType.CHAT_CREATED.value,
     "chats.chat.updated": WSEventType.CHAT_UPDATED.value,
     "chats.chat.ownership_transferred": WSEventType.CHAT_OWNERSHIP_TRANSFERRED.value,
@@ -36,6 +40,18 @@ CHAT_EVENT_TO_WS_TYPE: dict[str, str] = {
 MESSAGE_HYDRATED_EVENTS: frozenset[str] = frozenset({
     "chats.message.sent",
     "chats.message.modified",
+})
+
+JOIN_REQUEST_STAFF_EVENTS: frozenset[str] = frozenset({
+    "chats.join_request.created",
+    "chats.join_request.approved",
+    "chats.join_request.declined",
+    "chats.join_request.cancelled",
+})
+
+JOIN_REQUEST_APPLICANT_EVENTS: frozenset[str] = frozenset({
+    "chats.join_request.approved",
+    "chats.join_request.declined",
 })
 
 _DELTA_SKIP_FIELDS: frozenset[str] = frozenset({

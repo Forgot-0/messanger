@@ -23,6 +23,7 @@ from sqlalchemy.orm import aliased, contains_eager, selectinload
 from app.chats.exceptions import NotFoundChatError
 from app.chats.models.chat import Chat, ChatFanoutStrategy, ChatType
 from app.chats.models.chat_members import ChatMember
+from app.chats.models.chat_roles import ChatRole
 from app.chats.models.message import Message
 from app.chats.models.profile import ChatUserProfile
 from app.chats.models.read_receipts import ReadReceipt
@@ -245,6 +246,21 @@ class ChatRepository(IRepository[Chat], CacheRepository):
 
         result = await self.session.execute(stmt)
         return result.scalar()
+
+    async def staff_user_ids(self, chat_id: UUID, min_role_level: int, limit: int) -> list[int]:
+        stmt = (
+            select(ChatMember.user_id)
+            .join(ChatRole, ChatRole.id == ChatMember.role_id)
+            .where(
+                ChatMember.chat_id == chat_id,
+                ChatRole.level >= min_role_level,
+                ChatMember.active_criteria(),
+            )
+            .order_by(ChatMember.user_id.asc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def delete_member(self, member: ChatMember) -> None:
         await self.session.delete(member)

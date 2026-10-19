@@ -44,6 +44,18 @@ from app.chats.commands.contacts.apply import ApplyUserContactCommand, ApplyUser
 from app.chats.commands.invites.create import CreateInviteLinkCommand, CreateInviteLinkCommandHandler
 from app.chats.commands.invites.join import JoinChatByInviteCommand, JoinChatByInviteCommandHandler
 from app.chats.commands.invites.revoke import RevokeInviteLinkCommand, RevokeInviteLinkCommandHandler
+from app.chats.commands.join_requests.approve import (
+    ApproveJoinRequestCommand,
+    ApproveJoinRequestCommandHandler,
+)
+from app.chats.commands.join_requests.cancel import (
+    CancelJoinRequestCommand,
+    CancelJoinRequestCommandHandler,
+)
+from app.chats.commands.join_requests.decline import (
+    DeclineJoinRequestCommand,
+    DeclineJoinRequestCommandHandler,
+)
 from app.chats.commands.messages.delete import DeleteMessageCommand, DeleteMessageCommandHandler
 from app.chats.commands.messages.forward import ForwardMessageCommand, ForwardMessageCommandHandler
 from app.chats.commands.messages.forward_many import ForwardMessagesCommand, ForwardMessagesCommandHandler
@@ -76,6 +88,10 @@ from app.chats.queries.chats.get_members import GetChatMembersQuery, GetChatMemb
 from app.chats.queries.chats.search_public import SearchPublicChatsQuery, SearchPublicChatsQueryHandler
 from app.chats.queries.invites.get_list import GetInviteLinksQuery, GetInviteLinksQueryHandler
 from app.chats.queries.invites.preview import GetInvitePreviewQuery, GetInvitePreviewQueryHandler
+from app.chats.queries.join_requests.get_list import (
+    GetJoinRequestsQuery,
+    GetJoinRequestsQueryHandler,
+)
 from app.chats.queries.messages.get_context import GetMessageContextQuery, GetMessageContextQueryHandler
 from app.chats.queries.messages.get_detail import GetMessageDetailQuery, GetMessageDetailQueryHandler
 from app.chats.queries.messages.get_list import GetMessagesQuery, GetMessagesQueryHandler
@@ -95,6 +111,7 @@ from app.chats.repositories.avatar_upload import ChatAvatarUploadRepository
 from app.chats.repositories.blocks import ChatUserBlockRepository
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.invite import ChatInviteLinkRepository
+from app.chats.repositories.join_request import ChatJoinRequestRepository
 from app.chats.repositories.message import MessageRepository
 from app.chats.repositories.pinned_message import ChatPinnedMessageRepository
 from app.chats.repositories.privacy import ChatPrivacyProjectionRepository
@@ -107,6 +124,7 @@ from app.chats.services.attachment_media import AttachmentMediaValidator
 from app.chats.services.attachment_processor import AttachmentMediaProcessor
 from app.chats.services.chat_avatar import ChatAvatarService
 from app.chats.services.delivery_router import ChatDeliveryRouter
+from app.chats.services.join_requests import ChatJoinRequestService
 from app.chats.services.livekit_service import LiveKitService
 from app.chats.services.messages import MessageService
 from app.chats.services.privacy import ChatPrivacyService
@@ -145,6 +163,7 @@ class ChatModuleProvider(Provider):
     read_coalesce_queue = provide(ReadReceiptCoalesceQueue, scope=Scope.APP)
     read_receipt_flusher = provide(ReadReceiptFlusher, scope=Scope.REQUEST)
     privacy_service = provide(ChatPrivacyService, scope=Scope.REQUEST)
+    join_request_service = provide(ChatJoinRequestService, scope=Scope.REQUEST)
     avatar_upload_repository = provide(ChatAvatarUploadRepository, scope=Scope.APP)
 
     commands = provide_all(
@@ -196,6 +215,9 @@ class ChatModuleProvider(Provider):
         ApplyProfilePrivacyCommandHandler,
         PinMessageCommandHandler,
         UnpinMessagesCommandHandler,
+        ApproveJoinRequestCommandHandler,
+        DeclineJoinRequestCommandHandler,
+        CancelJoinRequestCommandHandler,
         scope=Scope.REQUEST,
     )
 
@@ -217,6 +239,7 @@ class ChatModuleProvider(Provider):
         GetInvitePreviewQueryHandler,
         GetMessageReadsQueryHandler,
         GetPinnedMessagesQueryHandler,
+        GetJoinRequestsQueryHandler,
         scope=Scope.REQUEST,
     )
 
@@ -230,6 +253,7 @@ class ChatModuleProvider(Provider):
         ChatUserBlockRepository,
         ChatPrivacyProjectionRepository,
         ChatInviteLinkRepository,
+        ChatJoinRequestRepository,
         ChatPinnedMessageRepository,
         scope=Scope.REQUEST,
     )
@@ -298,6 +322,9 @@ class ChatModuleProvider(Provider):
         )
         command_registry.register_command(PinMessageCommand, PinMessageCommandHandler)
         command_registry.register_command(UnpinMessagesCommand, UnpinMessagesCommandHandler)
+        command_registry.register_command(ApproveJoinRequestCommand, ApproveJoinRequestCommandHandler)
+        command_registry.register_command(DeclineJoinRequestCommand, DeclineJoinRequestCommandHandler)
+        command_registry.register_command(CancelJoinRequestCommand, CancelJoinRequestCommandHandler)
         return command_registry
 
     @decorate
@@ -319,6 +346,7 @@ class ChatModuleProvider(Provider):
         query_registry.register_query(GetInvitePreviewQuery, GetInvitePreviewQueryHandler)
         query_registry.register_query(GetMessageReadsQuery, GetMessageReadsQueryHandler)
         query_registry.register_query(GetPinnedMessagesQuery, GetPinnedMessagesQueryHandler)
+        query_registry.register_query(GetJoinRequestsQuery, GetJoinRequestsQueryHandler)
         return query_registry
 
     @decorate

@@ -171,7 +171,20 @@ HTTP route (app/<module>/routes/v1/*.py)
   `'simple'::regconfig`, а не bind-параметр, иначе выражение не совпадёт с индексом.
 - **Инвайт-ссылки** (`chat_invite_links`): использование списывается условным `UPDATE ... RETURNING`
   (`ChatInviteLinkRepository.consume`), без `SELECT FOR UPDATE`. Превью/вступление —
-  статические `/chats/invites/{code}/`, объявлены выше `/{chat_id}/`.
+  статические `/chats/invites/{code}/`, объявлены выше `/{chat_id}/`. Флаг
+  `creates_join_request` делает ссылку «по заявке» (с `usage_limit` несовместим).
+- **Заявки на вступление** — таблица `chat_join_requests` (PK `chat_id, user_id`), роутер
+  `routes/v1/join_requests.py` (префикс `/chats/{chat_id}/join_requests`, право `member:invite`;
+  `DELETE /me/` — отзыв своей заявки, объявлен выше `/{user_id}/...`). Вход в режим: ссылка
+  с `creates_join_request` или `chats.join_by_request` (публичный `POST /chats/{id}/join/`).
+  Оба пути вступления отвечают `JoinChatResultDTO` (`joined` | `requested`), общая часть —
+  `ChatJoinRequestService.submit`. «Ожидает решения» = `resolved_at IS NULL` (под partial-индекс
+  `ix_chat_join_requests_pending`), `status` держит тип решения; строка переживает решение, на ней
+  кулдаун повторной заявки `JOIN_REQUEST_RETRY_AFTER_SECONDS`. Одобрение берёт строку `FOR UPDATE`,
+  добавляет участника как вступление по ссылке и засчитывает `usage_count` ссылке. События
+  `chats.join_request.created/approved/declined/cancelled` не идут в общий фан-аут:
+  `ChatDeliveryRouter._route_join_request` кладёт их только модерации (`ChatRepository.staff_user_ids`,
+  уровень роли ≥ `CHAT_STAFF_MIN_ROLE_LEVEL`) и — для решения — заявителю. Push по заявкам нет.
 - **Аватар группы/канала**: слот загрузки — в Redis (`ChatAvatarKeys`), не в БД; обработка —
   taskiq-задача `chats.avatar.process` (`ChatAvatarService`: pyvips в `to_thread`, чтение pending
   пиннится `stat`). Варианты лежат в публичном бакете `chat-avatars` под `{chat_id}/{upload_token}/`,
@@ -228,6 +241,7 @@ HTTP route (app/<module>/routes/v1/*.py)
 | `chats.message.sent`, `chats.message.readed`, `chats.message.modified`, `chats.message.deleted` | chats |
 | `chats.message.pinned`, `chats.message.unpinned` | chats |
 | `chats.message.reaction_updated` | chats |
+| `chats.join_request.created`, `chats.join_request.approved`, `chats.join_request.declined`, `chats.join_request.cancelled` | chats |
 
 Дополнительный топик без outbox: `chats.offline-delivery` (сигнал на push, публикуется delivery-router'ом).
 `chats.typing.started` / `chats.typing.stopped` — только имена в WS-конверте: эти кадры не проходят
@@ -242,7 +256,8 @@ HTTP route (app/<module>/routes/v1/*.py)
 `draft`, `draft_updated_at`), `chat_member_bans`, `chat_roles`, `chat_user_profiles` (+ копия настроек приватности `privacy_*`),
 `chat_user_blocks` (проекция `blocked_users`), `chat_user_contacts` (проекция `user_contacts`),
 `chat_user_privacy_exceptions` (проекция `profile_privacy_exceptions`),
-`chat_invite_links`, `chat_pinned_messages`, `messages` (+ `action` у системных, `has_links`),
+`chat_invite_links` (+ `creates_join_request`), `chat_join_requests`, `chat_pinned_messages`,
+`messages` (+ `action` у системных, `has_links`),
 `message_attachments` (+ `message_seq`, `previews`, `thumbhash`), `message_reactions`, `message_reaction_counters`, `read_receipts`, `read_receipt_marks`,
 `notifications`, `user_device_tokens`,
 `outbox_messages`.

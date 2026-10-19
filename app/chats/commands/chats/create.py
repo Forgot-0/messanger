@@ -28,6 +28,7 @@ class CreateChatCommand(BaseCommand):
     admin_only: bool = False
     slow_mode_seconds: int = 0
     permissions: dict[str, bool] = field(default_factory=dict)
+    join_by_request: bool = False
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ class CreateChatCommandHandler(BaseCommandHandler[CreateChatCommand, ChatDTO]):
             admin_only=command.admin_only,
             slow_mode_seconds=command.slow_mode_seconds,
             permissions=command.permissions,
+            join_by_request=command.join_by_request,
         )
         if chat.type == ChatType.DIRECT:
             other_user_id = next(

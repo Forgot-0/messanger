@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats.dtos.chats import ChatDTO
+from app.chats.dtos.join_requests import (
+    ChatJoinRequestDTO,
+    JoinChatResultDTO,
+    JoinResultStatus,
+)
 from app.chats.exceptions import (
     AccessDeniedChatError,
     AlreadyMemberError,
@@ -13,9 +18,9 @@ from app.chats.exceptions import (
     NotFoundInviteLinkError,
 )
 from app.chats.models.chat import Chat, ChatType
-from app.chats.models.chat_roles import ChatRoleId
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.invite import ChatInviteLinkRepository
+from app.chats.services.join_requests import ChatJoinRequestService
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
 from app.core.services.auth.dto import UserJWTData
@@ -30,13 +35,16 @@ class JoinChatByInviteCommand(BaseCommand):
 
 
 @dataclass(frozen=True)
-class JoinChatByInviteCommandHandler(BaseCommandHandler[JoinChatByInviteCommand, ChatDTO]):
+class JoinChatByInviteCommandHandler(
+    BaseCommandHandler[JoinChatByInviteCommand, JoinChatResultDTO]
+):
     session: AsyncSession
     chat_repository: ChatRepository
     invite_repository: ChatInviteLinkRepository
+    join_request_service: ChatJoinRequestService
     event_bus: BaseEventBus
 
-    async def handle(self, command: JoinChatByInviteCommand) -> ChatDTO:
+    async def handle(self, command: JoinChatByInviteCommand) -> JoinChatResultDTO:
         user_id = int(command.user_jwt_data.id)
 
         invite = await self.invite_repository.get_by_code(command.code)
@@ -50,6 +58,27 @@ class JoinChatByInviteCommandHandler(BaseCommandHandler[JoinChatByInviteCommand,
         chat = await self.chat_repository.get_by_id(invite.chat_id)
         if chat is None or chat.type == ChatType.DIRECT:
             raise NotFoundInviteLinkError(invite=command.code)
+
+        if invite.creates_join_request:
+            request = await self.join_request_service.submit(
+                chat=chat, user_id=user_id, invite_link_id=invite.id
+            )
+
+            await self.event_bus.publish(request.pull_events())
+            await self.session.commit()
+
+            logger.info(
+                "Join request created by invite link",
+                extra={
+                    "chat_id": str(chat.id),
+                    "user_id": user_id,
+                    "invite_id": str(invite.id),
+                },
+            )
+            return JoinChatResultDTO(
+                status=JoinResultStatus.REQUESTED,
+                join_request=ChatJoinRequestDTO.model_validate(request),
+            )
 
         existing = await self.chat_repository.get_member_chat(chat.id, user_id, with_role=False)
         if existing is not None:
@@ -68,8 +97,7 @@ class JoinChatByInviteCommandHandler(BaseCommandHandler[JoinChatByInviteCommand,
         if member_count is None:
             raise MemberLimitExceededError(limit=limit)
 
-        role_id = ChatRoleId.VIEWER if chat.type == ChatType.CHANNEL else ChatRoleId.MEMBER
-        chat.add_member(user_id, role_id=role_id)
+        chat.add_member(user_id, role_id=Chat.default_member_role(chat.type))
 
         await self.event_bus.publish(chat.pull_events())
         await self.session.commit()
@@ -78,4 +106,6 @@ class JoinChatByInviteCommandHandler(BaseCommandHandler[JoinChatByInviteCommand,
             "User joined chat by invite link",
             extra={"chat_id": str(chat.id), "user_id": user_id, "invite_id": str(invite.id)},
         )
-        return ChatDTO.model_validate(chat)
+        return JoinChatResultDTO(
+            status=JoinResultStatus.JOINED, chat=ChatDTO.model_validate(chat)
+        )
