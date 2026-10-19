@@ -45,7 +45,6 @@ class ChatPrivacyService:
         if state is None:
             return
 
-        # Блок уже проверен в ensure_can_message, но метод должен быть самодостаточным
         if state.blocked:
             raise UserBlockedError(chat_id=str(chat.id), user_id=state.peer_id)
 

@@ -11,6 +11,7 @@ from app.auth.models.role import Role, UserRoles
 
 from app.profiles.models.profile_link import ProfileLink
 from app.profiles.models.profile import Profile
+from app.profiles.models.photo import ProfilePhoto
 from app.profiles.models.contacts import BlockedUser, PendingContact, UserContact, UserIdentifier
 from app.profiles.models.privacy import ProfilePrivacy, ProfilePrivacyException
 

@@ -39,7 +39,11 @@ class ChangePasswordCommandHandler(BaseCommandHandler[ChangePasswordCommand, Non
         if not user:
             raise NotFoundUserError(user_by="1", user_field="id")
 
-        if command.new_password != command.new_password_repeat:
+        if (
+            user.password_hash is None or
+            self.hash_service.verify_password(command.old_password, user.password_hash) or
+            command.new_password != command.new_password_repeat
+        ):
             raise PasswordMismatchError
 
         user.password_reset(self.hash_service.hash_password(command.new_password))

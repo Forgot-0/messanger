@@ -9,7 +9,7 @@ from app.profiles.queries.profiles.get_by_id import GetProfileByIdQuery, GetProf
 from app.profiles.queries.profiles.get_list import GetProfilesQuery, GetProfilesQueryHandler
 from app.profiles.schemas.profiles.requests import GetProfilesRequest
 
-AVATARS = {"64": {"jpg": "http://storage.test/profiles/9001/64.jpg"}}
+AVATARS = {"64": {"jpg": "9001/64.jpg"}}
 
 BLOCKER_ID = 9001
 VIEWER_ID = 9002

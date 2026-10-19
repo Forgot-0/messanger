@@ -6,7 +6,7 @@ from app.chats.config import chat_config
 from app.chats.dtos.messages import MessageDTO
 from app.chats.dtos.search import MessageSearchDTO, MessageSearchItemDTO, SearchChatPreviewDTO
 from app.chats.repositories.message import MessageRepository
-from app.chats.services.messages import AvatarHolder, MessageService
+from app.chats.services.messages import MessageService
 from app.chats.services.privacy import ChatPrivacyService
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
@@ -48,21 +48,17 @@ class SearchMessagesQueryHandler(BaseQueryHandler[SearchMessagesQuery, MessageSe
         )
         page = rows[:limit]
 
-        items: list[MessageSearchItemDTO] = []
-        avatars: list[AvatarHolder | None] = []
-        for message, chat in page:
-            message_dto = MessageDTO.model_validate(message)
-            chat_dto = SearchChatPreviewDTO.model_validate(chat)
+        items = [
+            MessageSearchItemDTO(
+                message=MessageDTO.model_validate(message),
+                chat=SearchChatPreviewDTO.model_validate(chat),
+            )
+            for message, chat in page
+        ]
 
-            avatars.append(message_dto.profile)
-            avatars.append(chat_dto)
-
-            items.append(MessageSearchItemDTO(message=message_dto, chat=chat_dto))
-
-        await self.privacy_service.hide_avatars(
-            int(query.user_jwt_data.id), [item.message.profile for item in items]
-        )
-        await self.message_service.image_urls(avatars)
+        profiles = [item.message.profile for item in items]
+        await self.privacy_service.hide_avatars(int(query.user_jwt_data.id), profiles)
+        await self.message_service.image_urls(profiles)
 
         has_next = len(rows) > limit
         return MessageSearchDTO(

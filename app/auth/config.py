@@ -33,5 +33,19 @@ class AuthConfig(BaseConfig):
     USER_TOPIC: str = "auth"
     SEND_VERIFY_GROUP_ID: str = "send-verify-email"
 
+    USERNAME_MIN_LENGTH: int = 5
+    USERNAME_MAX_LENGTH: int = 32
+    USERNAME_RESERVED: frozenset[str] = frozenset({
+        "admin", "administrator", "moderator", "support", "help", "helpdesk",
+        "system", "official", "security", "abuse", "root", "superuser", "staff",
+        "service", "notifications", "bot", "username", "settings", "privacy",
+        "profile", "profiles", "contacts", "account", "chatix", "telegram",
+        "deleted", "anonymous", "null", "undefined",
+    })
+    USERNAME_CHANGE_RATE_TIMES: int = 5
+    USERNAME_CHANGE_RATE_SECONDS: int = 60 * 60
+    USERNAME_CHECK_RATE_TIMES: int = 30
+    USERNAME_CHECK_RATE_SECONDS: int = 60
+
 
 auth_config = AuthConfig()

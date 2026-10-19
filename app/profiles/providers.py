@@ -18,12 +18,21 @@ from app.profiles.commands.privacy.update import (
     UpdatePrivacySettingsCommandHandler,
 )
 from app.profiles.commands.profiles.add_link import AddLinkToProfileCommand, AddLinkToProfileCommandHandler
+from app.profiles.commands.profiles.change_username import (
+    ChangeProfileUsernameCommand,
+    ChangeProfileUsernameCommandHandler,
+)
 from app.profiles.commands.profiles.create import CreateProfileCommand, CreateProfileCommandHanler
+from app.profiles.commands.profiles.delete_photo import DeleteProfilePhotoCommand, DeleteProfilePhotoCommandHandler
 from app.profiles.commands.profiles.get_or_create import GetOrCreateProfileCommand, GetOrCreateProfileCommandHanler
 from app.profiles.commands.profiles.proccess_avatar import ProccessAvatarCommand, ProccessAvatarCommandHandler
 from app.profiles.commands.profiles.remove_link import (
     RemoveLinkFromProfileCommand,
     RemoveLinkFromProfileCommandHandler,
+)
+from app.profiles.commands.profiles.set_main_photo import (
+    SetMainProfilePhotoCommand,
+    SetMainProfilePhotoCommandHandler,
 )
 from app.profiles.commands.profiles.update import UpdateProfileCommand, UpdateProfileCommandHandler
 from app.profiles.commands.profiles.update_avatar import UpdateProfileAvatarCommand, UpdateProfileAvatarCommandHandler
@@ -36,15 +45,18 @@ from app.profiles.queries.privacy.get import GetPrivacySettingsQuery, GetPrivacy
 from app.profiles.queries.profiles.get_by_id import GetProfileByIdQuery, GetProfileByIdQueryHandler
 from app.profiles.queries.profiles.get_by_username import GetProfileByUsernameQuery, GetProfileByUsernameQueryHandler
 from app.profiles.queries.profiles.get_list import GetProfilesQuery, GetProfilesQueryHandler
+from app.profiles.queries.profiles.get_photos import GetProfilePhotosQuery, GetProfilePhotosQueryHandler
 from app.profiles.repositories.contacts import (
     BlockedUserRepository,
     ContactIdentifierRepository,
     ContactRepository,
 )
+from app.profiles.repositories.photos import ProfilePhotoRepository
 from app.profiles.repositories.privacy import ProfilePrivacyRepository
 from app.profiles.repositories.profiles import ProfileRepository
 from app.profiles.services.avatar_urls import ProfileAvatarUrlService
 from app.profiles.services.identifier_hasher import IdentifierHasher
+from app.profiles.services.photo_storage import ProfilePhotoStorage
 from app.profiles.services.privacy import ProfilePrivacyService
 
 
@@ -56,7 +68,8 @@ class ProfileModuleProvider(Provider):
         ContactRepository,
         ContactIdentifierRepository,
         BlockedUserRepository,
-        ProfilePrivacyRepository
+        ProfilePrivacyRepository,
+        ProfilePhotoRepository,
     )
 
     privacy_service = provide(ProfilePrivacyService, scope=Scope.REQUEST)
@@ -66,6 +79,7 @@ class ProfileModuleProvider(Provider):
         return IdentifierHasher(pepper=profile_config.CONTACT_IDENTIFIER_PEPPER)
 
     avatar_url_service = provide(ProfileAvatarUrlService, scope=Scope.APP)
+    photo_storage = provide(ProfilePhotoStorage, scope=Scope.APP)
 
     handlers = provide_all(
         CreateProfileCommandHanler,
@@ -73,6 +87,9 @@ class ProfileModuleProvider(Provider):
         UloadProfileAvatarCommandHandler,
         UpdateProfileAvatarCommandHandler,
         ProccessAvatarCommandHandler,
+        DeleteProfilePhotoCommandHandler,
+        SetMainProfilePhotoCommandHandler,
+        ChangeProfileUsernameCommandHandler,
         AddLinkToProfileCommandHandler,
         RemoveLinkFromProfileCommandHandler,
         GetOrCreateProfileCommandHanler,
@@ -88,6 +105,7 @@ class ProfileModuleProvider(Provider):
         GetProfileByIdQueryHandler,
         GetProfileByUsernameQueryHandler,
         GetProfilesQueryHandler,
+        GetProfilePhotosQueryHandler,
         GetContactsQueryHandler,
         SearchContactsQueryHandler,
         GetBlockedUsersQueryHandler,
@@ -116,6 +134,15 @@ class ProfileModuleProvider(Provider):
         )
         command_registry.register_command(
             ProccessAvatarCommand, ProccessAvatarCommandHandler
+        )
+        command_registry.register_command(
+            DeleteProfilePhotoCommand, DeleteProfilePhotoCommandHandler
+        )
+        command_registry.register_command(
+            SetMainProfilePhotoCommand, SetMainProfilePhotoCommandHandler
+        )
+        command_registry.register_command(
+            ChangeProfileUsernameCommand, ChangeProfileUsernameCommandHandler
         )
         command_registry.register_command(
             AddLinkToProfileCommand, AddLinkToProfileCommandHandler
@@ -166,6 +193,9 @@ class ProfileModuleProvider(Provider):
         )
         query_registry.register_query(
             GetProfilesQuery, GetProfilesQueryHandler
+        )
+        query_registry.register_query(
+            GetProfilePhotosQuery, GetProfilePhotosQueryHandler
         )
         query_registry.register_query(
             GetContactsQuery, GetContactsQueryHandler

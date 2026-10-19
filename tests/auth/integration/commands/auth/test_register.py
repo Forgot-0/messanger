@@ -65,6 +65,29 @@ class TestRegisterCommand:
         assert exc_info.value.field == "username"
         assert exc_info.value.value == standard_user.username
 
+    async def test_register_race_on_a_case_variant_is_a_duplicate(
+        self,
+        handler: RegisterCommandHandler,
+        standard_user: User,
+        user_repository: UserRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Проверку обогнала параллельная регистрация — решает `uq_users_username_lower`."""
+
+        async def looks_free(username: str, exclude_user_id: int | None = None) -> bool:
+            return False
+
+        monkeypatch.setattr(user_repository, "is_username_taken", looks_free)
+        command = RegisterCommand(
+            **AuthCommandFactory.create_register_command(username="StandardUser")
+        )
+
+        with pytest.raises(DuplicateUserError) as exc_info:
+            await handler.handle(command)
+
+        assert exc_info.value.field == "username"
+        assert exc_info.value.value == "StandardUser"
+
     async def test_register_duplicate_email(
         self,
         handler: RegisterCommandHandler,

@@ -5,6 +5,8 @@ from app.core.services.auth.dto import UserJWTData
 from app.core.services.storage.service import StorageService
 from app.profiles.config import profile_config
 from app.profiles.dtos.profiles import AvatarPresign
+from app.profiles.exceptions import ProfilePhotosLimitError
+from app.profiles.repositories.photos import ProfilePhotoRepository
 from app.profiles.repositories.profiles import ProfileRepository
 
 
@@ -19,8 +21,12 @@ class UloadProfileAvatarCommand(BaseCommand):
 class UloadProfileAvatarCommandHandler(BaseCommandHandler[UloadProfileAvatarCommand, AvatarPresign]):
     storage_service: StorageService
     profile_repository: ProfileRepository
+    photo_repository: ProfilePhotoRepository
 
     async def handle(self, query: UloadProfileAvatarCommand) -> AvatarPresign:
+        if await self.photo_repository.count(query.user_id) >= profile_config.MAX_PROFILE_PHOTOS:
+            raise ProfilePhotosLimitError(limit=profile_config.MAX_PROFILE_PHOTOS)
+
         return await self.profile_repository.cache(
             AvatarPresign, self._handle, ttl=90,
             query=query

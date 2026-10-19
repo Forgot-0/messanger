@@ -75,7 +75,13 @@ HTTP route (app/<module>/routes/v1/*.py)
   в `storage/` активна реализация `aioboto/` на aioboto3, `aminio/` оставлена как legacy и в DI не подключена),
   `websocket/` (manager, presence, keys), `metrics.py`, `models.py`, `routers.py` (`/health`), `tasks.py`.
 - `app/auth` — **эталонный модуль**. Пользователи, сессии, JWT, Argon2, OAuth (Google/Yandex/GitHub), RBAC.
+  Смена username — `PUT /users/me/username/` (`ChangeUsernameCommand`, правила — `User.validate_username`,
+  конфиг `USERNAME_*`), проверка имени — `GET /users/username/check/`. Источник правды для username — `users`.
 - `app/profiles` — профили пользователей, аватары (бакет приватный, presign — `services/avatar_urls.py`),
+  история фото (`profile_photos`, `profiles.photo_id` — текущее; `services/photo_storage.py`, варианты под
+  `{user_id}/{photo_id}/`, до `MAX_PROFILE_PHOTOS = 100`; `GET /profiles/{id}/photos/`, `DELETE /profiles/avatar/`,
+  `PUT|DELETE /profiles/photos/{photo_id}/...`), `profiles.username` — **проекция** auth (консьюмер
+  `consumers/user.py` по `auth.user.username_changed`, та же группа, что у `auth.user.verified`),
   ссылки на внешние профили (`profile_links`),
   адресная книга: контакты, блок-лист, слепые идентификаторы (`/contacts`),
   настройки приватности (`profile_privacy`, `services/privacy.py`, `/profiles/privacy/`).
@@ -211,7 +217,8 @@ HTTP route (app/<module>/routes/v1/*.py)
 
 | Событие | Модуль |
 |---|---|
-| `auth.user.created`, `auth.user.verified`, `auth.session.created`, `auth.session.suspicious` | auth |
+| `auth.user.created`, `auth.user.verified`, `auth.user.deleted`, `auth.user.username_changed` | auth |
+| `auth.session.created`, `auth.session.suspicious` | auth |
 | `profiles.profile.created`, `profiles.profile.updated` | profiles |
 | `profiles.contact.added`, `profiles.contact.removed` | profiles |
 | `profiles.user.blocked`, `profiles.user.unblocked` | profiles |
@@ -229,7 +236,7 @@ HTTP route (app/<module>/routes/v1/*.py)
 ## Таблицы БД
 
 `users`, `user_permissions`, `user_roles`, `roles`, `permissions`, `role_permissions`, `sessions`, `oauth_accounts`,
-`profiles`, `profile_links`, `user_contacts`, `user_identifiers`, `pending_contacts`, `blocked_users`,
+`profiles` (+ `photo_id`), `profile_photos`, `profile_links`, `user_contacts`, `user_identifiers`, `pending_contacts`, `blocked_users`,
 `profile_privacy`, `profile_privacy_exceptions`,
 `chats` (+ `username`, `avatars`), `chat_members` (+ per-user состояние: `pinned_at`, `archived_at`, `notifications_muted_until`,
 `draft`, `draft_updated_at`), `chat_member_bans`, `chat_roles`, `chat_user_profiles` (+ копия настроек приватности `privacy_*`),
@@ -278,8 +285,9 @@ HTTP route (app/<module>/routes/v1/*.py)
     Публичный доступ к бакету даёт bucket policy, которую `ensure_buckets()` применяет на старте,
     а не identity в конфиге SeaweedFS. Подпись — SigV4, адресация — path-style.
 18. **Бакеты аватаров профиля приватные.** `profiles` и `pending-avatar` — `Policy.NONE`.
-    В `profiles.avatars` и в проекции `chat_user_profiles.avatar_s3_key` лежат **ключи объектов**
-    (`{user_id}/{size}.{fmt}`), а не абсолютные URL; ссылки подписываются на чтении —
+    В `profiles.avatars`, `profile_photos.avatars` и в проекции `chat_user_profiles.avatar_s3_key`
+    лежат **только ключи объектов** (`{user_id}/{photo_id}/{size}.{fmt}`), URL туда не пишутся и
+    ветки «если это http» в коде нет; ссылки подписываются на чтении —
     `ProfileAvatarUrlService.attach()` (модуль `profiles`, кэш подписей в Redis по ключу объекта,
     TTL `AVATAR_URL_TTL = 300`) и `MessageService.image_urls()` (модуль `chats`). Новый ответ,
     отдающий `avatars` или `avatar_s3_key`, обязан пройти через них, иначе клиент получит ключ
@@ -301,6 +309,12 @@ HTTP route (app/<module>/routes/v1/*.py)
     `is_deleted = false` из `is_deleted IS false` (так рендерится `.is_(False)`) и уходит в seq scan.
     Для partial-индексов писать `~Model.flag` / `Model.flag` (см. `get_link_messages_page`), а значения
     в предикате — литералами, не bind-параметрами (`text("status = 'PENDING'")`). Проверять EXPLAIN'ом.
+21. **Username уникален без учёта регистра — это держит `uq_users_username_lower`** (уникальный
+    индекс по `lower(username)` в `users`). `UserRepository.is_username_taken()` — только быстрый
+    ответ до записи: параллельный запрос может его обогнать, поэтому команда, которая создаёт или
+    меняет username, ловит `IntegrityError` на commit и отдаёт `DUPLICATE_USER` / `USERNAME_TAKEN`
+    (так сделаны регистрация и смена имени). `profiles.username` и `chat_user_profiles.username` —
+    проекции без уникальности: при переименовании имя ненадолго бывает у двоих.
 
 ## Команды
 

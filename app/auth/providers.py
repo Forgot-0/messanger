@@ -31,6 +31,7 @@ from app.auth.commands.sessions.deactivate_session import (
     UserDeactivateSessionCommandHandler,
 )
 from app.auth.commands.users.change_password import ChangePasswordCommand, ChangePasswordCommandHandler
+from app.auth.commands.users.change_username import ChangeUsernameCommand, ChangeUsernameCommandHandler
 from app.auth.commands.users.delete import DeleteUserCommand, DeleteUserCommandHandler
 from app.auth.commands.users.register import RegisterCommand, RegisterCommandHandler
 from app.auth.commands.users.reset_password import ResetPasswordCommand, ResetPasswordCommandHandler
@@ -45,6 +46,7 @@ from app.auth.queries.permissions.get_list import GetListPermissionsQuery, GetLi
 from app.auth.queries.roles.get_list import GetListRolesQuery, GetListRolesQueryHandler
 from app.auth.queries.sessions.get_list import GetListSessionQuery, GetListSessionQueryHandler
 from app.auth.queries.sessions.get_list_by_user import GetListSessionsUserQuery, GetListSessionsUserQueryHandler
+from app.auth.queries.users.check_username import CheckUsernameQuery, CheckUsernameQueryHandler
 from app.auth.queries.users.get_list import GetListUserQuery, GetListUserQueryHandler
 from app.auth.repositories.oauth import OauthAccountRepository, OAuthCodeRepository
 from app.auth.repositories.permission import PermissionInvalidateRepository, PermissionRepository
@@ -184,6 +186,7 @@ class AuthModuleProvider(Provider):
         DeleteUserCommandHandler,
         ResetPasswordCommandHandler,
         ChangePasswordCommandHandler,
+        ChangeUsernameCommandHandler,
         SendResetPasswordCommandHandler,
         SendVerifyCommandHandler,
         VerifyCommandHandler,
@@ -211,7 +214,8 @@ class AuthModuleProvider(Provider):
         GetListRolesQueryHandler,
         GetListSessionsUserQueryHandler,
         GetListSessionQueryHandler,
-        GetUserOAuthAccountsQueryHandler
+        GetUserOAuthAccountsQueryHandler,
+        CheckUsernameQueryHandler,
 
     )
 
@@ -222,6 +226,7 @@ class AuthModuleProvider(Provider):
         command_registry.register_command(SendVerifyCommand, SendVerifyCommandHandler)
         command_registry.register_command(ResetPasswordCommand, ResetPasswordCommandHandler)
         command_registry.register_command(ChangePasswordCommand, ChangePasswordCommandHandler)
+        command_registry.register_command(ChangeUsernameCommand, ChangeUsernameCommandHandler)
         command_registry.register_command(SendResetPasswordCommand, SendResetPasswordCommandHandler)
 
         command_registry.register_command(LoginCommand, LoginCommandHandler)
@@ -255,6 +260,7 @@ class AuthModuleProvider(Provider):
         query_registry.register_query(GetUserOAuthAccountsQuery, GetUserOAuthAccountsQueryHandler)
 
         query_registry.register_query(GetListUserQuery, GetListUserQueryHandler)
+        query_registry.register_query(CheckUsernameQuery, CheckUsernameQueryHandler)
 
         query_registry.register_query(GetListPermissionsQuery, GetListPermissionsQueryHandler)
 

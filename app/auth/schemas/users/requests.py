@@ -11,7 +11,20 @@ from app.core.filters.sort import SortDirection
 
 
 class UserCreateRequest(BaseUser, PasswordMixinSchema):
-    ...
+    username: str = Field(
+        min_length=4,
+        max_length=100,
+        pattern=r"^[a-zA-Z0-9 ,.\'-]+$",
+    )
+
+
+class ChangeUsernameRequest(BaseModel):
+    username: str = Field(max_length=64)
+
+
+class CheckUsernameRequest(BaseModel):
+    username: str = Field(max_length=64)
+
 
 class UserPermissionRequest(BaseModel):
     permissions: set[str] = Field(default_factory=set)

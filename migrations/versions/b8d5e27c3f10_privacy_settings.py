@@ -6,7 +6,7 @@
 `chat_user_privacy_exceptions` и адресную книгу в `chat_user_contacts`.
 
 Revision ID: b8d5e27c3f10
-Revises: a6b31f08c9d4
+Revises: e3a9c7d2f1b4
 Create Date: 2026-10-16 22:10:00.000000
 
 """
@@ -17,7 +17,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'b8d5e27c3f10'
-down_revision: Union[str, None] = 'a6b31f08c9d4'
+down_revision: Union[str, None] = 'e3a9c7d2f1b4'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

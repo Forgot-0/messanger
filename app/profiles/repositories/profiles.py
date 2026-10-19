@@ -17,15 +17,22 @@ class ProfileRepository(IRepository[Profile], CacheRepository):
     async def create(self, profile: Profile) -> None:
         self.session.add(profile)
 
-    async def get_by_id(self, profile_id: int) -> Profile | None:
+    async def get_by_id(self, profile_id: int, with_for_update: bool = False) -> Profile | None:
         query = select(Profile).where(Profile.id==profile_id).options(selectinload(Profile.links))
+        if with_for_update:
+            query = query.with_for_update(of=Profile).execution_options(populate_existing=True)
+        result = await self.session.execute(query)
+        return result.scalar()
+
+    async def get_active_by_id(self, profile_id: int) -> Profile | None:
+        query = Profile.select_not_deleted().where(Profile.id == profile_id)
         result = await self.session.execute(query)
         return result.scalar()
 
     async def get_by_username(self, username: str) -> Profile | None:
         query = Profile.select_not_deleted().where(
-            Profile.username == username,
-        ).options(selectinload(Profile.links))
+            func.lower(Profile.username) == func.lower(username),
+        ).options(selectinload(Profile.links)).order_by(Profile.updated_at.desc()).limit(1)
         result = await self.session.execute(query)
         return result.scalar()
 

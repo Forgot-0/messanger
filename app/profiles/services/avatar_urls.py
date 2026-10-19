@@ -33,27 +33,20 @@ class ProfileAvatarUrlService:
 
         for holder in targets:
             holder.avatars = {
-                size: {
-                    fmt: urls.get(self._to_key(value), value)
-                    for fmt, value in variants.items()
-                }
+                size: {fmt: urls.get(key, key) for fmt, key in variants.items()}
                 for size, variants in holder.avatars.items()
             }
 
-    async def presigned_urls(self, values: Iterable[str]) -> dict[str, str]:
-        keys = list(dict.fromkeys(
-            key
-            for key in (self._to_key(value) for value in values if value)
-            if not key.startswith("http")
-        ))
-        if not keys:
+    async def presigned_urls(self, keys: Iterable[str]) -> dict[str, str]:
+        unique = list(dict.fromkeys(key for key in keys if key))
+        if not unique:
             return {}
 
         urls: dict[str, str] = {}
-        cached = await self.redis.mget([ProfileAvatarKeys.download_url(key) for key in keys])
+        cached = await self.redis.mget([ProfileAvatarKeys.download_url(key) for key in unique])
 
         missing: list[str] = []
-        for key, url in zip(keys, cached, strict=True):
+        for key, url in zip(unique, cached, strict=True):
             if url is None:
                 missing.append(key)
             else:
@@ -82,11 +75,3 @@ class ProfileAvatarUrlService:
 
         urls.update(zip(missing, signed, strict=True))
         return urls
-
-    @staticmethod
-    def _to_key(value: str) -> str:
-        if not value.startswith("http"):
-            return value
-
-        _, marker, tail = value.partition(f"/{profile_config.AVATAR_BUCKET}/")
-        return tail if marker and tail else value

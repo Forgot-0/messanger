@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.auth.dtos.permissions import PermissionDTO
@@ -9,17 +11,13 @@ from app.core.services.auth.dto import UserJWTData
 
 class BaseUser(BaseModel):
     model_config = ConfigDict(use_enum_values=True, from_attributes=True)
-    username: str = Field(
-        min_length=4,
-        max_length=100,
-        pattern=r"^[a-zA-Z0-9 ,.\'-]+$",
-    )
+    username: str
     email: EmailStr
 
 
 class AuthUserJWTData(UserJWTData):
     @classmethod
-    def create_from_user(cls, user: User, device_id: str | None=None) -> AuthUserJWTData:
+    def create_from_user(cls, user: User, device_id: str) -> AuthUserJWTData:
         security_lvl = 0
         permissions = set()
         roles = set()
@@ -54,3 +52,13 @@ class UserDTO(BaseUser):
 
     is_active: bool
     is_verified: bool
+
+
+class UserShortDTO(BaseUser):
+    id: int
+
+
+class UsernameAvailabilityDTO(BaseModel):
+    username: str
+    available: bool
+    reason: Literal["length", "format", "reserved", "taken"] | None = None

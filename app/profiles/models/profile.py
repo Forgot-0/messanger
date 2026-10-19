@@ -1,9 +1,17 @@
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum, StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
-from sqlalchemy import BigInteger, Date, Index, String
+from sqlalchemy import (
+    UUID as SAUUID,
+    BigInteger,
+    Date,
+    Index,
+    String,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
@@ -12,6 +20,9 @@ from app.core.events.event import BaseEvent
 from app.profiles.config import profile_config
 from app.profiles.exceptions import TooLongBioError, TooLongDisplayNameError, TooLongSkillNameError
 from app.profiles.models.profile_link import ProfileLink
+
+if TYPE_CHECKING:
+    from app.profiles.models.photo import ProfilePhoto
 
 
 class SizeAvatar(int, Enum):
@@ -26,7 +37,7 @@ class TypeImageAvatar(StrEnum):
     WEBP = "webp"
 
 
-AvatarMap = dict[SizeAvatar, dict[TypeImageAvatar, str]]
+AvatarMap = dict[int, dict[str, str]]
 
 
 @dataclass(frozen=True)
@@ -69,12 +80,14 @@ class Profile(BaseModel, DateMixin, SoftDeleteMixin):
     __tablename__ = "profiles"
     __table_args__ = (
         Index("idx_profiles_tags", "skills", postgresql_using="gin"),
+        Index("ix_profiles_username_lower", text("lower(username)")),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    username: Mapped[str] = mapped_column(String, unique=True)
+    username: Mapped[str] = mapped_column(String)
 
     avatars: Mapped[AvatarMap] = mapped_column(JSONB, default="{}")
+    photo_id: Mapped[UUID | None] = mapped_column(SAUUID(as_uuid=True), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(profile_config.MAX_LEN_DISPLAY_NAME), nullable=True)
     bio: Mapped[str | None] = mapped_column(String(profile_config.MAX_LEN_BIO), nullable=True)
     specialization: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -138,18 +151,14 @@ class Profile(BaseModel, DateMixin, SoftDeleteMixin):
         self.update_skills(skills or set())
         self.change_birthday(date_birthday)
 
-        self.register_event(
-            ProfileUpdated(
-                user_id=self.id,
-                username=self.username,
-                avatars=self.avatars,
-                display_name=self.display_name,
-                bio=self.bio,
-                date_birthday=str(self.date_birthday) if self.date_birthday else None,
-                skills=self.skills,
-                specialization=self.specialization
-            )
-        )
+        self._register_updated()
+
+    def change_username(self, username: str) -> None:
+        if username == self.username:
+            return
+
+        self.username = username
+        self._register_updated()
 
     def change_display_name(self, name: str | None) -> None:
         if name and len(name) >= profile_config.MAX_LEN_DISPLAY_NAME:
@@ -200,8 +209,12 @@ class Profile(BaseModel, DateMixin, SoftDeleteMixin):
     def remove_link(self, provider: str) -> None:
         self.links = [link for link in self.links if link.provider != provider]
 
-    def update_avatar(self, avatar_s3_keys: dict) -> None:
-        self.avatars = avatar_s3_keys
+    def set_photo(self, photo: ProfilePhoto | None) -> None:
+        self.photo_id = photo.id if photo is not None else None
+        self.avatars = dict(photo.avatars) if photo is not None else {}
+        self._register_updated()
+
+    def _register_updated(self) -> None:
         self.register_event(
             ProfileUpdated(
                 user_id=self.id,

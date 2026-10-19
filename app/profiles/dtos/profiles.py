@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -22,3 +23,11 @@ class AvatarPresign(BaseModel):
     url: str
     file_key: str
 
+
+class ProfilePhotoDTO(BaseModel):
+    id: UUID
+    avatars: dict[int, dict[str, str]]
+    is_main: bool = False
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

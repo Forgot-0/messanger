@@ -7,6 +7,7 @@ from app.chats.commands.calls.join import JoinCallCommand, JoinCallCommandHandle
 from app.chats.commands.chats.add_member import AddMemberCommand, AddMemberCommandHandler
 from app.chats.commands.chats.create import CreateChatCommand, CreateChatCommandHandler
 from app.chats.commands.messages.send import SendMessageCommand, SendMessageCommandHandler
+from app.chats.config import chat_config
 from app.chats.exceptions import (
     CallsPrivacyRestrictedError,
     MessagesPrivacyRestrictedError,
@@ -22,8 +23,16 @@ from app.chats.queries.messages.get_list import GetMessagesQuery, GetMessagesQue
 from app.core.privacy import PrivacyRule
 from app.core.services.auth.dto import UserJWTData
 from app.core.websocket.presence import PresenceService
+from tests.support.http import assert_presigned_url
 
-AVATAR_URL = "http://storage.test/profiles/{user_id}/64.jpg"
+AVATAR_KEY = "{user_id}/64.jpg"
+
+
+def is_signed_avatar(url: str | None, user_id: int) -> bool:
+    """Аватар профиля приватный: в проекции ключ, наружу — подписанная ссылка на него."""
+    key = AVATAR_KEY.format(user_id=user_id)
+    assert_presigned_url(url or "", bucket=chat_config.AVATAR_BUCKET, file_key=key)
+    return f"/{chat_config.AVATAR_BUCKET}/{key}?" in (url or "")
 
 
 @pytest.fixture
@@ -36,7 +45,7 @@ def set_privacy(db_session: AsyncSession):
             profile = ChatUserProfile.create(
                 user_id=user_id,
                 username=f"user{user_id}",
-                avatar_s3_key=AVATAR_URL.format(user_id=user_id) if avatar else None,
+                avatar_s3_key=AVATAR_KEY.format(user_id=user_id) if avatar else None,
             )
             db_session.add(profile)
 
@@ -341,7 +350,7 @@ class TestPhotoAndLastSeenPrivacy:
 
         profiles = {member.user_id: member.profile for member in result.members}
         assert profiles[1] is not None and profiles[1].avatar_url is None
-        assert profiles[3] is not None and profiles[3].avatar_url == AVATAR_URL.format(user_id=3)
+        assert profiles[3] is not None and is_signed_avatar(profiles[3].avatar_url, 3)
 
         online = {item.user_id: item.is_online for item in result.presence}
         assert online[1] is True
@@ -365,7 +374,7 @@ class TestPhotoAndLastSeenPrivacy:
         ))
 
         profile = next(member.profile for member in result.members if member.user_id == 1)
-        assert profile is not None and profile.avatar_url == AVATAR_URL.format(user_id=1)
+        assert profile is not None and is_signed_avatar(profile.avatar_url, 1)
         online = {item.user_id: item.is_online for item in result.presence}
         assert online[1] is False
 
@@ -391,9 +400,9 @@ class TestPhotoAndLastSeenPrivacy:
         visible = await handler.handle(GetChatMembersQuery(
             user_jwt_data=make_user_jwt(id="2"), chat_id=group_chat.id,
         ))
-        assert next(
+        assert is_signed_avatar(next(
             member.profile for member in visible.members if member.user_id == 1
-        ).avatar_url == AVATAR_URL.format(user_id=1)
+        ).avatar_url, 1)
 
     async def test_own_photo_is_always_visible(
         self,
@@ -413,7 +422,7 @@ class TestPhotoAndLastSeenPrivacy:
         ))
 
         profile = result.messages[0].profile
-        assert profile is not None and profile.avatar_url == AVATAR_URL.format(user_id=1)
+        assert profile is not None and is_signed_avatar(profile.avatar_url, 1)
 
     async def test_photo_is_hidden_from_other_message_authors_view(
         self,

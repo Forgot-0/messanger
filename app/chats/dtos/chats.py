@@ -24,16 +24,13 @@ class MutedByMeMixin(BaseModel):
         return self
 
 
-class ChatAvatarMixin(BaseModel):
+class PublicChatAvatarMixin(BaseModel):
     avatar_s3_key: str | None = None
     avatar_url: str | None = None
-    avatars: dict[str, dict[str, str]] = Field(default_factory=dict)
 
-    @model_validator(mode="after")
-    def _derive_avatar_url(self) -> Self:
-        if self.avatar_url is None and self.avatar_s3_key and "http" in self.avatar_s3_key:
-            self.avatar_url = self.avatar_s3_key
-        return self
+
+class ChatAvatarMixin(PublicChatAvatarMixin):
+    avatars: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class ChatDTO(MutedByMeMixin, ChatAvatarMixin):

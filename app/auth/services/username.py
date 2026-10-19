@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 from uuid import uuid4
 
+from app.auth.models.user import User
 from app.auth.repositories.user import UserRepository
 
 MIN_LENGTH = 4
@@ -64,4 +65,7 @@ class UsernameGenerator:
         return f"{base}-{uuid4().hex}"[:MAX_LENGTH]
 
     async def _is_free(self, username: str) -> bool:
-        return not await self.user_repository.exists_username(username)
+        if User.is_reserved_username(username):
+            return False
+
+        return not await self.user_repository.is_username_taken(username)

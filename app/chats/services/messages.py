@@ -99,14 +99,13 @@ class MessageService:
 
     async def presigned_attachment_urls(self, keys: Iterable[str]) -> dict[str, str]:
         unique = list(dict.fromkeys(key for key in keys if key))
-        urls = {key: key for key in unique if "http" in key}
-        pending = [key for key in unique if key not in urls]
-        if not pending:
-            return urls
+        if not unique:
+            return {}
 
-        cached = await self.redis.mget([AttachmentKeys.download_url(key) for key in pending])
+        urls: dict[str, str] = {}
+        cached = await self.redis.mget([AttachmentKeys.download_url(key) for key in unique])
         missing: list[str] = []
-        for key, url in zip(pending, cached, strict=True):
+        for key, url in zip(unique, cached, strict=True):
             if url is None:
                 missing.append(key)
             else:
@@ -165,9 +164,6 @@ class MessageService:
                 profile.avatar_url = url
 
     async def get_chat_profile_url_by_key(self, s3_key: str) -> str:
-        if "http" in s3_key:
-            return s3_key
-
         key = f"chat:profile:{s3_key}"
         url = await self.redis.get(key)
         if url is None:

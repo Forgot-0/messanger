@@ -14,9 +14,9 @@ class FakeUserRepository:
         self.taken = taken or set()
         self.checked: list[str] = []
 
-    async def exists_username(self, username: str) -> bool:
+    async def is_username_taken(self, username: str, exclude_user_id: int | None = None) -> bool:
         self.checked.append(username)
-        return username in self.taken
+        return username.lower() in {name.lower() for name in self.taken}
 
 
 @pytest.mark.unit
@@ -108,6 +108,21 @@ class TestUsernameGenerator:
         assert username != "Forgot-0"
         assert username.startswith("Forgot-0-")
 
+    async def test_name_taken_in_another_case_gets_a_suffix(self) -> None:
+        generator, _ = self.generator(taken={"forgot-0"})
+
+        username = await generator.generate(preferred="Forgot-0", email="dev@example.com")
+
+        assert username.startswith("Forgot-0-")
+
+    async def test_reserved_name_is_never_handed_out(self) -> None:
+        generator, repository = self.generator()
+
+        username = await generator.generate(preferred="Support", email="help@example.com")
+
+        assert username.startswith("Support-")
+        assert "Support" not in repository.checked
+
     async def test_too_short_name_always_gets_a_suffix(self) -> None:
         generator, repository = self.generator()
 
@@ -130,11 +145,11 @@ class TestUsernameGenerator:
         generator, repository = self.generator()
         repository.taken = {"Forgot-0"}
 
-        async def always_taken(username: str) -> bool:
+        async def always_taken(username: str, exclude_user_id: int | None = None) -> bool:
             repository.checked.append(username)
             return True
 
-        repository.exists_username = always_taken  # type: ignore[method-assign]
+        repository.is_username_taken = always_taken  # type: ignore[method-assign]
 
         username = await generator.generate(preferred="Forgot-0", email="dev@example.com")
 

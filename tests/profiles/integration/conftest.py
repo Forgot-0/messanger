@@ -1,9 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from uuid import uuid7
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.services.storage.aioboto.client import S3Client
+from app.profiles.config import profile_config
 from app.profiles.models.contacts import BlockedUser, ContactSource, IdentifierKind, UserContact
+from app.profiles.models.photo import ProfilePhoto
 from app.profiles.models.profile import Profile
 from app.profiles.repositories.contacts import ContactIdentifierRepository, PendingUpsert
 from app.profiles.services.identifier_hasher import IdentifierHasher
@@ -142,5 +146,38 @@ async def make_pending(
         )
         await db_session.commit()
         return identifier_hash
+
+    return _make
+
+
+@pytest.fixture
+async def make_photo(db_session: AsyncSession, s3_test_client: S3Client):
+    """Фото в истории профиля: строка `profile_photos` и настоящие объекты в бакете.
+
+    `age` сдвигает `set_main_at` в прошлое, чтобы порядок листания был детерминированным.
+    `main=True` делает фото текущим, как это делает обработка загрузки.
+    """
+
+    async def _make(profile: Profile, *, age: int = 0, main: bool = False) -> ProfilePhoto:
+        photo_id = uuid7()
+        avatars = {
+            size: {fmt: f"{profile.id}/{photo_id}/{size}.{fmt}" for fmt in ("jpg", "webp")}
+            for size in (64, 256)
+        }
+        for variants in avatars.values():
+            for key in variants.values():
+                await s3_test_client.put_object(
+                    Bucket=profile_config.AVATAR_BUCKET, Key=key, Body=b"photo"
+                )
+
+        photo = ProfilePhoto.create(photo_id=photo_id, user_id=profile.id, avatars=avatars)
+        photo.set_main_at = photo.set_main_at - timedelta(minutes=age)
+        db_session.add(photo)
+        if main:
+            profile.set_photo(photo)
+            profile.pull_events()
+
+        await db_session.commit()
+        return photo
 
     return _make

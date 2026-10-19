@@ -1,46 +1,11 @@
 # Backend gaps
 
 Things the Flutter client does that the API (`api-docs.md`, checked against
-`main` 2026-09-15) has nowhere to keep. Each one works today, on the device
+`main` 2026-10-19) has nowhere to keep. Each one works today, on the device
 that did it, and silently does not follow the account anywhere else.
 
 The point of this file is that none of these are client bugs to be fixed in
 the client. They are fields and endpoints the backend does not have yet.
-
-## Closed since the last pass
-
-The API grew the per-user chat state this file used to ask for, and the
-client now uses it. Kept here as a record of what moved, not as work:
-
-| What | Where it lives now |
-|---|---|
-| Pinned chats, and the five-pin limit | `ChatDTO.is_pinned` / `pinned_at`, `PATCH /chats/{id}/state/`, `400 PINNED_CHATS_LIMIT_EXCEEDED` |
-| The archive | `ChatDTO.is_archived`, and `GET /chats/?archived=true` as a set of its own |
-| Silenced notifications | `ChatDTO.notifications_muted_until` / `is_muted_by_me` |
-| Who to draw on a row | `ChatDTO.peer` for direct chats, `members_preview` for groups |
-| Searching messages | `GET /chats/messages/search/`, cursor over message ids |
-| Searching people in one field | `GET /profiles/?q=`, matching username OR display name |
-| A profile knowing its own handle | `ProfileDTO.username` — non-null, on `GET /profiles/{id}/` and on the list |
-| Drafts that follow the account | `ChatDTO.draft`, `PATCH /chats/{id}/state/ {draft}` → `ChatStateDTO.draft_updated_at` (see §4 for what is still missing) |
-
-On the client: `features/chat/presentation/providers/chat_state_actions.dart`
-writes all three through one endpoint and moves the row while the request is
-in flight; `features/chat_organizer` kept folders and gave up everything
-else; `chat_flags.pinned`, `chat_flags.archived` and `chat_flags.muted` are
-no longer read or written, and stale copies in shared preferences are simply
-ignored.
-
-⚠️ Nothing migrates what those keys held. A device that had pinned five chats
-before this version starts from whatever the server says, which for an
-account that has never pinned anything is nothing.
-
-The message search kept its local half as an offline fallback rather than
-deleting it: `OfflineFallbackMessageSearchRepository` asks the server, and
-only when that request could not be made at all — no network, a timeout —
-searches what this device has loaded and says so on screen. A rate limit or
-a validation error is shown, not papered over.
-
----
 
 ## 1. Folders (П-5)
 
@@ -53,8 +18,6 @@ shared preferences:
 | Organizer settings | `chat_organizer.settings` | `{unarchive_on_new_message, folders_hidden}` |
 
 **Why it is not on the server.** There is no folder resource in the API.
-Pins, the archive and the notification mute used to be in this list and are
-not any more — see "Closed" above.
 
 **What the user loses.** Reinstalling, switching phone, or signing in on the
 web starts with the tab strip empty and the list unsorted. The note on the
@@ -169,163 +132,42 @@ close it.
 
 ---
 
-## 6. A chat has no avatar anyone can set 🔴
+## 8. Invite links open nothing outside the app 🟡
 
-`ChatDTO.avatar_s3_key` and `ChatDetailDTO.avatar_s3_key` are readable and
-nothing else. There is no chat equivalent of the profile avatar flow from
-api-docs §4.5:
+The invite resource is on the API (api-docs §5.8): `POST /chats/{chat_id}/invites/`
+mints a code with an optional expiry and use count, revoking it closes that
+link alone, and `GET|POST /chats/invites/{code}/(join/)` preview and use it.
+Public groups and channels also have an `@username` of their own
+(`/chats/u/{username}/`, §5.9).
 
-| What exists for a profile | What exists for a chat |
-|---|---|
-| `POST /profiles/{id}/avatar/presign/` → presigned PUT | — |
-| `avatar_s3_key` written by the confirm step | `avatar_s3_key` is read-only |
-| `avatars` matrix of sizes/formats on the DTO | not present |
-| `avatar_url`, presigned, 300 s TTL | not present |
-
-`UpdateChatRequest` (api-docs §5.2) takes `name`, `description`, `is_public`,
-`admin_only`, `slow_mode_seconds` and `permissions` — no avatar field — so
-even a key uploaded some other way could not be attached to the chat.
-
-**What the client does.** Nothing: the chat profile screen has no way to
-change a picture, because there is no button that could work. A group draws
-the mosaic of its members' faces (`members_preview`, or the roster when the
-screen has one) and falls back to its initial on its own colour;
-`avatar_s3_key` is carried through the model and never resolved, since there
-is no endpoint that turns a key into a URL either.
-
-**What it needs.** The §4.5 pair, scoped to a chat and gated on
-`chat:update`: a presign endpoint, a confirm that writes `avatar_s3_key`, and
-a presigned `avatar_url` on `ChatDTO` / `ChatDetailDTO` with the same 300 s
-TTL as every other avatar — cached by `s3_key`, never by the URL.
+**What is still missing** is the web side. A link is only worth sending to
+people who do not have the app if something answers it in a browser: a
+landing page on the same origin that shows the chat's preview and deep links
+into the app, plus the associated-domain / app-link records
+(`apple-app-site-association`, `assetlinks.json`) so the installed app claims
+the URL instead of the browser. Nothing on the server serves either today, so
+an invite link followed from a browser is a 404.
 
 ---
 
-## 7. No shared-media index for a chat 🔴
+## 11. Sharing a profile is passing a string around 🟡
 
-There is no `GET /chats/{chat_id}/media/`, no `?has_attachments=` filter on
-`GET /chats/{chat_id}/messages/`, and no attachment collection of any kind.
-Attachments exist only inside the message that carried them (api-docs §5.4,
-§5.5), and the only way to enumerate them is to walk the message history.
-
-**What the client does.** The chat profile's Media / Files / Links / Voice
-tabs are built on the device, from two overlapping views of the same
-history: the window the chat screen has loaded, and the 200 messages the
-local cache keeps per chat
-(`presentation/utils/chat_shared_content.dart`,
-`presentation/providers/chat_profile_provider.dart`). Links are not a server
-concept at all — they are found by running message text through the same
-parser the bubbles use.
-
-**What the user loses.** The tabs are as deep as this device's history and no
-deeper. A photo sent last year is not in them until someone scrolls back far
-enough in the chat for it to be, and a fresh install starts with all four
-tabs empty. Every tab says so in a line under the list
-(`sharedContentLocalOnly`), rather than passing off a partial answer as a
-complete one.
-
-**What it needs.** Either a media endpoint with its own cursor
-(`GET /chats/{chat_id}/attachments/?type=image|video|file|voice`) or a
-`has_attachments` / `attachment_type` filter on the message list. Either one
-also removes the reason `MediaViewerScreen` has to fall back to fetching a
-single message when the viewer is opened outside the loaded window.
-
----
-
-## 8. Public chats have no invite link of their own 🔴
-
-`POST /chats/{chat_id}/join/` lets any signed-in user into a chat with
-`is_public: true` (api-docs §5.2), but nothing mints a way to hand that chat
-to somebody: no invite token, no public slug or `@handle` for a chat, no
-revocable link, no landing page. `is_public` is the whole of the access
-model.
-
-**What the client does.** Composes `https://<origin>/chats/<chat_id>` from
-the configured server origin and the chat id
-(`presentation/utils/chat_invite_link.dart`), shows it on the profile of a
-public chat, and copies it to the clipboard.
-
-**What the user loses.** The link only means something to someone who
-already has ChatiX and is signed in — there is no web page behind it, and
-following it from a browser does nothing. It also cannot be revoked,
-expired, or limited to a number of uses, because it is not a token: it is
-the chat's id, which never changes. Turning `is_public` off is the only way
-to close the door, and it closes it for every link at once.
-
-**What it needs.** An invite resource — `POST /chats/{chat_id}/invites/`
-returning a token with an optional expiry and use count, `DELETE` to revoke,
-and a join-by-token endpoint — plus, for links to be worth sending to people
-who do not have the app, a web landing page on the same origin and
-associated-domain / app-link records so the app claims the URL.
-
----
-
-## 9. `member:mute` is a permission with nothing behind it 🔴
-
-The chat role matrix gives `member:mute` to owner and admin (api-docs §8.1),
-`MemberChatDTO` and `MemberDetailDTO` both report `is_muted`, and the
-composer already reads it: a muted member sees `composerMuted` instead of a
-text field. What is missing is the endpoint that sets it. The members router
-has exactly four writes (api-docs §5.3):
-
-| What | Endpoint |
-|---|---|
-| Add | `POST /chats/{chat_id}/members/` |
-| Change role | `PATCH /chats/{chat_id}/members/{user_id}/role/` |
-| Ban / unban | `PATCH /chats/{chat_id}/members/{user_id}/ban/` |
-| Kick | `DELETE /chats/{chat_id}/members/{user_id}/` |
-
-There is no `.../mute/` among them. `POST /chats/{chat_id}/calls/participants/{user_id}/mute/`
-is a different thing entirely — it silences a microphone in a LiveKit room
-(`call:mute_member`), not a member's right to post.
-
-**What the client does.** Nothing, deliberately. `ChatMemberAction`
-(`presentation/utils/chat_member_actions.dart`) has no `mute` case, so the
-member list's action sheet never offers one — a button that cannot send a
-request is worse than no button. The state is still shown: a muted member
-wears a `Muted` badge in the list, and the permission itself is honoured
-everywhere it is read.
-
-**What the user loses.** A moderator can only ban or remove someone. There is
-no middle step between "may post" and "is out of the chat", which is the
-usual answer to one bad afternoon.
-
-**What the backend would need.** `PATCH /chats/{chat_id}/members/{user_id}/mute/`
-shaped like the ban endpoint — `{reason?: string, muted_to?: datetime}` with
-the same three readings of the date (null forever, future temporary, past
-lifts it) — plus a `member_muted` WS event carrying
-`{target_user_id, requester_id, mute}` so the other clients and the
-composer's `is_muted` update without a refetch.
-
-**Client swap cost once it exists.** A `MuteMemberUseCase` beside
-`BanMemberUseCase`, one method on `ChatMembersController`, and two entries in
-`ChatMemberAction` (`mute`, `unmute`) — the permission check
-(`hasChatPermission(chat, me, ChatPermissions.memberMute)`) and the badge are
-already written.
-
----
-
-## 11. Sharing a profile is passing a string around 🔴
-
-Same shape as the chat invite link in §8, and the same cause. There is no
-public identity for a profile: no slug, no shareable URL, and
-`GET /profiles/{id}/` needs a token (§4.2 closed the list too). So there is
-nothing to hand somebody that opens anywhere.
+Same cause as §8. The profile has a public address on the API now —
+`GET /profiles/u/{username}/` answers without a token, case-insensitively,
+with the photo hidden by the owner's privacy setting (api-docs §4.3) — but it
+is JSON, not a page.
 
 **What the client does.** `ProfileShareLink` composes
 `https://<host>/profiles/<id>` from the configured origin and copies it to
 the clipboard, with the name and handle above it when they are known. Inside
-the app the link routes correctly; outside it, it is a 404.
+the app the link routes correctly; outside it, it is a 404. The profile's QR
+code (long press on `@username`, П-11) encodes the same link.
 
-**What the user loses.** "Share profile" reaches people who already have
-ChatiX and are signed in. Sending one to anybody else does nothing. The
-same holds for the profile's QR code (long press on `@username`, П-11): it
-encodes this link, so a phone camera opens a 404 rather than the person.
-
-**What the backend would need.** The same landing-page work §8 asks for — a
-web page on the origin that renders a public sliver of a profile and deep
-links into the app. The handle to address it by now exists
-(`ProfileDTO.username`), so `/u/{username}` is available as a shape; what is
-missing is something that serves it.
+**What the backend would need.** The landing page from §8, rendering a
+public sliver of `/profiles/u/{username}/` and deep linking into the app —
+`/u/{username}` is the natural shape. Since a username can now change
+(api-docs §3.17), a link by handle breaks on rename; a link by id does not,
+which is worth weighing when choosing what the QR code encodes.
 
 ---
 
@@ -378,9 +220,11 @@ offered — letters, digits, `.`, `_`, `-`, not ending in a dot.
 
 **What the user loses.**
 
-- `username` may be `^[a-zA-Z0-9 ,.'-]+$` (api-docs §3.2). A username with a
-  space, a comma or an apostrophe has no end a pattern can find, so those
-  people are not in the list and cannot be mentioned at all.
+- A username set through `PUT /users/me/username/` follows strict rules
+  (latin letters, digits and `_`, api-docs §3.17), but registration still
+  accepts the legacy `^[a-zA-Z0-9 ,.'-]+$` (§3.2). A username with a space, a
+  comma or an apostrophe has no end a pattern can find, so those people are
+  not in the list and cannot be mentioned until they rename themselves.
 - Nobody is notified of being mentioned: there is no server-side notion of
   it, so no push, no "you were mentioned" badge, no jump to the mention.
 - A mention survives a rename only as the old text.
@@ -440,49 +284,40 @@ to `contacts`), and a `contacts_updated` socket event carrying the changed
 
 ---
 
-## 16. A block is a list, not a rule (blocks) 🔴
+## 16. A block reaches direct chats, not groups (blocks) 🟡
 
-`POST`/`DELETE /contacts/{user_id}/block/` and `GET /contacts/blocked/`
-exist (api-docs §4.13), but the same section says the chats do not check
-them yet ("этап 2"): a blocked person's message is accepted, delivered over
-the socket, counted in `unread_count` and pushed like anyone else's.
+Direct chats enforce the block (api-docs §4.13): a message, a forward or a
+call between two people where either blocked the other is refused with
+`403 USER_BLOCKED`, a new direct with them cannot be opened, the blocker
+cannot be added to a group by the person they blocked, and the blocker's
+photo and online status are hidden from them. A chat push carries
+`{chat_id, message_id, sender_id}` in its payload
+(`app/notifications/tasks/push_offline_recipients.py`), though api-docs §7.2
+still calls the payload untyped.
 
-**What the client does instead — all of it on this device only:**
+**What is still a client-side rule.** Groups are deliberately untouched by
+the block on the server, so the client keeps doing, on this device only:
 
-- **Notifications.** `PushNotificationPresenter` drops a push whose sender is
-  blocked (`ResolveNotificationDisplayUseCase(fromBlockedSender)`), both in
-  the running app and in the background isolate, which reads a copy of the
-  list from shared preferences (`notification_blocked_senders`, written by
-  `blockedSendersSnapshotProvider`).
-- **The unread badge.** The chats tab, the folder tabs and the archive
-  header leave out direct chats with blocked people
-  (`blockedDirectChatIdsProvider`); their row keeps its count in the quiet
-  fill with a block mark.
-- **The composer.** A direct chat with a blocked person has a bar instead
-  ("You blocked this user · Unblock").
-- **The archive.** A blocked person writing does not pull their chat back
-  out of the archive.
+- dropping a push whose `sender_id` is blocked
+  (`ResolveNotificationDisplayUseCase(fromBlockedSender)`, also in the
+  background isolate via `notification_blocked_senders`);
+- leaving blocked people's direct chats out of the unread badges
+  (`blockedDirectChatIdsProvider`) and out of "unarchive on new message".
 
 **What the client cannot do.**
 
-- A push payload is untyped (api-docs §7.2). A blocked person is recognised
-  by `sender_id` (or `author_id`, `from_user_id`) when the payload has one,
-  and otherwise only in their direct chat, by its id. A group message from a
-  blocked person in a push without a sender id is shown.
-- `unread_count` is per chat. A blocked person writing in a group still
+- `unread_count` is per chat: a blocked person writing in a group still
   raises that group's count.
 - The in-app notification inbox and its badge (`GET /notifications/`,
   `/unread_count/`) are the server's numbers and include whatever the
   blocked person caused.
-- Messages from a blocked person still appear in the feed when the chat is
-  opened; the confirmation dialog and the block list both say so.
+- Messages from a blocked person still appear in a group's feed.
 
-**What the backend would need.** "Этап 2" itself: refuse `POST
-/chats/{id}/messages/` from a sender the recipient blocked in a direct chat
-(and say so with a code), skip the push and the unread increment for a
-blocked sender in groups, and either a `sender_id` in every chat push
-payload or a typed payload. With that in place the client-side filter can
-stay as a belt-and-braces check; nothing else changes.
+**What the backend would need.** For groups: skip the push and the unread
+increment for a sender the recipient blocked, and keep their activity out of
+the notification inbox — or flag such messages so the client can collapse
+them the way Telegram does. With that in place the client-side filter can
+stay as a belt-and-braces check.
 
 ---
 
@@ -499,14 +334,16 @@ are only as good as the API allows.
   all when there is no direct chat to ask — a stranger from a group has no
   status line. `ProfilePresence` in
   `features/profile/presentation/utils/profile_view.dart` is the rule.
-- **Shared media only through a direct chat, and only what is cached.**
-  The Media / Files / Links / Voice tabs appear when a 1:1 chat exists and
-  show what this device holds of it (§7 above: no shared-media index).
-  Media shared with the person in groups is not there.
+- **Shared media only through a direct chat.** The Media / Files / Links /
+  Voice tabs read `GET /chats/{chat_id}/media/` of the 1:1 chat (api-docs
+  §5.12), so they exist only when that chat does. Media shared with the
+  person in groups is not there: the index is per chat and has no "from this
+  person" filter.
 - **Mute is a setting of the chat.** "Mute" on the profile silences the
   direct chat (`PATCH /chats/{id}/state/`); without a chat it is greyed out
   — there is no per-person notification setting to write instead.
 
 **What the backend would need.** A presence read by user id with a
-`last_seen_at` (rounded, with a privacy setting, if wanted) — the same ask as
-§15 — and the shared-media index from §7, ideally filterable by peer.
+`last_seen_at` — the same ask as §15; the `last_seen` privacy setting already
+exists and would cover it — and a peer filter on the shared-media index (or
+an index across all chats with that person).

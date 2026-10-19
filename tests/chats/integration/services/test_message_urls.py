@@ -66,8 +66,3 @@ class TestMessageAttachmentUrls:
         assert urls[key] == "https://cached.test/link"
         assert await redis_client.get(AttachmentKeys.download_url(fresh_key)) == urls[fresh_key]
         assert 0 < await redis_client.ttl(AttachmentKeys.download_url(fresh_key)) <= chat_config.DOWNLOAD_URL_TTL - 30
-
-    async def test_legacy_absolute_keys_are_passed_through(self, message_service: MessageService) -> None:
-        urls = await message_service.presigned_attachment_urls(["https://cdn.test/a.jpg"])
-
-        assert urls == {"https://cdn.test/a.jpg": "https://cdn.test/a.jpg"}

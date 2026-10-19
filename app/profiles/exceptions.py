@@ -151,6 +151,38 @@ class AvatarFileKeyError(ApplicationError):
 
 
 @dataclass(kw_only=True)
+class NotFoundProfilePhotoError(ApplicationError):
+    photo_id: str
+
+    code: str = "NOT_FOUND_PROFILE_PHOTO"
+    status: int = 404
+
+    @property
+    def message(self) -> str:
+        return "Profile photo not found"
+
+    @property
+    def detail(self) -> dict:
+        return {"photo_id": self.photo_id}
+
+
+@dataclass(kw_only=True)
+class ProfilePhotosLimitError(ApplicationError):
+    limit: int
+
+    code: str = "PROFILE_PHOTOS_LIMIT"
+    status: int = 409
+
+    @property
+    def message(self) -> str:
+        return "Profile photos limit reached, delete an old photo first"
+
+    @property
+    def detail(self) -> dict:
+        return {"limit": self.limit}
+
+
+@dataclass(kw_only=True)
 class TooLongContactNameError(ApplicationError):
     name: str
 

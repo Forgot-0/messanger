@@ -90,21 +90,6 @@ class TestProfileAvatarUrlService:
         ttl = await redis_client.ttl(ProfileAvatarKeys.download_url(stored_avatar))
         assert 0 < ttl <= profile_config.AVATAR_URL_TTL - profile_config.AVATAR_URL_CACHE_SKEW
 
-    async def test_legacy_public_url_is_signed_by_its_key(
-        self, service: ProfileAvatarUrlService, storage_endpoint: str, stored_avatar: str
-    ) -> None:
-        """Строки, записанные пока бакет был публичным, подписываются по ключу объекта."""
-        legacy = f"{storage_endpoint}/{profile_config.AVATAR_BUCKET}/{stored_avatar}"
-        profile = profile_dto(7, {64: {"jpg": legacy}})
-
-        await service.attach([profile])
-
-        assert_presigned_url(
-            profile.avatars[64]["jpg"],
-            bucket=profile_config.AVATAR_BUCKET,
-            file_key=stored_avatar,
-        )
-
     async def test_every_variant_is_signed_once_per_key(
         self, service: ProfileAvatarUrlService, redis_client: Redis
     ) -> None:

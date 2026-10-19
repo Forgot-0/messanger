@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.auth.exceptions import NotFoundPermissionsError, NotFoundRoleError
+from app.auth.config import auth_config
+from app.auth.exceptions import InvalidUsernameError, NotFoundPermissionsError, NotFoundRoleError
 from app.auth.models.oauth import OAuthAccount
 from app.auth.models.session import Session
 from app.core.db.base_model import BaseModel, DateMixin, SoftDeleteMixin
@@ -15,6 +17,9 @@ from app.core.events.event import BaseEvent
 if TYPE_CHECKING:
     from app.auth.models.permission import Permission
     from app.auth.models.role import Role
+
+
+_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*[A-Za-z0-9]$")
 
 
 @dataclass(frozen=True)
@@ -52,6 +57,17 @@ class DeletedUserEvent(BaseEvent):
         return str(self.user_id)
 
 
+@dataclass(frozen=True)
+class ChangedUsernameEvent(BaseEvent):
+    user_id: int
+    old_username: str
+    username: str
+
+    __event_name__: str = "auth.user.username_changed"
+
+    def get_partition_key(self) -> str:
+        return str(self.user_id)
+
 
 class UserPermissions(BaseModel):
     __tablename__ = "user_permissions"
@@ -70,6 +86,9 @@ class UserPermissions(BaseModel):
 
 class User(BaseModel, DateMixin, SoftDeleteMixin):
     __tablename__ = "users"
+    __table_args__ = (
+        Index("uq_users_username_lower", text("lower(username)"), unique=True),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
@@ -138,6 +157,44 @@ class User(BaseModel, DateMixin, SoftDeleteMixin):
                 email=self.email
             )
         )
+
+    def change_username(self, username: str) -> None:
+        username = self.validate_username(username)
+        if username == self.username:
+            return
+
+        old_username = self.username
+        self.username = username
+        self.register_event(
+            ChangedUsernameEvent(
+                user_id=self.id,
+                old_username=old_username,
+                username=username,
+            )
+        )
+
+    @staticmethod
+    def validate_username(username: str) -> str:
+        cleaned = username.strip().removeprefix("@")
+
+        if not (
+            auth_config.USERNAME_MIN_LENGTH
+            <= len(cleaned)
+            <= auth_config.USERNAME_MAX_LENGTH
+        ):
+            raise InvalidUsernameError(username=username, reason="length")
+
+        if not _USERNAME_RE.fullmatch(cleaned):
+            raise InvalidUsernameError(username=username, reason="format")
+
+        if User.is_reserved_username(cleaned):
+            raise InvalidUsernameError(username=username, reason="reserved")
+
+        return cleaned
+
+    @staticmethod
+    def is_reserved_username(username: str) -> bool:
+        return username.strip().lower() in auth_config.USERNAME_RESERVED
 
     def add_role(self, role: Role) -> None:
         self.roles.add(role)

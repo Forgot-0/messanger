@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.core.api.filter_mapper import FilterMapper
 from app.core.filters.pagination import Pagination
 from app.profiles.config import profile_config
+from app.profiles.filters.photos import ProfilePhotoFilter
 from app.profiles.filters.profiles import ProfileFilter
 
 
@@ -71,6 +72,16 @@ class GetProfilesRequest(BaseModel):
             profile_filter.add_sort(sort_field.field, sort_field.direction)
 
         return profile_filter
+
+
+class GetProfilePhotosRequest(BaseModel):
+    page: int = Field(1, ge=1)
+    page_size: int = Field(profile_config.PROFILE_PHOTOS_PAGE_SIZE, ge=1, le=100)
+
+    def to_photo_filter(self, user_id: int) -> ProfilePhotoFilter:
+        photo_filter = ProfilePhotoFilter(user_id=user_id)
+        photo_filter.set_pagination(Pagination(page=self.page, page_size=self.page_size))
+        return photo_filter
 
 
 class AvatarUploadCompleteRequest(BaseModel):

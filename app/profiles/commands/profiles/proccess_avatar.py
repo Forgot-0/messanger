@@ -1,19 +1,23 @@
-import io
 import logging
 from dataclasses import dataclass
+from uuid import uuid7
 
-import magic
-import pyvips
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
-from app.core.services.storage.dtos import UploadFile
-from app.core.services.storage.service import StorageService
 from app.profiles.config import profile_config
-from app.profiles.exceptions import AvatarFileKeyError, AvatarNotImageTypeError, AvatarSizeError, NotFoundProfileError
-from app.profiles.models.profile import SizeAvatar, TypeImageAvatar
+from app.profiles.exceptions import (
+    AvatarFileKeyError,
+    AvatarNotImageTypeError,
+    AvatarSizeError,
+    NotFoundProfileError,
+    ProfilePhotosLimitError,
+)
+from app.profiles.models.photo import ProfilePhoto
+from app.profiles.repositories.photos import ProfilePhotoRepository
 from app.profiles.repositories.profiles import ProfileRepository
+from app.profiles.services.photo_storage import ProfilePhotoStorage
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +32,9 @@ class ProccessAvatarCommand(BaseCommand):
 @dataclass(frozen=True)
 class ProccessAvatarCommandHandler(BaseCommandHandler[ProccessAvatarCommand, None]):
     session: AsyncSession
-    storage_service: StorageService
     profile_repository: ProfileRepository
+    photo_repository: ProfilePhotoRepository
+    photo_storage: ProfilePhotoStorage
     event_bus: BaseEventBus
 
     async def handle(self, command: ProccessAvatarCommand) -> None:
@@ -40,54 +45,43 @@ class ProccessAvatarCommandHandler(BaseCommandHandler[ProccessAvatarCommand, Non
         if profile is None:
             raise NotFoundProfileError(profile_id=command.user_id)
 
-        stat = await self.storage_service.get_stat(profile_config.PENDING_AVATAR_BUCKET, command.file_key)
-        if stat.size > profile_config.AVATAR_MAX_SIZE:
-            raise AvatarSizeError(
-                current_size=stat.size
-            )
+        if await self.history_is_full(command.user_id):
+            await self.photo_storage.drop_pending(command.file_key)
+            raise ProfilePhotosLimitError(limit=profile_config.MAX_PROFILE_PHOTOS)
 
-        data = await self.storage_service.download_bytes(
-            profile_config.PENDING_AVATAR_BUCKET,
-            command.file_key,
-            max_bytes=profile_config.AVATAR_MAX_SIZE,
-            stat=stat,
-        )
-        mime = magic.from_buffer(data, mime=True)
+        try:
+            data = await self.photo_storage.load_validated(command.file_key)
+            rendered = await self.photo_storage.render(data)
+        except (AvatarSizeError, AvatarNotImageTypeError):
+            await self.photo_storage.drop_pending(command.file_key)
+            raise
 
-        if mime not in profile_config.AVATAR_ALLOWED_MIMES:
-            raise AvatarNotImageTypeError(type_avatar=mime)
+        photo_id = uuid7()
+        avatars = await self.photo_storage.upload_variants(command.user_id, photo_id, rendered)
 
-        img: pyvips.Image = pyvips.Image.new_from_buffer(data, "", access="random") # type: ignore
-        if img.width <= 0 or img.height <= 0 or img.width * img.height > profile_config.AVATAR_MAX_PIXELS: # type: ignore
-            raise AvatarSizeError(current_size=img.width * img.height) # type: ignore
+        profile = await self.profile_repository.get_by_id(command.user_id, with_for_update=True)
+        if profile is None or await self.history_is_full(command.user_id):
+            await self.photo_storage.delete_variants(command.user_id, avatars)
+            await self.photo_storage.drop_pending(command.file_key)
+            if profile is None:
+                raise NotFoundProfileError(profile_id=command.user_id)
+            raise ProfilePhotosLimitError(limit=profile_config.MAX_PROFILE_PHOTOS)
 
-        versions: dict[int, dict[str, str]] = {}
+        photo = ProfilePhoto.create(photo_id=photo_id, user_id=command.user_id, avatars=avatars)
+        await self.photo_repository.create(photo)
+        profile.set_photo(photo)
 
-        for size in SizeAvatar:
-            thumb = img.thumbnail_image(size, height=size, crop="centre") # type: ignore
-
-            variants: dict[str, str] = {}
-            for image_type in TypeImageAvatar:
-                content: bytes = thumb.write_to_buffer(f".{image_type.value}", strip=True) # type: ignore
-                file_key = f"{command.user_id}/{size.value}.{image_type.value}"
-
-                await self.storage_service.upload_file(
-                    upload_file=UploadFile(
-                        bucket_name=profile_config.AVATAR_BUCKET,
-                        file_key=file_key, file_content=io.BytesIO(content), size=len(content)
-                    )
-                )
-                variants[image_type.value] = file_key
-
-            versions[size.value] = variants
-
-        profile.update_avatar(versions)
         await self.event_bus.publish(profile.pull_events())
         await self.session.commit()
         await self.profile_repository.invalidate_cache()
 
+        await self.photo_storage.drop_pending(command.file_key)
+
         logger.info(
-            "Profile create", extra={
-                "user_id": command.user_id
+            "Profile photo added", extra={
+                "user_id": command.user_id, "photo_id": str(photo_id)
             }
         )
+
+    async def history_is_full(self, user_id: int) -> bool:
+        return await self.photo_repository.count(user_id) >= profile_config.MAX_PROFILE_PHOTOS

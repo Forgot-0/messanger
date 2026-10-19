@@ -192,6 +192,39 @@ class DuplicateUserError(ApplicationError):
 
 
 @dataclass(kw_only=True)
+class InvalidUsernameError(ApplicationError):
+    username: str
+    reason: str
+
+    code: str = "INVALID_USERNAME"
+    status: int = 400
+
+    @property
+    def message(self) -> str:
+        return "Username is invalid"
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        return {"username": self.username, "reason": self.reason}
+
+
+@dataclass(kw_only=True)
+class UsernameTakenError(ApplicationError):
+    username: str
+
+    code: str = "USERNAME_TAKEN"
+    status: int = 409
+
+    @property
+    def message(self) -> str:
+        return "Username is already taken"
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        return {"username": self.username}
+
+
+@dataclass(kw_only=True)
 class DuplicateRoleError(ApplicationError):
     name: str
 

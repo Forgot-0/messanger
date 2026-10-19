@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from sqlalchemy import Select, exists, select
+from sqlalchemy import Select, exists, func, select
 from sqlalchemy.orm import selectinload
 
 from app.auth.filters.users import UserFilter
@@ -38,10 +38,12 @@ class UserRepository(IRepository[User], CacheRepository):
         )
         return result.scalar()
 
-    async def exists_username(self, username: str) -> bool:
-        result = await self.session.execute(
-            select(exists().where(User.username == username))
-        )
+    async def is_username_taken(self, username: str, exclude_user_id: int | None = None) -> bool:
+        condition = func.lower(User.username) == func.lower(username)
+        if exclude_user_id is not None:
+            condition = condition & (User.id != exclude_user_id)
+
+        result = await self.session.execute(select(exists().where(condition)))
         return bool(result.scalar())
 
     async def get_by_id(self, user_id: int) -> (User | None):

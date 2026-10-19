@@ -15,6 +15,10 @@ class ProfileConfig(BaseConfig):
         {"image/jpeg", "image/png", "image/webp"}
     )
 
+    MAX_PROFILE_PHOTOS: int = 10
+    PROFILE_PHOTOS_PAGE_SIZE: int = 20
+    PROFILE_PHOTO_WRITE_RATE_TIMES: int = 30
+    PROFILE_PHOTO_WRITE_RATE_SECONDS: int = 60
 
     MAX_LEN_SKILL_NAME: int = 30
     MAX_LEN_BIO: int = 1024
@@ -23,6 +27,7 @@ class ProfileConfig(BaseConfig):
     USER_TOPIC: str = "auth"
     USER_VERIFIED_GROUP_ID: str = "profiles-user-verified"
     USER_VERIFIED_EVENT: str = "auth.user.verified"
+    USERNAME_CHANGED_EVENT: str = "auth.user.username_changed"
 
     CONTACT_IDENTIFIER_PEPPER: str = ""
 

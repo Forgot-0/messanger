@@ -8,6 +8,7 @@ from app.profiles.repositories.contacts import (
     ContactIdentifierRepository,
     ContactRepository,
 )
+from app.profiles.repositories.photos import ProfilePhotoRepository
 from app.profiles.repositories.profiles import ProfileRepository
 from app.profiles.services.identifier_hasher import IdentifierHasher
 
@@ -39,3 +40,8 @@ async def blocked_repository(
 @pytest.fixture
 async def identifier_hasher(di_container: AsyncContainer) -> IdentifierHasher:
     return await di_container.get(IdentifierHasher)
+
+
+@pytest.fixture
+async def photo_repository(db_session: AsyncSession) -> ProfilePhotoRepository:
+    return ProfilePhotoRepository(session=db_session)

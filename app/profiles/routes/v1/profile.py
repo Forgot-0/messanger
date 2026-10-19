@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import UUID
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends, Query, status
@@ -10,21 +11,30 @@ from app.core.db.repository import PageResult
 from app.core.mediators.base import BaseMediator
 from app.core.services.auth.depends import CurrentUserJWTData, OptionalCurrentUserJWTData
 from app.profiles.commands.profiles.add_link import AddLinkToProfileCommand
+from app.profiles.commands.profiles.delete_photo import DeleteProfilePhotoCommand
 from app.profiles.commands.profiles.get_or_create import GetOrCreateProfileCommand
 from app.profiles.commands.profiles.remove_link import RemoveLinkFromProfileCommand
+from app.profiles.commands.profiles.set_main_photo import SetMainProfilePhotoCommand
 from app.profiles.commands.profiles.update import UpdateProfileCommand
 from app.profiles.commands.profiles.update_avatar import UpdateProfileAvatarCommand
 from app.profiles.commands.profiles.upload_avatar import UloadProfileAvatarCommand
 from app.profiles.config import profile_config
-from app.profiles.dtos.profiles import AvatarPresign, ProfileDTO
-from app.profiles.exceptions import NotFoundProfileError, NotFoundUsernameProfileError
+from app.profiles.dtos.profiles import AvatarPresign, ProfileDTO, ProfilePhotoDTO
+from app.profiles.exceptions import (
+    NotFoundProfileError,
+    NotFoundProfilePhotoError,
+    NotFoundUsernameProfileError,
+    ProfilePhotosLimitError,
+)
 from app.profiles.queries.profiles.get_by_id import GetProfileByIdQuery
 from app.profiles.queries.profiles.get_by_username import GetProfileByUsernameQuery
 from app.profiles.queries.profiles.get_list import GetProfilesQuery
+from app.profiles.queries.profiles.get_photos import GetProfilePhotosQuery
 from app.profiles.schemas.profiles.requests import (
     AddProfileLinkRequest,
     AvatarPreSignUrlRequest,
     AvatarUploadCompleteRequest,
+    GetProfilePhotosRequest,
     GetProfilesRequest,
     ProfileUpdateRequest,
 )
@@ -69,6 +79,82 @@ async def get_or_create(
         GetOrCreateProfileCommand(
             user_id=int(user_jwt_data.id), username=user_jwt_data.username
         )
+    )
+
+@router.delete(
+    "/avatar/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete the current profile photo; the previous one becomes current",
+    responses={
+        404: create_response(NotFoundProfileError(profile_id=123))
+    },
+    dependencies=[
+        Depends(
+            ConfigurableRateLimiter(
+                times=profile_config.PROFILE_PHOTO_WRITE_RATE_TIMES,
+                seconds=profile_config.PROFILE_PHOTO_WRITE_RATE_SECONDS,
+            )
+        )
+    ],
+)
+async def delete_avatar(
+    mediator: FromDishka[BaseMediator],
+    user_jwt_data: CurrentUserJWTData,
+) -> None:
+    await mediator.handle_command(DeleteProfilePhotoCommand(user_jwt_data=user_jwt_data))
+
+@router.put(
+    "/photos/{photo_id}/main/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Make an older profile photo the current one",
+    responses={
+        404: create_response(
+            [NotFoundProfileError(profile_id=123), NotFoundProfilePhotoError(photo_id="uuid")]
+        )
+    },
+    dependencies=[
+        Depends(
+            ConfigurableRateLimiter(
+                times=profile_config.PROFILE_PHOTO_WRITE_RATE_TIMES,
+                seconds=profile_config.PROFILE_PHOTO_WRITE_RATE_SECONDS,
+            )
+        )
+    ],
+)
+async def set_main_profile_photo(
+    photo_id: UUID,
+    mediator: FromDishka[BaseMediator],
+    user_jwt_data: CurrentUserJWTData,
+) -> None:
+    await mediator.handle_command(
+        SetMainProfilePhotoCommand(photo_id=photo_id, user_jwt_data=user_jwt_data)
+    )
+
+@router.delete(
+    "/photos/{photo_id}/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a photo from own profile history",
+    responses={
+        404: create_response(
+            [NotFoundProfileError(profile_id=123), NotFoundProfilePhotoError(photo_id="uuid")]
+        )
+    },
+    dependencies=[
+        Depends(
+            ConfigurableRateLimiter(
+                times=profile_config.PROFILE_PHOTO_WRITE_RATE_TIMES,
+                seconds=profile_config.PROFILE_PHOTO_WRITE_RATE_SECONDS,
+            )
+        )
+    ],
+)
+async def delete_profile_photo(
+    photo_id: UUID,
+    mediator: FromDishka[BaseMediator],
+    user_jwt_data: CurrentUserJWTData,
+) -> None:
+    await mediator.handle_command(
+        DeleteProfilePhotoCommand(user_jwt_data=user_jwt_data, photo_id=photo_id)
     )
 
 @router.put(
@@ -129,6 +215,28 @@ async def get_profile(
 ) -> ProfileDTO:
     return await mediator.handle_query(GetProfileByIdQuery(profile_id, user_jwt_data=user_jwt_data))
 
+@router.get(
+    "/{profile_id}/photos/",
+    status_code=status.HTTP_200_OK,
+    summary="Profile photo history, the current photo first",
+    responses={
+        404: create_response(NotFoundProfileError(profile_id=123))
+    },
+)
+async def get_profile_photos(
+    profile_id: int,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+    params: Annotated[GetProfilePhotosRequest, Query()],
+) -> PageResult[ProfilePhotoDTO]:
+    return await mediator.handle_query(
+        GetProfilePhotosQuery(
+            profile_id=profile_id,
+            photo_filter=params.to_photo_filter(profile_id),
+            user_jwt_data=user_jwt_data,
+        )
+    )
+
 @router.post(
     "/avatar/upload_complete/",
     status_code=status.HTTP_200_OK,
@@ -150,6 +258,9 @@ async def upload_avatar_complete(
 @router.post(
     "/avatar/presign/",
     status_code=status.HTTP_200_OK,
+    responses={
+        409: create_response(ProfilePhotosLimitError(limit=profile_config.MAX_PROFILE_PHOTOS))
+    },
     dependencies=[Depends(ConfigurableRateLimiter(times=4, seconds=5*60))]
 )
 async def get_avatar_presign_url(
