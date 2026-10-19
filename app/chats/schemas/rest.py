@@ -130,6 +130,10 @@ class GetInviteLinksRequest(BaseModel):
     last_invite_id: UUID | None = None
 
 
+class ResolveJoinRequestsRequest(BaseModel):
+    user_ids: list[int] = Field(min_length=1, max_length=chat_config.MAX_JOIN_REQUESTS_BULK)
+
+
 class GetJoinRequestsRequest(BaseModel):
     limit: int = Field(
         default=chat_config.JOIN_REQUESTS_PAGE_SIZE,

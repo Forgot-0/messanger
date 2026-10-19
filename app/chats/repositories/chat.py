@@ -247,20 +247,42 @@ class ChatRepository(IRepository[Chat], CacheRepository):
         result = await self.session.execute(stmt)
         return result.scalar()
 
-    async def staff_user_ids(self, chat_id: UUID, min_role_level: int, limit: int) -> list[int]:
+    async def user_ids_with_permission(
+        self, chat_id: UUID, permission: str, limit: int
+    ) -> list[int]:
+        role_ids = await self.session.execute(
+            select(ChatRole.id).where(ChatRole.permissions[permission].as_boolean())
+        )
+        allowed_roles = list(role_ids.scalars().all())
+        if not allowed_roles:
+            return []
+
+        override = ChatMember.permissions_overrides[permission].as_boolean()
         stmt = (
             select(ChatMember.user_id)
-            .join(ChatRole, ChatRole.id == ChatMember.role_id)
             .where(
                 ChatMember.chat_id == chat_id,
-                ChatRole.level >= min_role_level,
+                ChatMember.role_id.in_(allowed_roles),
                 ChatMember.active_criteria(),
+                or_(override.is_(None), override),
             )
-            .order_by(ChatMember.user_id.asc())
             .limit(limit)
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def members_by_user_ids(
+        self, chat_id: UUID, user_ids: Sequence[int]
+    ) -> dict[int, ChatMember]:
+        if not user_ids:
+            return {}
+
+        stmt = select(ChatMember).where(
+            ChatMember.chat_id == chat_id,
+            ChatMember.user_id.in_(list(user_ids)),
+        )
+        result = await self.session.execute(stmt)
+        return {member.user_id: member for member in result.scalars().all()}
 
     async def delete_member(self, member: ChatMember) -> None:
         await self.session.delete(member)

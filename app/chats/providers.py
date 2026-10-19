@@ -45,16 +45,20 @@ from app.chats.commands.invites.create import CreateInviteLinkCommand, CreateInv
 from app.chats.commands.invites.join import JoinChatByInviteCommand, JoinChatByInviteCommandHandler
 from app.chats.commands.invites.revoke import RevokeInviteLinkCommand, RevokeInviteLinkCommandHandler
 from app.chats.commands.join_requests.approve import (
-    ApproveJoinRequestCommand,
-    ApproveJoinRequestCommandHandler,
+    ApproveJoinRequestsCommand,
+    ApproveJoinRequestsCommandHandler,
 )
 from app.chats.commands.join_requests.cancel import (
     CancelJoinRequestCommand,
     CancelJoinRequestCommandHandler,
 )
 from app.chats.commands.join_requests.decline import (
-    DeclineJoinRequestCommand,
-    DeclineJoinRequestCommandHandler,
+    DeclineJoinRequestsCommand,
+    DeclineJoinRequestsCommandHandler,
+)
+from app.chats.commands.join_requests.decline_all import (
+    DeclineAllJoinRequestsCommand,
+    DeclineAllJoinRequestsCommandHandler,
 )
 from app.chats.commands.messages.delete import DeleteMessageCommand, DeleteMessageCommandHandler
 from app.chats.commands.messages.forward import ForwardMessageCommand, ForwardMessageCommandHandler
@@ -215,8 +219,9 @@ class ChatModuleProvider(Provider):
         ApplyProfilePrivacyCommandHandler,
         PinMessageCommandHandler,
         UnpinMessagesCommandHandler,
-        ApproveJoinRequestCommandHandler,
-        DeclineJoinRequestCommandHandler,
+        ApproveJoinRequestsCommandHandler,
+        DeclineJoinRequestsCommandHandler,
+        DeclineAllJoinRequestsCommandHandler,
         CancelJoinRequestCommandHandler,
         scope=Scope.REQUEST,
     )
@@ -322,8 +327,11 @@ class ChatModuleProvider(Provider):
         )
         command_registry.register_command(PinMessageCommand, PinMessageCommandHandler)
         command_registry.register_command(UnpinMessagesCommand, UnpinMessagesCommandHandler)
-        command_registry.register_command(ApproveJoinRequestCommand, ApproveJoinRequestCommandHandler)
-        command_registry.register_command(DeclineJoinRequestCommand, DeclineJoinRequestCommandHandler)
+        command_registry.register_command(ApproveJoinRequestsCommand, ApproveJoinRequestsCommandHandler)
+        command_registry.register_command(DeclineJoinRequestsCommand, DeclineJoinRequestsCommandHandler)
+        command_registry.register_command(
+            DeclineAllJoinRequestsCommand, DeclineAllJoinRequestsCommandHandler
+        )
         command_registry.register_command(CancelJoinRequestCommand, CancelJoinRequestCommandHandler)
         return command_registry
 

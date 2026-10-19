@@ -795,23 +795,6 @@ class JoinRequestPendingError(ApplicationError):
 
 
 @dataclass(kw_only=True)
-class JoinRequestNotPendingError(ApplicationError):
-    chat_id: str
-    user_id: int
-    status_value: str
-    code: str = "JOIN_REQUEST_NOT_PENDING"
-    status: int = 409
-
-    @property
-    def message(self) -> str:
-        return "Join request is already resolved"
-
-    @property
-    def detail(self) -> dict:
-        return {"chat_id": self.chat_id, "user_id": self.user_id, "status": self.status_value}
-
-
-@dataclass(kw_only=True)
 class JoinRequestRetryLaterError(ApplicationError):
     chat_id: str
     user_id: int

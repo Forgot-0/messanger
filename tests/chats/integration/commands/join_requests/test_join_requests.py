@@ -8,16 +8,20 @@ from app.chats.commands.chats.join import JoinChatCommand, JoinChatCommandHandle
 from app.chats.commands.invites.create import CreateInviteLinkCommand, CreateInviteLinkCommandHandler
 from app.chats.commands.invites.join import JoinChatByInviteCommand, JoinChatByInviteCommandHandler
 from app.chats.commands.join_requests.approve import (
-    ApproveJoinRequestCommand,
-    ApproveJoinRequestCommandHandler,
+    ApproveJoinRequestsCommand,
+    ApproveJoinRequestsCommandHandler,
 )
 from app.chats.commands.join_requests.cancel import (
     CancelJoinRequestCommand,
     CancelJoinRequestCommandHandler,
 )
 from app.chats.commands.join_requests.decline import (
-    DeclineJoinRequestCommand,
-    DeclineJoinRequestCommandHandler,
+    DeclineJoinRequestsCommand,
+    DeclineJoinRequestsCommandHandler,
+)
+from app.chats.commands.join_requests.decline_all import (
+    DeclineAllJoinRequestsCommand,
+    DeclineAllJoinRequestsCommandHandler,
 )
 from app.chats.config import chat_config
 from app.chats.dtos.invites import ChatInviteLinkDTO
@@ -26,7 +30,6 @@ from app.chats.exceptions import (
     AccessDeniedChatError,
     AlreadyMemberError,
     InvalidInviteLinkError,
-    JoinRequestNotPendingError,
     JoinRequestPendingError,
     JoinRequestRetryLaterError,
     NotFoundJoinRequestError,
@@ -34,10 +37,10 @@ from app.chats.exceptions import (
 from app.chats.models.chat import AddedChatMemberEvent, Chat, ChatType
 from app.chats.models.chat_roles import ChatRoleId
 from app.chats.models.join_request import (
-    ApprovedChatJoinRequestEvent,
+    ApprovedChatJoinRequestsEvent,
     CancelledChatJoinRequestEvent,
     CreatedChatJoinRequestEvent,
-    DeclinedChatJoinRequestEvent,
+    DeclinedChatJoinRequestsEvent,
     JoinRequestStatus,
 )
 from app.chats.models.profile import ChatUserProfile
@@ -84,12 +87,12 @@ class TestChatJoinRequests:
         return await request_container.get(JoinChatByInviteCommandHandler)
 
     @pytest.fixture
-    async def approve(self, request_container: AsyncContainer) -> ApproveJoinRequestCommandHandler:
-        return await request_container.get(ApproveJoinRequestCommandHandler)
+    async def approve(self, request_container: AsyncContainer) -> ApproveJoinRequestsCommandHandler:
+        return await request_container.get(ApproveJoinRequestsCommandHandler)
 
     @pytest.fixture
-    async def decline(self, request_container: AsyncContainer) -> DeclineJoinRequestCommandHandler:
-        return await request_container.get(DeclineJoinRequestCommandHandler)
+    async def decline(self, request_container: AsyncContainer) -> DeclineJoinRequestsCommandHandler:
+        return await request_container.get(DeclineJoinRequestsCommandHandler)
 
     async def test_request_link_does_not_let_user_in(
         self,
@@ -173,7 +176,7 @@ class TestChatJoinRequests:
         self,
         request_link,
         join_by_link: JoinChatByInviteCommandHandler,
-        approve: ApproveJoinRequestCommandHandler,
+        approve: ApproveJoinRequestsCommandHandler,
         join_request_repository: ChatJoinRequestRepository,
         invite_repository: ChatInviteLinkRepository,
         chat_repository: ChatRepository,
@@ -189,8 +192,8 @@ class TestChatJoinRequests:
         )
 
         await approve.handle(
-            ApproveJoinRequestCommand(
-                user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=44
+            ApproveJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[44]
             )
         )
 
@@ -208,7 +211,9 @@ class TestChatJoinRequests:
         assert stored.status == JoinRequestStatus.APPROVED
         assert stored.resolved_by == int(user_jwt.id)
 
-        approved = [e for e in mock_event_bus.of_type(ApprovedChatJoinRequestEvent) if e.user_id == 44]
+        approved = [
+            e for e in mock_event_bus.of_type(ApprovedChatJoinRequestsEvent) if 44 in e.user_ids
+        ]
         assert len(approved) == 1
         assert approved[0].role_id == int(ChatRoleId.MEMBER)
         assert [e for e in mock_event_bus.of_type(AddedChatMemberEvent) if e.user_id == 44]
@@ -217,7 +222,7 @@ class TestChatJoinRequests:
         self,
         request_link,
         join_by_link: JoinChatByInviteCommandHandler,
-        approve: ApproveJoinRequestCommandHandler,
+        approve: ApproveJoinRequestsCommandHandler,
         chat_repository: ChatRepository,
         db_session: AsyncSession,
         user_jwt: UserJWTData,
@@ -234,54 +239,59 @@ class TestChatJoinRequests:
             JoinChatByInviteCommand(user_jwt_data=make_user_jwt(id="45"), code=invite.code)
         )
         await approve.handle(
-            ApproveJoinRequestCommand(
-                user_jwt_data=user_jwt, chat_id=channel.id, target_user_id=45
+            ApproveJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=channel.id, user_ids=[45]
             )
         )
 
         member = await chat_repository.get_member_chat(channel.id, 45)
         assert member is not None and member.role_id == ChatRoleId.VIEWER
 
-    async def test_resolved_request_cannot_be_resolved_twice(
+    async def test_resolved_request_is_skipped_on_second_pass(
         self,
         request_link,
         join_by_link: JoinChatByInviteCommandHandler,
-        approve: ApproveJoinRequestCommandHandler,
-        decline: DeclineJoinRequestCommandHandler,
+        approve: ApproveJoinRequestsCommandHandler,
+        decline: DeclineJoinRequestsCommandHandler,
         group_chat: Chat,
         user_jwt: UserJWTData,
         make_user_jwt,
+        mock_event_bus: RecordingEventBus,
     ) -> None:
         invite = await request_link(group_chat)
         await join_by_link.handle(
             JoinChatByInviteCommand(user_jwt_data=make_user_jwt(id="46"), code=invite.code)
         )
         await approve.handle(
-            ApproveJoinRequestCommand(
-                user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=46
+            ApproveJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[46]
             )
         )
 
-        with pytest.raises(JoinRequestNotPendingError) as exc:
-            await approve.handle(
-                ApproveJoinRequestCommand(
-                    user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=46
-                )
+        again = await approve.handle(
+            ApproveJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[46]
             )
-        assert exc.value.status_value == JoinRequestStatus.APPROVED.value
+        )
+        assert again.resolved == []
+        assert again.skipped == [46]
 
-        with pytest.raises(JoinRequestNotPendingError):
-            await decline.handle(
-                DeclineJoinRequestCommand(
-                    user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=46
-                )
+        reverted = await decline.handle(
+            DeclineJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[46]
             )
+        )
+        assert reverted.resolved == []
+        assert reverted.skipped == [46]
+        # пустой пакет не плодит событий
+        assert len(mock_event_bus.of_type(ApprovedChatJoinRequestsEvent)) == 1
+        assert mock_event_bus.of_type(DeclinedChatJoinRequestsEvent) == []
 
     async def test_decline_keeps_user_out_and_blocks_retry(
         self,
         request_link,
         join_by_link: JoinChatByInviteCommandHandler,
-        decline: DeclineJoinRequestCommandHandler,
+        decline: DeclineJoinRequestsCommandHandler,
         join_request_repository: ChatJoinRequestRepository,
         chat_repository: ChatRepository,
         group_chat: Chat,
@@ -294,15 +304,17 @@ class TestChatJoinRequests:
         await join_by_link.handle(JoinChatByInviteCommand(user_jwt_data=applicant, code=invite.code))
 
         await decline.handle(
-            DeclineJoinRequestCommand(
-                user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=47
+            DeclineJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[47]
             )
         )
 
         assert await chat_repository.get_member_chat(group_chat.id, 47) is None
         stored = await join_request_repository.get(group_chat.id, 47)
         assert stored is not None and stored.status == JoinRequestStatus.DECLINED
-        assert [e for e in mock_event_bus.of_type(DeclinedChatJoinRequestEvent) if e.user_id == 47]
+        assert [
+            e for e in mock_event_bus.of_type(DeclinedChatJoinRequestsEvent) if 47 in e.user_ids
+        ]
 
         with pytest.raises(JoinRequestRetryLaterError):
             await join_by_link.handle(
@@ -313,8 +325,8 @@ class TestChatJoinRequests:
         self,
         request_link,
         join_by_link: JoinChatByInviteCommandHandler,
-        approve: ApproveJoinRequestCommandHandler,
-        decline: DeclineJoinRequestCommandHandler,
+        approve: ApproveJoinRequestsCommandHandler,
+        decline: DeclineJoinRequestsCommandHandler,
         group_chat: Chat,
         make_user_jwt,
     ) -> None:
@@ -326,15 +338,15 @@ class TestChatJoinRequests:
 
         with pytest.raises(AccessDeniedChatError):
             await approve.handle(
-                ApproveJoinRequestCommand(
-                    user_jwt_data=member_jwt, chat_id=group_chat.id, target_user_id=48
+                ApproveJoinRequestsCommand(
+                    user_jwt_data=member_jwt, chat_id=group_chat.id, user_ids=[48]
                 )
             )
 
         with pytest.raises(AccessDeniedChatError):
             await decline.handle(
-                DeclineJoinRequestCommand(
-                    user_jwt_data=member_jwt, chat_id=group_chat.id, target_user_id=48
+                DeclineJoinRequestsCommand(
+                    user_jwt_data=member_jwt, chat_id=group_chat.id, user_ids=[48]
                 )
             )
 
@@ -458,7 +470,7 @@ class TestChatJoinRequests:
         self,
         request_link,
         join_by_link: JoinChatByInviteCommandHandler,
-        approve: ApproveJoinRequestCommandHandler,
+        approve: ApproveJoinRequestsCommandHandler,
         request_container: AsyncContainer,
         group_chat: Chat,
         user_jwt: UserJWTData,
@@ -469,8 +481,8 @@ class TestChatJoinRequests:
             JoinChatByInviteCommand(user_jwt_data=make_user_jwt(id="54"), code=invite.code)
         )
         await approve.handle(
-            ApproveJoinRequestCommand(
-                user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=54
+            ApproveJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[54]
             )
         )
 
@@ -518,24 +530,28 @@ class TestChatJoinRequests:
                 JoinChatByInviteCommand(user_jwt_data=make_user_jwt(id="3"), code=invite.code)
             )
 
-    async def test_unknown_request_cannot_be_approved(
+    async def test_unknown_request_is_skipped(
         self,
-        approve: ApproveJoinRequestCommandHandler,
+        approve: ApproveJoinRequestsCommandHandler,
         group_chat: Chat,
         user_jwt: UserJWTData,
+        mock_event_bus: RecordingEventBus,
     ) -> None:
-        with pytest.raises(NotFoundJoinRequestError):
-            await approve.handle(
-                ApproveJoinRequestCommand(
-                    user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=999
-                )
+        result = await approve.handle(
+            ApproveJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[999]
             )
+        )
+
+        assert result.resolved == []
+        assert result.skipped == [999]
+        assert mock_event_bus.of_type(ApprovedChatJoinRequestsEvent) == []
 
     async def test_approve_closes_request_of_already_added_member(
         self,
         request_link,
         join_by_link: JoinChatByInviteCommandHandler,
-        approve: ApproveJoinRequestCommandHandler,
+        approve: ApproveJoinRequestsCommandHandler,
         join_request_repository: ChatJoinRequestRepository,
         chat_repository: ChatRepository,
         db_session: AsyncSession,
@@ -554,8 +570,8 @@ class TestChatJoinRequests:
         count_before = group_chat.member_count
 
         await approve.handle(
-            ApproveJoinRequestCommand(
-                user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=56
+            ApproveJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[56]
             )
         )
 
@@ -568,7 +584,7 @@ class TestChatJoinRequests:
         self,
         request_link,
         join_by_link: JoinChatByInviteCommandHandler,
-        decline: DeclineJoinRequestCommandHandler,
+        decline: DeclineJoinRequestsCommandHandler,
         join_request_repository: ChatJoinRequestRepository,
         db_session: AsyncSession,
         group_chat: Chat,
@@ -579,8 +595,8 @@ class TestChatJoinRequests:
         applicant = make_user_jwt(id="55")
         await join_by_link.handle(JoinChatByInviteCommand(user_jwt_data=applicant, code=invite.code))
         await decline.handle(
-            DeclineJoinRequestCommand(
-                user_jwt_data=user_jwt, chat_id=group_chat.id, target_user_id=55
+            DeclineJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[55]
             )
         )
 
@@ -600,3 +616,187 @@ class TestChatJoinRequests:
         assert renewed is not None
         assert renewed.is_pending is True
         assert renewed.resolved_by is None
+
+    async def test_bulk_approve_adds_every_member_with_one_event(
+        self,
+        request_link,
+        join_by_link: JoinChatByInviteCommandHandler,
+        approve: ApproveJoinRequestsCommandHandler,
+        invite_repository: ChatInviteLinkRepository,
+        chat_repository: ChatRepository,
+        group_chat: Chat,
+        user_jwt: UserJWTData,
+        make_user_jwt,
+        mock_event_bus: RecordingEventBus,
+    ) -> None:
+        invite = await request_link(group_chat)
+        count_before = group_chat.member_count
+        for user_id in (60, 61, 62):
+            await join_by_link.handle(
+                JoinChatByInviteCommand(
+                    user_jwt_data=make_user_jwt(id=str(user_id)), code=invite.code
+                )
+            )
+
+        result = await approve.handle(
+            ApproveJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[61, 60, 62, 999, 61]
+            )
+        )
+
+        assert result.resolved == [60, 61, 62]
+        assert result.skipped == [999]
+
+        for user_id in (60, 61, 62):
+            member = await chat_repository.get_member_chat(group_chat.id, user_id)
+            assert member is not None and member.role_id == ChatRoleId.MEMBER
+
+        chat = await chat_repository.get_by_id(group_chat.id)
+        assert chat is not None and chat.member_count == count_before + 3
+
+        # ссылке засчитан весь пакет, но одним UPDATE
+        stored_link = await invite_repository.get_by_id(invite.id)
+        assert stored_link is not None and stored_link.usage_count == 3
+
+        events = mock_event_bus.of_type(ApprovedChatJoinRequestsEvent)
+        assert len(events) == 1
+        assert events[0].user_ids == [60, 61, 62]
+        assert events[0].resolved_by == int(user_jwt.id)
+        # участникам чата по-прежнему нужен member_joined на каждого
+        added = [e for e in mock_event_bus.of_type(AddedChatMemberEvent) if e.user_id in (60, 61, 62)]
+        assert len(added) == 3
+
+    async def test_bulk_decline_resolves_whole_batch_with_one_event(
+        self,
+        request_link,
+        join_by_link: JoinChatByInviteCommandHandler,
+        decline: DeclineJoinRequestsCommandHandler,
+        join_request_repository: ChatJoinRequestRepository,
+        group_chat: Chat,
+        user_jwt: UserJWTData,
+        make_user_jwt,
+        mock_event_bus: RecordingEventBus,
+    ) -> None:
+        invite = await request_link(group_chat)
+        for user_id in (63, 64):
+            await join_by_link.handle(
+                JoinChatByInviteCommand(
+                    user_jwt_data=make_user_jwt(id=str(user_id)), code=invite.code
+                )
+            )
+
+        result = await decline.handle(
+            DeclineJoinRequestsCommand(
+                user_jwt_data=user_jwt, chat_id=group_chat.id, user_ids=[64, 63]
+            )
+        )
+
+        assert result.resolved == [63, 64]
+        assert result.skipped == []
+        for user_id in (63, 64):
+            stored = await join_request_repository.get(group_chat.id, user_id)
+            assert stored is not None and stored.status == JoinRequestStatus.DECLINED
+
+        events = mock_event_bus.of_type(DeclinedChatJoinRequestsEvent)
+        assert len(events) == 1
+        assert events[0].user_ids == [63, 64]
+        assert events[0].count == 2
+        assert events[0].all is False
+
+    async def test_decline_all_clears_the_queue_with_one_event(
+        self,
+        request_link,
+        join_by_link: JoinChatByInviteCommandHandler,
+        request_container: AsyncContainer,
+        join_request_repository: ChatJoinRequestRepository,
+        group_chat: Chat,
+        user_jwt: UserJWTData,
+        make_user_jwt,
+        mock_event_bus: RecordingEventBus,
+    ) -> None:
+        invite = await request_link(group_chat)
+        for user_id in (65, 66, 67):
+            await join_by_link.handle(
+                JoinChatByInviteCommand(
+                    user_jwt_data=make_user_jwt(id=str(user_id)), code=invite.code
+                )
+            )
+
+        handler = await request_container.get(DeclineAllJoinRequestsCommandHandler)
+        result = await handler.handle(
+            DeclineAllJoinRequestsCommand(user_jwt_data=user_jwt, chat_id=group_chat.id)
+        )
+
+        assert result.declined == 3
+        assert await join_request_repository.count_pending(group_chat.id) == 0
+        stored = await join_request_repository.get(group_chat.id, 66)
+        assert stored is not None
+        assert stored.status == JoinRequestStatus.DECLINED
+        assert stored.resolved_by == int(user_jwt.id)
+
+        events = mock_event_bus.of_type(DeclinedChatJoinRequestsEvent)
+        assert len(events) == 1
+        assert events[0].all is True
+        assert events[0].count == 3
+        assert events[0].user_ids == []
+
+    async def test_decline_all_on_empty_queue_is_a_noop(
+        self,
+        request_container: AsyncContainer,
+        group_chat: Chat,
+        user_jwt: UserJWTData,
+        mock_event_bus: RecordingEventBus,
+    ) -> None:
+        handler = await request_container.get(DeclineAllJoinRequestsCommandHandler)
+
+        result = await handler.handle(
+            DeclineAllJoinRequestsCommand(user_jwt_data=user_jwt, chat_id=group_chat.id)
+        )
+
+        assert result.declined == 0
+        assert mock_event_bus.of_type(DeclinedChatJoinRequestsEvent) == []
+
+    async def test_member_cannot_decline_all(
+        self,
+        request_container: AsyncContainer,
+        group_chat: Chat,
+        make_user_jwt,
+    ) -> None:
+        handler = await request_container.get(DeclineAllJoinRequestsCommandHandler)
+
+        with pytest.raises(AccessDeniedChatError):
+            await handler.handle(
+                DeclineAllJoinRequestsCommand(
+                    user_jwt_data=make_user_jwt(id="2"), chat_id=group_chat.id
+                )
+            )
+
+    async def test_decline_all_is_a_single_update(
+        self,
+        request_link,
+        join_by_link: JoinChatByInviteCommandHandler,
+        request_container: AsyncContainer,
+        group_chat: Chat,
+        user_jwt: UserJWTData,
+        make_user_jwt,
+        mock_event_bus: RecordingEventBus,
+        count_sql,
+    ) -> None:
+        invite = await request_link(group_chat)
+        for user_id in (68, 69, 70):
+            await join_by_link.handle(
+                JoinChatByInviteCommand(
+                    user_jwt_data=make_user_jwt(id=str(user_id)), code=invite.code
+                )
+            )
+
+        handler = await request_container.get(DeclineAllJoinRequestsCommandHandler)
+        with count_sql() as statements:
+            await handler.handle(
+                DeclineAllJoinRequestsCommand(user_jwt_data=user_jwt, chat_id=group_chat.id)
+            )
+
+        updates = [sql for sql in statements if "UPDATE chat_join_requests" in sql]
+        assert len(updates) == 1
+        assert "resolved_at IS NULL" in updates[0]
+        assert len(mock_event_bus.of_type(DeclinedChatJoinRequestsEvent)) == 1

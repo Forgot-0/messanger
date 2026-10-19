@@ -42,9 +42,9 @@ class CreatedChatJoinRequestEvent(BaseEvent):
 
 
 @dataclass(frozen=True)
-class ApprovedChatJoinRequestEvent(BaseEvent):
+class ApprovedChatJoinRequestsEvent(BaseEvent):
     chat_id: str
-    user_id: int
+    user_ids: list[int]
     resolved_by: int
     role_id: int
 
@@ -55,10 +55,12 @@ class ApprovedChatJoinRequestEvent(BaseEvent):
 
 
 @dataclass(frozen=True)
-class DeclinedChatJoinRequestEvent(BaseEvent):
+class DeclinedChatJoinRequestsEvent(BaseEvent):
     chat_id: str
-    user_id: int
+    user_ids: list[int]
     resolved_by: int
+    count: int
+    all: bool = False
 
     __event_name__ = "chats.join_request.declined"
 
@@ -78,16 +80,6 @@ class CancelledChatJoinRequestEvent(BaseEvent):
 
 
 class ChatJoinRequest(BaseModel):
-    """Заявка на вступление в чат.
-
-    Строка одна на пару (chat_id, user_id) и переживает решение модератора:
-    по ней считается кулдаун повторной заявки, а история «одобрен/отклонён»
-    остаётся видна админам. «Ожидает решения» — это `resolved_at IS NULL`:
-    именно в такой форме предикат попадает и в partial-индекс
-    `ix_chat_join_requests_pending`, и в запросы (см. инвариант про
-    совпадение предикатов).
-    """
-
     __tablename__ = "chat_join_requests"
 
     chat_id: Mapped[UUID] = mapped_column(
@@ -144,7 +136,6 @@ class ChatJoinRequest(BaseModel):
         return self.resolved_at + timedelta(seconds=chat_config.JOIN_REQUEST_RETRY_AFTER_SECONDS)
 
     def renew(self, invite_link_id: UUID | None = None) -> None:
-        """Повторная заявка по уже существующей строке."""
         if self.is_pending:
             raise JoinRequestPendingError(chat_id=str(self.chat_id), user_id=self.user_id)
 
@@ -163,26 +154,11 @@ class ChatJoinRequest(BaseModel):
         self.resolved_by = None
         self._register_created()
 
-    def approve(self, resolved_by: int, role_id: int) -> None:
+    def approve(self, resolved_by: int) -> None:
         self._resolve(JoinRequestStatus.APPROVED, resolved_by)
-        self.register_event(
-            ApprovedChatJoinRequestEvent(
-                chat_id=str(self.chat_id),
-                user_id=self.user_id,
-                resolved_by=resolved_by,
-                role_id=int(role_id),
-            )
-        )
 
     def decline(self, resolved_by: int) -> None:
         self._resolve(JoinRequestStatus.DECLINED, resolved_by)
-        self.register_event(
-            DeclinedChatJoinRequestEvent(
-                chat_id=str(self.chat_id),
-                user_id=self.user_id,
-                resolved_by=resolved_by,
-            )
-        )
 
     def cancel(self) -> None:
         self.register_event(

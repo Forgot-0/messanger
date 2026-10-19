@@ -175,16 +175,34 @@ HTTP route (app/<module>/routes/v1/*.py)
   `creates_join_request` делает ссылку «по заявке» (с `usage_limit` несовместим).
 - **Заявки на вступление** — таблица `chat_join_requests` (PK `chat_id, user_id`), роутер
   `routes/v1/join_requests.py` (префикс `/chats/{chat_id}/join_requests`, право `member:invite`;
-  `DELETE /me/` — отзыв своей заявки, объявлен выше `/{user_id}/...`). Вход в режим: ссылка
+  `DELETE /me/` — отзыв своей заявки). Вход в режим: ссылка
   с `creates_join_request` или `chats.join_by_request` (публичный `POST /chats/{id}/join/`).
   Оба пути вступления отвечают `JoinChatResultDTO` (`joined` | `requested`), общая часть —
   `ChatJoinRequestService.submit`. «Ожидает решения» = `resolved_at IS NULL` (под partial-индекс
   `ix_chat_join_requests_pending`), `status` держит тип решения; строка переживает решение, на ней
-  кулдаун повторной заявки `JOIN_REQUEST_RETRY_AFTER_SECONDS`. Одобрение берёт строку `FOR UPDATE`,
-  добавляет участника как вступление по ссылке и засчитывает `usage_count` ссылке. События
+  кулдаун повторной заявки `JOIN_REQUEST_RETRY_AFTER_SECONDS`.
+  Решения **только пакетные**: `POST /approve/` и `POST /decline/` с `user_ids` (до
+  `MAX_JOIN_REQUESTS_BULK = 100`, лимит живёт в схеме запроса, как у `forward_many`) и
+  `DELETE /` — «отклонить все» одним `UPDATE ... WHERE resolved_at IS NULL` (по partial-индексу,
+  `synchronize_session="fetch"` оставлен сознательно — на Postgres это тот же запрос
+  с `RETURNING` ключей, зато заявки в сессии не остаются `PENDING`). Строки пакета берутся `FOR UPDATE`
+  по возрастанию `user_id` (детерминированный порядок блокировок), всё, что решать нечего,
+  уходит в `skipped`, а не в ошибку. Одобрение добавляет участников, двигает `member_count`
+  одним шагом на размер пакета и засчитывает ссылкам `usage_count` одним
+  `ChatInviteLinkRepository.credit_usage` (без условий `consume`: вступление состоялось).
+  События заявок агрегированные — одно на пакет (`ApprovedChatJoinRequestsEvent` /
+  `DeclinedChatJoinRequestsEvent` с `user_ids`, у «отклонить все» — `all: true` и `count`
+  без списка, как у `UnpinnedMessagesEvent`); регистрирует их `Chat`, а не строка заявки.
+  `chats.member.added` при этом по-прежнему на каждого участника. События
   `chats.join_request.created/approved/declined/cancelled` не идут в общий фан-аут:
-  `ChatDeliveryRouter._route_join_request` кладёт их только модерации (`ChatRepository.staff_user_ids`,
-  уровень роли ≥ `CHAT_STAFF_MIN_ROLE_LEVEL`) и — для решения — заявителю. Push по заявкам нет.
+  `ChatDeliveryRouter._route_join_request` кладёт их только тем, у кого в чате есть право
+  `member:invite`, и — для решения — заявителю. Адресаты считаются
+  `ChatRepository.user_ids_with_permission`: роли резолвятся по самому праву (`chat_roles`,
+  шесть строк), затем `role_id IN (...)` ложится в `ix_chat_members_chat_role_user` вместе
+  с `chat_id`. **Сортировки в этом запросе быть не должно** — с `ORDER BY user_id`
+  планировщик берёт `ix_chat_members_chat_active_user` ради порядка и фильтрует весь чат
+  (300k участников: 53 мс против 0.2 мс). Персональный `permissions_overrides` учитывается
+  только как запрет. Push по заявкам нет.
 - **Аватар группы/канала**: слот загрузки — в Redis (`ChatAvatarKeys`), не в БД; обработка —
   taskiq-задача `chats.avatar.process` (`ChatAvatarService`: pyvips в `to_thread`, чтение pending
   пиннится `stat`). Варианты лежат в публичном бакете `chat-avatars` под `{chat_id}/{upload_token}/`,

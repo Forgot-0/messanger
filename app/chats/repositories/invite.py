@@ -1,7 +1,17 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import (
+    UUID as SAUUID,
+    Integer,
+    column,
+    func,
+    or_,
+    select,
+    update,
+    values,
+)
 
 from app.chats.models.invite import ChatInviteLink
 from app.core.db.repository import IRepository
@@ -49,6 +59,24 @@ class ChatInviteLinkRepository(IRepository[ChatInviteLink]):
 
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def credit_usage(self, counts: Mapping[UUID, int]) -> None:
+        if not counts:
+            return
+
+        credited = values(
+            column("invite_id", SAUUID(as_uuid=True)),
+            column("delta", Integer),
+            name="credited",
+        ).data([(invite_id, int(delta)) for invite_id, delta in counts.items()])
+
+        stmt = (
+            update(ChatInviteLink)
+            .where(ChatInviteLink.id == credited.c.invite_id)
+            .values(usage_count=ChatInviteLink.usage_count + credited.c.delta)
+            .execution_options(synchronize_session=False)
+        )
+        await self.session.execute(stmt)
 
     async def consume(self, invite_id: UUID) -> int | None:
         now = now_utc()

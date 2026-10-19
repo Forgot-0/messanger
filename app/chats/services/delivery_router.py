@@ -44,6 +44,9 @@ ActiveSubscriptionRoute = tuple[int, str, str, str]
 
 OFFLINE_SIGNAL_EVENT_NAMES: frozenset[str] = frozenset({"chats.message.sent"})
 
+# Заявки видят те, кто может их решить, — то же право, что у приглашений и ссылок.
+JOIN_REQUEST_PERMISSION = "member:invite"
+
 MEMBER_REMOVED_EVENT_FIELDS: dict[str, str] = {
     "chats.member.kicked": "target_user_id",
     "chats.member.banned": "target_user_id",
@@ -232,15 +235,15 @@ class ChatDeliveryRouter:
         payload: dict[str, Any],
     ) -> None:
         recipients = set(
-            await self.chat_repository.staff_user_ids(
+            await self.chat_repository.user_ids_with_permission(
                 chat_id=ws_event.chat_id,
-                min_role_level=chat_config.CHAT_STAFF_MIN_ROLE_LEVEL,
-                limit=chat_config.JOIN_REQUEST_STAFF_FANOUT_LIMIT,
+                permission=JOIN_REQUEST_PERMISSION,
+                limit=chat_config.JOIN_REQUEST_FANOUT_LIMIT,
             )
         )
 
         if ws_event.event_name in JOIN_REQUEST_APPLICANT_EVENTS:
-            recipients.add(int(ws_event.delta["user_id"]))
+            recipients.update(int(user_id) for user_id in ws_event.delta.get("user_ids", ()))
 
         routes = await self._lookup_online_routes(recipients)
         await self._enqueue_gateway_deliveries(

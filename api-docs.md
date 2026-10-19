@@ -64,7 +64,7 @@
 | 34 | **Ленту рисуют превью, а не оригиналы.** У фото, видео и кружков есть `previews` (WebP по большей стороне 320/800/1280, без апскейла — у маленьких картинок одна ступень своего размера) и `thumbhash` — заглушка до загрузки. Кэшировать превью по их `s3_key` (ссылки живут 300 с). `previews` пуст, если постер видео не удалось снять — плитку рисовать по `thumbhash`/`width`/`height`, а если и их нет, как раньше. См. 5.5. |
 | 36 | **Username меняется в auth, профиль и чаты догоняют событием.** `PUT /users/me/username/` отвечает новым именем сразу, логин по нему работает сразу, а `ProfileDTO.username`, `GET /profiles/u/{name}/` и `username` в чатах (`peer`, участники, авторы) обновляются через доли секунды (`auth.user.username_changed` → профиль → `profiles.profile.updated` → проекция чатов). В access-токене до ближайшего `POST /auth/refresh/` остаётся старое имя — после смены стоит сразу обновить токен. Новое имя: 5–32 символа, латиница, цифры и `_`, с буквы, не на `_`; занятость и `GET /profiles/u/{username}/` — **без учёта регистра**. Регистрация пока принимает прежний формат (`^[a-zA-Z0-9 ,.'-]+$`), такие имена остаются как есть до первой смены. См. 3.17. |
 | 37 | **У профиля история фото, а не один аватар.** `ProfileDTO.avatars` — по-прежнему текущее фото; вся история — `GET /profiles/{id}/photos/` (текущее первым, `is_main: true`). Новая загрузка становится текущим фото, прежние остаются в истории (до 100). `DELETE /profiles/avatar/` удаляет текущее, и текущим становится предыдущее — как в Telegram; `PUT /profiles/photos/{photo_id}/main/` возвращает старое фото на первое место. Ключи объектов у каждого фото свои (`{user_id}/{photo_id}/{size}.{fmt}`), поэтому картинку можно кэшировать по ключу. Приватность `photo` и блокировка скрывают всю историю. См. 4.5–4.5.1. |
-| 38 | **Вступление может превратиться в заявку.** `POST /chats/invites/{code}/join/` и `POST /chats/{chat_id}/join/` теперь отвечают `200 JoinChatResultDTO` со `status: "joined" | "requested"`: у ссылки с `creates_join_request` и у чата с `join_by_request` участником сразу не становятся — создаётся заявка, которую модерация (право `member:invite`) одобряет или отклоняет в `/chats/{chat_id}/join_requests/`. Клиент обязан смотреть на `status`, а не на наличие чата в ответе. После отказа повторная заявка — только через час (`429 JOIN_REQUEST_RETRY_LATER`). События заявок по WS видит только модерация (и заявитель — решение по своей). См. 5.8.1. |
+| 38 | **Вступление может превратиться в заявку.** `POST /chats/invites/{code}/join/` и `POST /chats/{chat_id}/join/` теперь отвечают `200 JoinChatResultDTO` со `status: "joined" | "requested"`: у ссылки с `creates_join_request` и у чата с `join_by_request` участником сразу не становятся — создаётся заявка, которую модерация (право `member:invite`) одобряет или отклоняет **пакетами** в `/chats/{chat_id}/join_requests/approve|decline/` (до 100 за раз) либо закрывает целиком через `DELETE /chats/{chat_id}/join_requests/`. Клиент обязан смотреть на `status`, а не на наличие чата в ответе. После отказа повторная заявка — только через час (`429 JOIN_REQUEST_RETRY_LATER`). События заявок по WS видят только обладатели `member:invite` (и заявитель — решение по своей). См. 5.8.1. |
 
 ---
 
@@ -293,7 +293,6 @@ interface ErrorResponse {
 | `INVITE_LINKS_LIMIT_EXCEEDED` | 400 | `{ "limit": 100 }` — неотозванных ссылок у чата не больше `MAX_INVITE_LINKS_PER_CHAT` |
 | `NOT_FOUND_JOIN_REQUEST` | 404 | `{ "chat_id": string, "user_id": number }` — ожидающей заявки нет (не подавалась, уже решена или отозвана); см. 5.8.1 |
 | `JOIN_REQUEST_PENDING` | 409 | `{ "chat_id": string, "user_id": number }` — заявка уже ждёт решения |
-| `JOIN_REQUEST_NOT_PENDING` | 409 | `{ "chat_id": string, "user_id": number, "status": "approved" \| "declined" }` — решение уже принято (гонка двух админов) |
 | `JOIN_REQUEST_RETRY_LATER` | 429 | `{ "chat_id": string, "user_id": number, "retry_after": number }` — после отказа повторная заявка возможна через час |
 | `JOIN_REQUESTS_LIMIT_EXCEEDED` | 400 | `{ "chat_id": string, "limit": 5000 }` — очередь ожидающих заявок переполнена |
 | `JOIN_REQUEST_NOT_ALLOWED` | 400 | `{ "chat_id": string, "reason": "direct_chat" }` — `join_by_request` нельзя включить в личке |
@@ -1911,9 +1910,13 @@ interface JoinChatResultDTO {
 | Метод | Путь | Rate limit | Request | Response |
 |---|---|---|---|---|
 | GET | `/chats/{chat_id}/join_requests/` | — | Query `{ limit=50 (≤100), last_requested_at?: ISO, last_user_id?: number }` | `ListJoinRequests` — только ожидающие, новые сверху |
-| POST | `/chats/{chat_id}/join_requests/{user_id}/approve/` | 60/1мин | — | `204` |
-| POST | `/chats/{chat_id}/join_requests/{user_id}/decline/` | 60/1мин | — | `204` |
+| POST | `/chats/{chat_id}/join_requests/approve/` | 60/1мин | `ResolveJoinRequestsRequest` | `200`, `JoinRequestsResolutionDTO` |
+| POST | `/chats/{chat_id}/join_requests/decline/` | 60/1мин | `ResolveJoinRequestsRequest` | `200`, `JoinRequestsResolutionDTO` |
+| DELETE | `/chats/{chat_id}/join_requests/` | 60/1мин | — | `200`, `JoinRequestsDismissedDTO` — отклонить **все** ожидающие |
 | DELETE | `/chats/{chat_id}/join_requests/me/` | 60/1мин | — | `204` — заявитель отзывает свою заявку |
+
+Решения — **пакетные**: одиночных путей `/{user_id}/approve/` нет, одна заявка — это пакет из
+одного `user_ids: [id]`.
 
 ```ts
 interface ChatJoinRequestDTO {
@@ -1931,18 +1934,34 @@ interface ListJoinRequests {
   next_requested_at: string | null;   // курсор: передать обе части
   next_user_id: number | null;
 }
+interface ResolveJoinRequestsRequest {
+  user_ids: number[];                 // 1..100 (MAX_JOIN_REQUESTS_BULK), дубли схлопываются
+}
+interface JoinRequestsResolutionDTO {
+  resolved: number[];                 // заявки, которые этот вызов закрыл (возрастающий порядок)
+  skipped: number[];                  // заявки не ждали решения: их нет, уже решены или заявитель забанен
+}
+interface JoinRequestsDismissedDTO { declined: number }  // сколько заявок закрыл «отклонить все»
 ```
 
 Поведение:
 - Список и решения требуют права `member:invite` (owner, admin) — те же права, что и у ссылок.
   Обычному участнику — `403 CHAT_ACCESS_DENIED`. `DELETE /join_requests/me/` прав не требует:
   заявитель не участник чата.
-- Одобрение добавляет участника ровно как вступление по ссылке: роль `member` (в канале `viewer`),
-  `member_count` растёт атомарно (`400 MEMBER_LIMIT_EXCEEDED`, если чат уже полон), участникам
-  уходит обычный `member_joined`. Если заявка пришла по ссылке, одобрение засчитывает ссылке
-  `usage_count` — счётчик ссылки «по заявке» показывает число **принятых**, а не поданных.
-- Решение принимается один раз: строка заявки берётся `FOR UPDATE`, второй админ получит
-  `409 JOIN_REQUEST_NOT_PENDING` с текущим `status`.
+- Одобрение добавляет участников ровно как вступление по ссылке: роль `member` (в канале `viewer`),
+  `member_count` растёт атомарно на размер пакета (`400 MEMBER_LIMIT_EXCEEDED`, если пакет не
+  влезает — тогда не проходит **ничего**), участникам уходит обычный `member_joined` **на каждого**
+  принятого. Если заявки пришли по ссылкам, одобрение засчитывает ссылкам `usage_count` одним
+  UPDATE — счётчик ссылки «по заявке» показывает число **принятых**, а не поданных.
+- **Ошибки «не та заявка» нет**: всё, что в пакете не ждало решения (нет заявки, уже решена,
+  заявитель забанен), возвращается в `skipped`, остальное закрывается. Повторный вызов на том же
+  списке даст `resolved: []` и не создаст событий, так что ретрай клиента безопасен.
+- Строки пакета берутся `FOR UPDATE` в порядке `user_id` — два админа с пересекающимися
+  пакетами не ловят дедлок, и один и тот же человек не будет принят дважды: у второго админа
+  он просто попадёт в `skipped`.
+- «Отклонить все» — один `UPDATE ... WHERE resolved_at IS NULL` по partial-индексу: 5000 заявок
+  закрываются одним запросом и **одним** событием (`all: true`, `count: N`, без списка id).
+  Кулдаун повторной заявки при этом ставится всем, как при обычном отказе.
 - Запись о заявке не удаляется после решения — на ней живёт кулдаун. Повторная заявка после отказа
   возможна через `JOIN_REQUEST_RETRY_AFTER_SECONDS` (1 час): раньше — `429 JOIN_REQUEST_RETRY_LATER`
   с `retry_after` в секундах. Повторная заявка при уже ожидающей — `409 JOIN_REQUEST_PENDING`.
@@ -1950,9 +1969,10 @@ interface ListJoinRequests {
   rate limit на вступление).
 - Участник, подавший заявку, получает `409 ALREADY_CHAT_MEMBER`, забаненный — `403 CHAT_ACCESS_DENIED`.
   Ожидающих заявок у чата не больше `MAX_PENDING_JOIN_REQUESTS = 5000` (`400 JOIN_REQUESTS_LIMIT_EXCEEDED`).
-- WS: `join_request_created` и `join_request_cancelled` уходят **только модерации чата**
-  (роли с уровнем ≥ 80, до 200 адресатов), `join_request_approved` / `join_request_declined` —
-  модерации и самому заявителю. Доставка без подписки на чат (`require_subscription: false`),
+- WS: `join_request_created` и `join_request_cancelled` уходят **только тем, у кого в чате
+  есть право `member:invite`** (owner, admin; до 200 адресатов),
+  `join_request_approved` / `join_request_declined` — им же и заявителям из пакета
+  (у «отклонить все» списка нет, поэтому событие получает только модерация). Доставка без подписки на чат (`require_subscription: false`),
   потому что заявитель на чат не подписан. Push по заявкам нет — offline-сигнал в
   `chats.offline-delivery` шлётся только по сообщениям; клиент добирает заявки списком при открытии.
 
@@ -2257,10 +2277,10 @@ gateway), поэтому один и тот же кадр может прийт�
 | `member_kick` | Участника кикнули | `{ target_user_id, requester_id }` | `null` |
 | `member_banned` | Участника забанили/разбанили | `{ target_user_id, requester_id, ban }` — `ban: true` бан, `false` разбан | `null` |
 | `member_muted` | Модераторский мьют поставлен/снят | `{ target_user_id, requester_id, mute, muted_until }` — `mute: false` снятие, `muted_until` ISO или `null` | `null` |
-| `join_request_created` | Кто-то подал заявку на вступление | `{ user_id, invite_link_id, requested_at }` | `null` — приходит только модерации чата, см. 5.8.1 |
-| `join_request_approved` | Заявка одобрена | `{ user_id, resolved_by, role_id }` | `null` — модерации и заявителю; участникам чата отдельно придёт `member_joined` |
-| `join_request_declined` | Заявка отклонена | `{ user_id, resolved_by }` | `null` — модерации и заявителю |
-| `join_request_cancelled` | Заявитель отозвал заявку | `{ user_id }` | `null` — только модерации |
+| `join_request_created` | Кто-то подал заявку на вступление | `{ user_id, invite_link_id, requested_at }` | `null` — приходит только тем, кто может решать заявки (право `member:invite`), см. 5.8.1 |
+| `join_request_approved` | Пакет заявок одобрен | `{ user_ids: number[], resolved_by, role_id }` — одно событие на пакет | `null` — тем, кто решает заявки, и заявителям; участникам чата отдельно придёт `member_joined` на каждого |
+| `join_request_declined` | Пакет заявок отклонён | `{ user_ids: number[], resolved_by, count, all }` — у «отклонить все» `all: true`, `user_ids: []`, в `count` число закрытых | `null` — тем, кто решает заявки, и заявителям из списка |
+| `join_request_cancelled` | Заявитель отозвал заявку | `{ user_id }` | `null` — только тем, кто решает заявки |
 | `chat_created` | Чат создан | `{ created_by, name, member_ids, chat_type, member_count }` | `null` |
 | `chat_updated` | Изменены настройки чата, публичное имя или аватар | `{ updated_by, name, description, is_public, join_by_request, admin_only, slow_mode_seconds, permissions, reactions_mode, allowed_reactions, username, avatar_s3_key, avatars }` — последние три, это полный текущий снимок, а не только изменённое | `null` |
 | `chat_ownership_transferred` | Владение передано | `{ requester_id, previous_owner_id, new_owner_id }` — у нового владельца теперь `role_id=1` и `created_by`, у прежнего `role_id=2` | `null` |

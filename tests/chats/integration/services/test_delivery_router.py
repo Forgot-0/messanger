@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chats.config import chat_config
 from app.chats.models.chat import Chat
 from app.chats.models.chat_members import ChatMember
+from app.chats.models.chat_roles import ChatRoleId
 from app.chats.models.message import Message
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.message import MessageRepository
@@ -79,6 +80,28 @@ async def _mute_notifications(
         update(ChatMember)
         .where(ChatMember.chat_id == chat.id, ChatMember.user_id == user_id)
         .values(notifications_muted_until=until)
+    )
+    await db_session.commit()
+
+
+async def _set_member_role(
+    db_session: AsyncSession, chat: Chat, user_id: int, role_id: int
+) -> None:
+    await db_session.execute(
+        update(ChatMember)
+        .where(ChatMember.chat_id == chat.id, ChatMember.user_id == user_id)
+        .values(role_id=role_id)
+    )
+    await db_session.commit()
+
+
+async def _override_permission(
+    db_session: AsyncSession, chat: Chat, user_id: int, overrides: dict[str, bool]
+) -> None:
+    await db_session.execute(
+        update(ChatMember)
+        .where(ChatMember.chat_id == chat.id, ChatMember.user_id == user_id)
+        .values(permissions_overrides=overrides)
     )
     await db_session.commit()
 
@@ -501,17 +524,21 @@ class TestDeliveryRouterPinsAndSilentMessages:
             "all": False,
         }
 
-    async def test_join_request_reaches_only_chat_staff(
+    async def test_join_request_reaches_only_those_who_can_decide(
         self,
         delivery_router: ChatDeliveryRouter,
+        db_session: AsyncSession,
         group_chat: Chat,
         user_jwt: UserJWTData,
         go_online,
         delivered_frames,
     ) -> None:
-        # 1 — владелец, 2 — обычный участник: заявка не его дело.
+        # 1 — владелец, 2 — админ (может решать), 3 — editor: прав на заявки у него нет.
+        await _set_member_role(db_session, group_chat, 2, ChatRoleId.ADMIN)
+        await _set_member_role(db_session, group_chat, 3, ChatRoleId.EDITOR)
         await go_online(int(user_jwt.id))
         await go_online(2)
+        await go_online(3)
 
         await delivery_router.route_broker_message(chat_event(
             "chats.join_request.created",
@@ -526,9 +553,36 @@ class TestDeliveryRouterPinsAndSilentMessages:
         frames = await delivered_frames()
         assert len(frames) == 1
         assert frames[0]["type"] == "join_request_created"
-        assert frames[0]["delivery"]["recipients"] == [int(user_jwt.id)]
+        assert frames[0]["delivery"]["recipients"] == [int(user_jwt.id), 2]
         assert frames[0]["delivery"]["require_subscription"] is False
         assert frames[0]["payload"]["event"]["user_id"] == 42
+
+    async def test_personal_deny_cuts_moderator_from_join_request_fanout(
+        self,
+        delivery_router: ChatDeliveryRouter,
+        db_session: AsyncSession,
+        group_chat: Chat,
+        user_jwt: UserJWTData,
+        go_online,
+        delivered_frames,
+    ) -> None:
+        await _set_member_role(db_session, group_chat, 2, ChatRoleId.ADMIN)
+        await _override_permission(db_session, group_chat, 2, {"member:invite": False})
+        await go_online(int(user_jwt.id))
+        await go_online(2)
+
+        await delivery_router.route_broker_message(chat_event(
+            "chats.join_request.created",
+            {
+                "chat_id": str(group_chat.id),
+                "user_id": 42,
+                "invite_link_id": None,
+                "requested_at": now_utc().isoformat(),
+            },
+        ))
+
+        frames = await delivered_frames()
+        assert frames[0]["delivery"]["recipients"] == [int(user_jwt.id)]
 
     async def test_decision_also_reaches_the_applicant(
         self,
@@ -543,7 +597,13 @@ class TestDeliveryRouterPinsAndSilentMessages:
 
         await delivery_router.route_broker_message(chat_event(
             "chats.join_request.declined",
-            {"chat_id": str(group_chat.id), "user_id": 42, "resolved_by": int(user_jwt.id)},
+            {
+                "chat_id": str(group_chat.id),
+                "user_ids": [42],
+                "resolved_by": int(user_jwt.id),
+                "count": 1,
+                "all": False,
+            },
         ))
 
         frames = await delivered_frames()

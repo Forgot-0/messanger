@@ -31,6 +31,15 @@ class ListJoinRequests(BaseModel):
     next_user_id: int | None = None
 
 
+class JoinRequestsResolutionDTO(BaseModel):
+    resolved: list[int] = Field(default_factory=list)
+    skipped: list[int] = Field(default_factory=list)
+
+
+class JoinRequestsDismissedDTO(BaseModel):
+    declined: int
+
+
 class JoinResultStatus(StrEnum):
     JOINED = "joined"
     REQUESTED = "requested"

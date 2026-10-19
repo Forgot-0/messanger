@@ -1,16 +1,14 @@
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chats.exceptions import (
-    AccessDeniedChatError,
-    JoinRequestNotPendingError,
-    MemberLimitExceededError,
-    NotFoundJoinRequestError,
-)
+from app.chats.dtos.join_requests import JoinRequestsResolutionDTO
+from app.chats.exceptions import AccessDeniedChatError, MemberLimitExceededError
 from app.chats.models.chat import Chat
+from app.chats.models.join_request import ChatJoinRequest
 from app.chats.repositories.chat import ChatRepository
 from app.chats.repositories.invite import ChatInviteLinkRepository
 from app.chats.repositories.join_request import ChatJoinRequestRepository
@@ -22,15 +20,17 @@ from app.core.services.auth.dto import UserJWTData
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class ApproveJoinRequestCommand(BaseCommand):
+@dataclass(frozen=True, kw_only=True)
+class ApproveJoinRequestsCommand(BaseCommand):
     user_jwt_data: UserJWTData
     chat_id: UUID
-    target_user_id: int
+    user_ids: list[int]
 
 
 @dataclass(frozen=True)
-class ApproveJoinRequestCommandHandler(BaseCommandHandler[ApproveJoinRequestCommand, None]):
+class ApproveJoinRequestsCommandHandler(
+    BaseCommandHandler[ApproveJoinRequestsCommand, JoinRequestsResolutionDTO]
+):
     session: AsyncSession
     chat_repository: ChatRepository
     join_request_repository: ChatJoinRequestRepository
@@ -38,8 +38,9 @@ class ApproveJoinRequestCommandHandler(BaseCommandHandler[ApproveJoinRequestComm
     access_service: ChatAccessService
     event_bus: BaseEventBus
 
-    async def handle(self, command: ApproveJoinRequestCommand) -> None:
+    async def handle(self, command: ApproveJoinRequestsCommand) -> JoinRequestsResolutionDTO:
         requester_id = int(command.user_jwt_data.id)
+        wanted = list(dict.fromkeys(int(user_id) for user_id in command.user_ids))
 
         chat, requester = await self.chat_repository.get_chat_and_member(
             chat_id=command.chat_id, member_id=requester_id
@@ -51,54 +52,63 @@ class ApproveJoinRequestCommandHandler(BaseCommandHandler[ApproveJoinRequestComm
         ):
             raise AccessDeniedChatError(chat_id=str(chat.id), requester_id=requester_id)
 
-        request = await self.join_request_repository.get(
-            chat.id, command.target_user_id, with_for_update=True
+        pending = await self.join_request_repository.list_pending_for(
+            chat.id, wanted, with_for_update=True
         )
-        if request is None:
-            raise NotFoundJoinRequestError(
-                chat_id=str(command.chat_id), user_id=command.target_user_id
-            )
-
-        if not request.is_pending:
-            raise JoinRequestNotPendingError(
-                chat_id=str(command.chat_id),
-                user_id=command.target_user_id,
-                status_value=request.status.value,
-            )
-
-        existing = await self.chat_repository.get_member_chat(
-            chat.id, command.target_user_id, with_role=False
+        members = await self.chat_repository.members_by_user_ids(
+            chat.id, [request.user_id for request in pending]
         )
-        if existing is not None:
-            if existing.is_banned:
-                raise AccessDeniedChatError(
-                    chat_id=str(chat.id), requester_id=command.target_user_id
-                )
 
-            request.approve(resolved_by=requester_id, role_id=existing.role_id)
-            await self.event_bus.publish(request.pull_events())
-            await self.session.commit()
-            return
+        approved: list[int] = []
+        skipped = set(wanted)
+        to_add: list[ChatJoinRequest] = []
+
+        for request in pending:
+            member = members.get(request.user_id)
+            if member is not None and member.is_banned:
+                continue
+
+            request.approve(resolved_by=requester_id)
+            approved.append(request.user_id)
+            skipped.discard(request.user_id)
+
+            if member is None:
+                to_add.append(request)
 
         role_id = Chat.default_member_role(chat.type)
-        limit = Chat.member_limit(chat.type)
-        if await self.chat_repository.shift_member_count(chat.id, delta=1, limit=limit) is None:
-            raise MemberLimitExceededError(limit=limit)
+        if to_add:
+            limit = Chat.member_limit(chat.type)
+            if (
+                await self.chat_repository.shift_member_count(
+                    chat.id, delta=len(to_add), limit=limit
+                )
+                is None
+            ):
+                raise MemberLimitExceededError(limit=limit)
 
-        chat.add_member(command.target_user_id, role_id=role_id)
-        request.approve(resolved_by=requester_id, role_id=role_id)
+            for request in to_add:
+                chat.add_member(request.user_id, role_id=role_id)
 
-        if request.invite_link_id is not None:
-            await self.invite_repository.consume(request.invite_link_id)
+            await self.invite_repository.credit_usage(
+                Counter(
+                    request.invite_link_id
+                    for request in to_add
+                    if request.invite_link_id is not None
+                )
+            )
 
-        await self.event_bus.publish([*chat.pull_events(), *request.pull_events()])
+        chat.approve_join_requests(approved, resolved_by=requester_id, role_id=role_id)
+
+        await self.event_bus.publish(chat.pull_events())
         await self.session.commit()
 
         logger.info(
-            "Join request approved",
+            "Join requests approved",
             extra={
                 "chat_id": str(command.chat_id),
-                "user_id": command.target_user_id,
+                "approved": len(approved),
+                "skipped": len(skipped),
                 "by": requester_id,
             },
         )
+        return JoinRequestsResolutionDTO(resolved=approved, skipped=sorted(skipped))

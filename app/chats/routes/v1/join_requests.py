@@ -4,13 +4,18 @@ from uuid import UUID
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, Depends, Query, status
 
-from app.chats.commands.join_requests.approve import ApproveJoinRequestCommand
+from app.chats.commands.join_requests.approve import ApproveJoinRequestsCommand
 from app.chats.commands.join_requests.cancel import CancelJoinRequestCommand
-from app.chats.commands.join_requests.decline import DeclineJoinRequestCommand
+from app.chats.commands.join_requests.decline import DeclineJoinRequestsCommand
+from app.chats.commands.join_requests.decline_all import DeclineAllJoinRequestsCommand
 from app.chats.config import chat_config
-from app.chats.dtos.join_requests import ListJoinRequests
+from app.chats.dtos.join_requests import (
+    JoinRequestsDismissedDTO,
+    JoinRequestsResolutionDTO,
+    ListJoinRequests,
+)
 from app.chats.queries.join_requests.get_list import GetJoinRequestsQuery
-from app.chats.schemas.rest import GetJoinRequestsRequest
+from app.chats.schemas.rest import GetJoinRequestsRequest, ResolveJoinRequestsRequest
 from app.core.api.rate_limiter import ConfigurableRateLimiter
 from app.core.mediators.base import BaseMediator
 from app.core.services.auth.depends import CurrentUserJWTData
@@ -45,6 +50,21 @@ async def list_join_requests(
 
 
 @router.delete(
+    "/",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(moderate_limiter)],
+)
+async def decline_all_join_requests(
+    chat_id: UUID,
+    user_jwt_data: CurrentUserJWTData,
+    mediator: FromDishka[BaseMediator],
+) -> JoinRequestsDismissedDTO:
+    return await mediator.handle_command(
+        DeclineAllJoinRequestsCommand(user_jwt_data=user_jwt_data, chat_id=chat_id)
+    )
+
+
+@router.delete(
     "/me/",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(moderate_limiter)],
@@ -60,40 +80,40 @@ async def cancel_my_join_request(
 
 
 @router.post(
-    "/{user_id}/approve/",
-    status_code=status.HTTP_204_NO_CONTENT,
+    "/approve/",
+    status_code=status.HTTP_200_OK,
     dependencies=[Depends(moderate_limiter)],
 )
-async def approve_join_request(
+async def approve_join_requests(
     chat_id: UUID,
-    user_id: int,
+    payload: ResolveJoinRequestsRequest,
     user_jwt_data: CurrentUserJWTData,
     mediator: FromDishka[BaseMediator],
-) -> None:
-    await mediator.handle_command(
-        ApproveJoinRequestCommand(
+) -> JoinRequestsResolutionDTO:
+    return await mediator.handle_command(
+        ApproveJoinRequestsCommand(
             user_jwt_data=user_jwt_data,
             chat_id=chat_id,
-            target_user_id=user_id,
+            user_ids=payload.user_ids,
         )
     )
 
 
 @router.post(
-    "/{user_id}/decline/",
-    status_code=status.HTTP_204_NO_CONTENT,
+    "/decline/",
+    status_code=status.HTTP_200_OK,
     dependencies=[Depends(moderate_limiter)],
 )
-async def decline_join_request(
+async def decline_join_requests(
     chat_id: UUID,
-    user_id: int,
+    payload: ResolveJoinRequestsRequest,
     user_jwt_data: CurrentUserJWTData,
     mediator: FromDishka[BaseMediator],
-) -> None:
-    await mediator.handle_command(
-        DeclineJoinRequestCommand(
+) -> JoinRequestsResolutionDTO:
+    return await mediator.handle_command(
+        DeclineJoinRequestsCommand(
             user_jwt_data=user_jwt_data,
             chat_id=chat_id,
-            target_user_id=user_id,
+            user_ids=payload.user_ids,
         )
     )

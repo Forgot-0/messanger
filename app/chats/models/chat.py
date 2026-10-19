@@ -37,6 +37,10 @@ from app.chats.exceptions import (
 )
 from app.chats.models.chat_members import ChatMember
 from app.chats.models.chat_roles import ChatRoleId
+from app.chats.models.join_request import (
+    ApprovedChatJoinRequestsEvent,
+    DeclinedChatJoinRequestsEvent,
+)
 from app.chats.models.message import Message, MessageType, PinnedMessageEvent, UnpinnedMessagesEvent
 from app.chats.models.pinned_message import ChatPinnedMessage
 from app.core.db.base_model import BaseModel, DateMixin, SoftDeleteMixin
@@ -553,6 +557,42 @@ class Chat(BaseModel, DateMixin, SoftDeleteMixin):
                 message_ids=[str(message_id) for message_id in message_ids],
                 unpinned_by=unpinned_by,
                 all=unpin_all,
+            )
+        )
+
+    def approve_join_requests(
+        self, user_ids: Sequence[int], resolved_by: int, role_id: int
+    ) -> None:
+        if not user_ids:
+            return
+
+        self.register_event(
+            ApprovedChatJoinRequestsEvent(
+                chat_id=str(self.id),
+                user_ids=[int(user_id) for user_id in user_ids],
+                resolved_by=resolved_by,
+                role_id=int(role_id),
+            )
+        )
+
+    def decline_join_requests(
+        self,
+        user_ids: Sequence[int],
+        resolved_by: int,
+        count: int | None = None,
+        decline_all: bool = False,
+    ) -> None:
+        resolved = [int(user_id) for user_id in user_ids]
+        if not resolved and not decline_all:
+            return
+
+        self.register_event(
+            DeclinedChatJoinRequestsEvent(
+                chat_id=str(self.id),
+                user_ids=resolved,
+                resolved_by=resolved_by,
+                count=count if count is not None else len(resolved),
+                all=decline_all,
             )
         )
 
