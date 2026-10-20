@@ -36,7 +36,7 @@ class TestCreateChatCommand:
             user_jwt_data=user_jwt,
         )
         dto = await handler.handle(cmd)
-        chat = await chat_repository.get_by_id(dto.id, with_members=True)
+        chat = await chat_repository.get_by_id(dto.id)
         assert chat is not None
         assert chat.member_count == 2
         assert chat.members[0].role_id == ChatRolesEnum.DIRECT_MEMBER.value.id
@@ -61,7 +61,7 @@ class TestCreateChatCommand:
         )
         dto = await handler.handle(cmd)
 
-        chat = await chat_repository.get_by_id(dto.id, with_members=True)
+        chat = await chat_repository.get_by_id(dto.id)
         assert chat is not None
         assert chat.member_count == 4
         assert chat.name == "My Group"
@@ -84,7 +84,7 @@ class TestCreateChatCommand:
         )
         dto = await handler.handle(cmd)
 
-        chat = await chat_repository.get_by_id(dto.id, with_members=True)
+        chat = await chat_repository.get_by_id(dto.id)
         assert chat is not None
         assert chat.type == ChatType.CHANNEL
         assert chat.member_count == 4
@@ -109,6 +109,6 @@ class TestCreateChatCommand:
         )
         dto = await handler.handle(cmd)
 
-        chat = await chat_repository.get_by_id(dto.id, with_members=True)
+        chat = await chat_repository.get_by_id(dto.id)
         assert chat is not None
         assert chat.slow_mode_seconds == 60

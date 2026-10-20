@@ -50,6 +50,7 @@ class TestChangeUsernameCommand:
             )
         ).scalar_one()
         assert row.topic == "auth"
+        assert row.aggregate_type == "user"
         assert row.aggregate_id == str(standard_user.id)
 
     async def test_name_held_by_another_user_in_any_case_is_taken(

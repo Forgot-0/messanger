@@ -12,8 +12,8 @@ from app.chats.models.chat_members import ChatMember
 from app.chats.models.privacy import ChatUserContact, ChatUserPrivacyException
 from app.chats.models.profile import ChatUserProfile
 from app.core.db.repository import IRepository
-from app.privacy.utils import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility
 from app.core.utils import now_utc
+from app.privacy.utils import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 
 from app.core.db.repository import PageResult
-from app.privacy.utils import PrivacyRule
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
+from app.privacy.utils import PrivacyRule
 from app.profiles.dtos.profiles import ProfilePhotoDTO
 from app.profiles.exceptions import NotFoundProfileError
 from app.profiles.filters.photos import ProfilePhotoFilter

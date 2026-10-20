@@ -241,8 +241,11 @@ HTTP route (app/<module>/routes/v1/*.py)
 
 Имя события задаётся в `__event_name__` на dataclass-событии рядом с моделью, формат `<module>.<entity>.<action>`.
 **Топик Kafka = префикс до первой точки**: `auth.user.created` → топик `auth`, `chats.message.sent` → топик `chats`.
-Это делает `OutboxMessage.create()` в `app/core/outbox/model.py`, а роутит Debezium через `EventRouter`
+Разбирает имя `EventName.parse()` (`app/core/events/naming.py`), раскладывает по колонкам
+`MediatorEventBus` (`app/core/events/mediator/service.py`), а роутит Debezium через `EventRouter`
 (`transforms.outbox.route.by.field: topic`, конфиг — `infra/debezium/outbox-connector.json`).
+`outbox_messages.aggregate_type` — **агрегат** (`user`, `chat`, `message`), как в каноническом
+outbox-паттерне, а не копия модуля; модуль живёт в `topic`.
 
 Существующие события:
 

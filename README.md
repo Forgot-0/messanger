@@ -632,12 +632,12 @@ class CreatedUserEvent(BaseEvent):
 
     __event_name__: str = "auth.user.created"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.username)
 ```
 
-- `__event_name__` обязателен и состоит **минимум из трёх сегментов**: `<модуль>.<агрегат>.<действие>` в прошедшем времени. Из него выводятся и топик, и `aggregate_type` — см. шаг 3.
-- `get_partition_key()` обязателен (абстрактный метод `BaseEvent`) — его значение становится ключом Kafka-сообщения, то есть определяет партицию и, следовательно, **порядок событий в пределах одного агрегата**.
+- `__event_name__` обязателен и состоит **минимум из трёх сегментов**: `<модуль>.<агрегат>.<действие>` в прошедшем времени. Его разбирает `EventName.parse()` (`app/core/events/naming.py`) — единственное место, где живёт это соглашение; из разбора выводятся и топик, и `aggregate_type` — см. шаг 3.
+- `get_aggregate_id()` обязателен (абстрактный метод `BaseEvent`) — его значение становится ключом Kafka-сообщения, то есть определяет партицию и, следовательно, **порядок событий в пределах одного агрегата**.
 - `event_id` (uuid4) и `created_at` проставляются автоматически, событие неизменяемо (`frozen=True`).
 
 ### 2. Модель регистрирует событие
@@ -676,9 +676,9 @@ await self.user_repository.invalidate_cache()
 | Колонка | Значение | Пример для `auth.user.created` |
 |---|---|---|
 | `id` | `uuid7` (монотонный — сохраняет порядок вставки) | `0192...` |
-| `topic` | `event_name.split(".", 1)[0]` | `auth` |
-| `aggregate_type` | `event_name.split(".")[1]` | `user` |
-| `aggregate_id` | `event.get_partition_key()` | `john` |
+| `topic` | `EventName.module` — модуль-владелец агрегата, поле роутинга Debezium | `auth` |
+| `aggregate_type` | `EventName.aggregate` — агрегат, породивший событие | `user` |
+| `aggregate_id` | `event.get_aggregate_id()` | `john` |
 | `event_name` | `__event_name__` | `auth.user.created` |
 | `payload` | `JSONB` — поля события без `event_id`/`created_at` | `{"email": ..., "username": ...}` |
 | `headers` | `JSONB` — по умолчанию `{}` | `{}` |
@@ -686,7 +686,9 @@ await self.user_repository.invalidate_cache()
 
 Сериализация — `app/core/outbox/serializer.py`: `asdict(event)` + `json.dumps(..., default=additionally_serialize)`, поэтому в payload попадают только JSON-совместимые значения (UUID/datetime/Enum приводятся к строкам).
 
-> Топик выводится из имени события, а не задаётся вручную. Все события модуля `auth` уезжают в топик `auth`, `profiles.*` — в `profiles` и т.д. Из-за этого имя события **обязано** содержать хотя бы три сегмента: `event_name.split(".")[1]` иначе упадёт.
+> Топик выводится из имени события, а не задаётся вручную. Все события модуля `auth` уезжают в топик `auth`, `profiles.*` — в `profiles` и т.д. Из-за этого имя события **обязано** содержать хотя бы три сегмента: `EventName.parse()` на двух сегментах кидает `InvalidEventNameError`.
+>
+> Раскладка по колонкам — каноническая для `io.debezium.transforms.outbox.EventRouter`: `aggregate_type` + `aggregate_id` описывают **агрегат**, а не модуль. Роутинг вынесен в отдельную колонку `topic` (в самом паттерне роутят по `aggregate_type`) только потому, что топик здесь модульный, а не на каждый агрегат: меньше топиков и одна группа консьюмеров на модуль. Сама колонка `topic` — единственная вынужденная избыточность; дублировать в строке ещё и модуль под именем `aggregate_type` не нужно.
 
 ### 5. Postgres WAL → Debezium
 
@@ -805,7 +807,7 @@ CDC даёт **at-least-once**: после рестарта Debezium или ре
 |---|---|---|
 | Атомарность | Событие и данные коммитятся вместе | `publish()` — строго до `commit()` |
 | Доставка | At-least-once | Каждый подписчик обязан быть идемпотентным |
-| Порядок | В пределах партиции, то есть в пределах `get_partition_key()` | Между разными агрегатами порядок не гарантирован |
+| Порядок | В пределах партиции, то есть в пределах `get_aggregate_id()` | Между разными агрегатами порядок не гарантирован |
 | Связность модулей | Модули не импортируют друг друга, общаются через топики | Payload — это публичный контракт: поля можно добавлять, но не переименовывать/удалять |
 | Слот репликации | Debezium не теряет позицию при рестарте | Если `consumers`/Debezium долго лежат, **WAL накапливается на диске БД** — мониторьте лаг слота |
 
@@ -836,7 +838,7 @@ curl -s localhost:8083/connectors/outbox-connector/status
 
 ### Чек-лист нового события
 
-1. Объявить `@dataclass(frozen=True)`-событие рядом с моделью, задать `__event_name__` (`<модуль>.<агрегат>.<действие>`, минимум 3 сегмента) и `get_partition_key()`.
+1. Объявить `@dataclass(frozen=True)`-событие рядом с моделью, задать `__event_name__` (`<модуль>.<агрегат>.<действие>`, минимум 3 сегмента) и `get_aggregate_id()`.
 2. Вызвать `register_event()` в фабричном методе/методе модели.
 3. В команде: `await event_bus.publish(model.pull_events())` **до** `await session.commit()`.
 4. Проверить, что payload сериализуем (`asdict` + `additionally_serialize`).
@@ -1268,7 +1270,7 @@ class ArticleCreatedEvent(BaseEvent):
 
     __event_name__: str = "articles.article.created"   # <модуль>.<агрегат>.<действие>
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.article_id)
 
 

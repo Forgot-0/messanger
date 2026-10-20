@@ -15,11 +15,14 @@ class MediatorEventBus(BaseEventBus):
 
     async def publish(self, events: Iterable[BaseEvent]) -> None:
         for event in events:
+            names = event.get_name().split(".")
             outbox = OutboxMessage.create(
-                aggregate_id=event.get_aggregate_id(),
                 event_id=event.event_id,
                 event_name=event.get_name(),
-                payload=event_to_payload(event)
+                aggregate_type=names[1],
+                aggregate_id=event.get_aggregate_id(),
+                topic=names[0],
+                payload=event_to_payload(event),
             )
             await self.outbox_repository.create(outbox)
 

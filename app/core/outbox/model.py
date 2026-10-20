@@ -34,18 +34,20 @@ class OutboxMessage(BaseModel, DateMixin):
     def create(
         cls,
         *,
-        aggregate_id: str,
         event_id: UUID,
         event_name: str,
+        aggregate_type: str,
+        aggregate_id: str,
+        topic: str,
         payload: dict[str, Any],
         headers: dict[str, Any] | None = None,
     ) -> Self:
         return cls(
             id=event_id,
-            aggregate_type=event_name.split(".", maxsplit=1)[0],
+            aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
             event_name=event_name,
-            topic=event_name.split(".", maxsplit=1)[0],
+            topic=topic,
             payload=payload,
             headers=headers or {},
         )

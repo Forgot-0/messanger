@@ -1,8 +1,8 @@
 """empty message
 
-Revision ID: 9d39469ebff8
+Revision ID: b41b5a12f0dc
 Revises: 
-Create Date: 2026-10-15 16:07:25.584917
+Create Date: 2026-10-20 23:33:39.905992
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '9d39469ebff8'
+revision: str = 'b41b5a12f0dc'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -40,6 +40,19 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('owner_id', 'target_id')
     )
+    op.create_table('chat_user_contacts',
+    sa.Column('owner_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('contact_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.PrimaryKeyConstraint('owner_id', 'contact_id')
+    )
+    op.create_table('chat_user_privacy_exceptions',
+    sa.Column('owner_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('rule', sa.String(length=16), nullable=False),
+    sa.Column('target_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('allow', sa.Boolean(), nullable=False),
+    sa.PrimaryKeyConstraint('owner_id', 'rule', 'target_id')
+    )
     op.create_table('chat_user_profiles',
     sa.Column('user_id', sa.BigInteger(), autoincrement=False, nullable=False),
     sa.Column('username', sa.String(), nullable=True),
@@ -47,6 +60,12 @@ def upgrade() -> None:
     sa.Column('avatar_s3_key', sa.String(), nullable=True),
     sa.Column('last_event_id', sa.UUID(), nullable=True),
     sa.Column('source_updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('privacy_last_seen', sa.String(length=16), server_default='everybody', nullable=False),
+    sa.Column('privacy_photo', sa.String(length=16), server_default='everybody', nullable=False),
+    sa.Column('privacy_messages', sa.String(length=16), server_default='everybody', nullable=False),
+    sa.Column('privacy_group_invites', sa.String(length=16), server_default='everybody', nullable=False),
+    sa.Column('privacy_calls', sa.String(length=16), server_default='everybody', nullable=False),
+    sa.Column('privacy_source_updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('user_id')
@@ -61,6 +80,7 @@ def upgrade() -> None:
     sa.Column('avatar_s3_key', sa.String(length=512), nullable=True),
     sa.Column('avatars', postgresql.JSONB(astext_type=sa.Text()), server_default='{}', nullable=False),
     sa.Column('is_public', sa.Boolean(), nullable=False),
+    sa.Column('join_by_request', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.Column('created_by', sa.BigInteger(), nullable=False),
     sa.Column('member_count', sa.Integer(), nullable=False),
     sa.Column('admin_only', sa.Boolean(), nullable=False),
@@ -124,10 +144,22 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_permissions_name'), 'permissions', ['name'], unique=True)
+    op.create_table('profile_privacy',
+    sa.Column('user_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('last_seen', sa.Enum('EVERYBODY', 'CONTACTS', 'NOBODY', name='privacyvisibility', native_enum=False, length=16), server_default='everybody', nullable=False),
+    sa.Column('photo', sa.Enum('EVERYBODY', 'CONTACTS', 'NOBODY', name='privacyvisibility', native_enum=False, length=16), server_default='everybody', nullable=False),
+    sa.Column('messages', sa.Enum('EVERYBODY', 'CONTACTS', 'NOBODY', name='privacyvisibility', native_enum=False, length=16), server_default='everybody', nullable=False),
+    sa.Column('group_invites', sa.Enum('EVERYBODY', 'CONTACTS', 'NOBODY', name='privacyvisibility', native_enum=False, length=16), server_default='everybody', nullable=False),
+    sa.Column('calls', sa.Enum('EVERYBODY', 'CONTACTS', 'NOBODY', name='privacyvisibility', native_enum=False, length=16), server_default='everybody', nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.PrimaryKeyConstraint('user_id')
+    )
     op.create_table('profiles',
     sa.Column('id', sa.BigInteger(), nullable=False),
     sa.Column('username', sa.String(), nullable=False),
     sa.Column('avatars', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('photo_id', sa.UUID(), nullable=True),
     sa.Column('display_name', sa.String(length=100), nullable=True),
     sa.Column('bio', sa.String(length=1024), nullable=True),
     sa.Column('specialization', sa.String(length=50), nullable=True),
@@ -136,10 +168,10 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('username')
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_profiles_tags', 'profiles', ['skills'], unique=False, postgresql_using='gin')
+    op.create_index('ix_profiles_username_lower', 'profiles', [sa.literal_column('lower(username)')], unique=False)
     op.create_table('roles',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('name', sa.String(length=64), nullable=False),
@@ -202,6 +234,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
     op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
+    op.create_index('uq_users_username_lower', 'users', [sa.literal_column('lower(username)')], unique=True)
     op.create_table('chat_invite_links',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('chat_id', sa.UUID(), nullable=False),
@@ -212,6 +245,7 @@ def upgrade() -> None:
     sa.Column('usage_limit', sa.Integer(), nullable=True),
     sa.Column('usage_count', sa.Integer(), nullable=False),
     sa.Column('revoked_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('creates_join_request', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['chat_id'], ['chats.id'], ondelete='CASCADE'),
@@ -257,8 +291,10 @@ def upgrade() -> None:
     sa.Column('forwarded_from_chat_id', sa.UUID(), nullable=True),
     sa.Column('forwarded_from_message_id', sa.UUID(), nullable=True),
     sa.Column('forwarded_from_author_id', sa.BigInteger(), nullable=True),
+    sa.Column('action', sa.Enum('MESSAGE_PINNED', name='systemmessageaction', native_enum=False, length=32), nullable=True),
     sa.Column('is_deleted', sa.Boolean(), nullable=False),
     sa.Column('is_edited', sa.Boolean(), nullable=False),
+    sa.Column('has_links', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['chat_id'], ['chats.id'], ondelete='CASCADE'),
@@ -268,6 +304,7 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_messages_content_tsvector', 'messages', [sa.literal_column("to_tsvector('simple', content)")], unique=False, postgresql_using='gin')
+    op.create_index('ix_messages_chat_links', 'messages', ['chat_id', 'seq'], unique=False, postgresql_where=sa.text('has_links AND is_deleted = false'))
     op.create_index('ix_messages_chat_not_deleted', 'messages', ['chat_id', 'seq'], unique=False, postgresql_where='is_deleted = false')
     op.create_table('oauth_accounts',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
@@ -296,6 +333,33 @@ def upgrade() -> None:
     sa.UniqueConstraint('profile_id', 'provider', name='unique_profile_provider')
     )
     op.create_index(op.f('ix_profile_links_profile_id'), 'profile_links', ['profile_id'], unique=False)
+    op.create_table('profile_photos',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('user_id', sa.BigInteger(), nullable=False),
+    sa.Column('avatars', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('set_main_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['user_id'], ['profiles.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_profile_photos_user_order', 'profile_photos', ['user_id', sa.literal_column('set_main_at DESC'), sa.literal_column('id DESC')], unique=False)
+    op.create_table('profile_privacy_exceptions',
+    sa.Column('owner_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('rule', sa.Enum('LAST_SEEN', 'PHOTO', 'MESSAGES', 'GROUP_INVITES', 'CALLS', name='privacyrule', native_enum=False, length=16), nullable=False),
+    sa.Column('target_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('allow', sa.Boolean(), nullable=False),
+    sa.ForeignKeyConstraint(['owner_id'], ['profile_privacy.user_id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('owner_id', 'rule', 'target_id')
+    )
+    op.create_table('read_receipt_marks',
+    sa.Column('chat_id', sa.UUID(), nullable=False),
+    sa.Column('user_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('seq', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('read_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['chat_id'], ['chats.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('chat_id', 'user_id', 'seq')
+    )
+    op.create_index('ix_read_receipt_marks_read_at_brin', 'read_receipt_marks', ['read_at'], unique=False, postgresql_using='brin')
     op.create_table('read_receipts',
     sa.Column('chat_id', sa.UUID(), nullable=False),
     sa.Column('user_id', sa.BigInteger(), nullable=False),
@@ -343,6 +407,20 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], onupdate='cascade', ondelete='cascade'),
     sa.PrimaryKeyConstraint('user_id', 'role_id')
     )
+    op.create_table('chat_join_requests',
+    sa.Column('chat_id', sa.UUID(), nullable=False),
+    sa.Column('user_id', sa.BigInteger(), autoincrement=False, nullable=False),
+    sa.Column('invite_link_id', sa.UUID(), nullable=True),
+    sa.Column('status', sa.Enum('PENDING', 'APPROVED', 'DECLINED', name='joinrequeststatus', native_enum=False, length=16), nullable=False),
+    sa.Column('requested_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('resolved_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('resolved_by', sa.BigInteger(), nullable=True),
+    sa.ForeignKeyConstraint(['chat_id'], ['chats.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['invite_link_id'], ['chat_invite_links.id'], ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('chat_id', 'user_id')
+    )
+    op.create_index('ix_chat_join_requests_pending', 'chat_join_requests', ['chat_id', sa.literal_column('requested_at DESC'), sa.literal_column('user_id DESC')], unique=False, postgresql_where=sa.text('resolved_at IS NULL'))
+    op.create_index('ix_chat_join_requests_user', 'chat_join_requests', ['user_id'], unique=False)
     op.create_table('chat_member_bans',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('member_id', sa.BigInteger(), nullable=False),
@@ -356,6 +434,17 @@ def upgrade() -> None:
     op.create_index(op.f('ix_chat_member_bans_banned_by_user_id'), 'chat_member_bans', ['banned_by_user_id'], unique=False)
     op.create_index('ix_chat_member_bans_member_banned_at', 'chat_member_bans', ['member_id', 'banned_at'], unique=False)
     op.create_index(op.f('ix_chat_member_bans_member_id'), 'chat_member_bans', ['member_id'], unique=False)
+    op.create_table('chat_pinned_messages',
+    sa.Column('chat_id', sa.UUID(), nullable=False),
+    sa.Column('message_id', sa.UUID(), nullable=False),
+    sa.Column('message_seq', sa.BigInteger(), nullable=False),
+    sa.Column('pinned_by', sa.BigInteger(), nullable=False),
+    sa.Column('pinned_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['chat_id'], ['chats.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['message_id'], ['messages.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('chat_id', 'message_id')
+    )
+    op.create_index('ix_chat_pinned_messages_chat_seq', 'chat_pinned_messages', ['chat_id', 'message_seq'], unique=False)
     op.create_table('message_attachments',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('message_id', sa.UUID(), nullable=True),
@@ -371,6 +460,9 @@ def upgrade() -> None:
     sa.Column('height', sa.Integer(), nullable=True),
     sa.Column('duration_seconds', sa.Integer(), nullable=True),
     sa.Column('source_attachment_id', sa.UUID(), nullable=True),
+    sa.Column('message_seq', sa.BigInteger(), nullable=True),
+    sa.Column('thumbhash', sa.String(length=64), nullable=True),
+    sa.Column('previews', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['message_id'], ['messages.id'], ondelete='CASCADE'),
@@ -378,6 +470,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_message_attachments_message_id'), 'message_attachments', ['message_id'], unique=False)
     op.create_index('ix_msg_attachments_chat_uploader', 'message_attachments', ['chat_id', 'uploader_id'], unique=False)
+    op.create_index('ix_msg_attachments_shared_media', 'message_attachments', ['chat_id', 'attachment_type', 'message_seq', 'id'], unique=False, postgresql_where=sa.text('message_seq IS NOT NULL'))
     op.create_table('message_reaction_counters',
     sa.Column('message_id', sa.UUID(), autoincrement=False, nullable=False),
     sa.Column('emoji', sa.String(length=32), nullable=False),
@@ -412,13 +505,19 @@ def downgrade() -> None:
     op.drop_table('message_reactions')
     op.drop_index('ix_message_reaction_counters_chat_message', table_name='message_reaction_counters')
     op.drop_table('message_reaction_counters')
+    op.drop_index('ix_msg_attachments_shared_media', table_name='message_attachments', postgresql_where=sa.text('message_seq IS NOT NULL'))
     op.drop_index('ix_msg_attachments_chat_uploader', table_name='message_attachments')
     op.drop_index(op.f('ix_message_attachments_message_id'), table_name='message_attachments')
     op.drop_table('message_attachments')
+    op.drop_index('ix_chat_pinned_messages_chat_seq', table_name='chat_pinned_messages')
+    op.drop_table('chat_pinned_messages')
     op.drop_index(op.f('ix_chat_member_bans_member_id'), table_name='chat_member_bans')
     op.drop_index('ix_chat_member_bans_member_banned_at', table_name='chat_member_bans')
     op.drop_index(op.f('ix_chat_member_bans_banned_by_user_id'), table_name='chat_member_bans')
     op.drop_table('chat_member_bans')
+    op.drop_index('ix_chat_join_requests_user', table_name='chat_join_requests')
+    op.drop_index('ix_chat_join_requests_pending', table_name='chat_join_requests', postgresql_where=sa.text('resolved_at IS NULL'))
+    op.drop_table('chat_join_requests')
     op.drop_table('user_roles')
     op.drop_table('user_permissions')
     op.drop_index(op.f('ix_sessions_user_id'), table_name='sessions')
@@ -428,6 +527,11 @@ def downgrade() -> None:
     op.drop_table('sessions')
     op.drop_table('role_permissions')
     op.drop_table('read_receipts')
+    op.drop_index('ix_read_receipt_marks_read_at_brin', table_name='read_receipt_marks', postgresql_using='brin')
+    op.drop_table('read_receipt_marks')
+    op.drop_table('profile_privacy_exceptions')
+    op.drop_index('ix_profile_photos_user_order', table_name='profile_photos')
+    op.drop_table('profile_photos')
     op.drop_index(op.f('ix_profile_links_profile_id'), table_name='profile_links')
     op.drop_table('profile_links')
     op.drop_index('uq_oauth_accounts_user_provider', table_name='oauth_accounts')
@@ -435,6 +539,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_oauth_accounts_user_id'), table_name='oauth_accounts')
     op.drop_table('oauth_accounts')
     op.drop_index('ix_messages_chat_not_deleted', table_name='messages', postgresql_where='is_deleted = false')
+    op.drop_index('ix_messages_chat_links', table_name='messages', postgresql_where=sa.text('has_links AND is_deleted = false'))
     op.drop_index('idx_messages_content_tsvector', table_name='messages', postgresql_using='gin')
     op.drop_table('messages')
     op.drop_index('ix_chat_members_user_pinned', table_name='chat_members', postgresql_where=sa.text('pinned_at IS NOT NULL'))
@@ -446,6 +551,7 @@ def downgrade() -> None:
     op.drop_table('chat_members')
     op.drop_index('ix_chat_invite_links_chat_id_id', table_name='chat_invite_links')
     op.drop_table('chat_invite_links')
+    op.drop_index('uq_users_username_lower', table_name='users')
     op.drop_index(op.f('ix_users_username'), table_name='users')
     op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_table('users')
@@ -459,8 +565,10 @@ def downgrade() -> None:
     op.drop_table('user_contacts')
     op.drop_index(op.f('ix_roles_name'), table_name='roles')
     op.drop_table('roles')
+    op.drop_index('ix_profiles_username_lower', table_name='profiles')
     op.drop_index('idx_profiles_tags', table_name='profiles', postgresql_using='gin')
     op.drop_table('profiles')
+    op.drop_table('profile_privacy')
     op.drop_index(op.f('ix_permissions_name'), table_name='permissions')
     op.drop_table('permissions')
     op.drop_index('ix_pending_contacts_identifier', table_name='pending_contacts')
@@ -478,6 +586,8 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_chats_last_activity_at'), table_name='chats')
     op.drop_table('chats')
     op.drop_table('chat_user_profiles')
+    op.drop_table('chat_user_privacy_exceptions')
+    op.drop_table('chat_user_contacts')
     op.drop_table('chat_user_blocks')
     op.drop_index(op.f('ix_chat_roles_name'), table_name='chat_roles')
     op.drop_table('chat_roles')
