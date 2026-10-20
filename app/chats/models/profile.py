@@ -10,7 +10,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.base_model import BaseModel, DateMixin
-from app.core.privacy import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility
+from app.privacy.utils import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility
 
 
 def _privacy_column() -> Mapped[str]:

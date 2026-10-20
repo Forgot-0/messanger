@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from app.core.db.repository import PageResult
-from app.core.privacy import PrivacyRule
+from app.privacy.utils import PrivacyRule
 from app.core.queries import BaseQuery, BaseQueryHandler
 from app.core.services.auth.dto import UserJWTData
 from app.profiles.dtos.profiles import ProfilePhotoDTO

@@ -1,6 +1,6 @@
 import pytest
 
-from app.core.privacy import PrivacyRule, PrivacyVisibility, is_allowed
+from app.privacy.utils import PrivacyRule, PrivacyVisibility, is_allowed
 
 
 @pytest.mark.unit

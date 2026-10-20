@@ -26,7 +26,7 @@ class GetChatDetailQueryHandler(BaseQueryHandler[GetChatDetailQuery, ChatDetailD
     async def handle(self, query: GetChatDetailQuery) -> ChatDetailDTO:
         user_id = int(query.user_jwt_data.id)
 
-        chat = await self.chat_repository.get_by_id(query.chat_id, with_members=True)
+        chat = await self.chat_repository.get_by_id(query.chat_id)
         if chat is None:
             raise NotFoundChatError(chat_id=str(query.chat_id))
 
@@ -36,7 +36,9 @@ class GetChatDetailQueryHandler(BaseQueryHandler[GetChatDetailQuery, ChatDetailD
         if member is None or member.is_banned:
             raise NotChatMemberError(chat_id=str(query.chat_id), user_id=user_id)
 
-        member_dtos = [MemberChatDTO.model_validate(item) for item in chat.members]
+        member_dtos = [MemberChatDTO.model_validate(item) for item in await self.chat_repository.get_chat_members(
+            chat_id=chat.id, limit=10,
+        )]
         await self.privacy_service.hide_avatars(user_id, [dto.profile for dto in member_dtos])
         await self.message_service.image_urls(
             [dto.profile for dto in member_dtos]

@@ -34,7 +34,7 @@ class GetListChatUserQuery(BaseQuery):
 class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListChats]):
     chat_repository: ChatRepository
     message_service: MessageService
-    coalesce_queue: ReadReceiptCoalesceQueue
+    read_coalesce_queue: ReadReceiptCoalesceQueue
     privacy_service: ChatPrivacyService
 
     async def handle(self, query: GetListChatUserQuery) -> ListChats:
@@ -62,7 +62,7 @@ class GetListChatUserQueryHandler(BaseQueryHandler[GetListChatUserQuery, ListCha
         listed = pinned + page
 
         pending, counterparts = await asyncio.gather(
-            self.coalesce_queue.peek_many(user_id, [chat.id for chat, *_ in listed]),
+            self.read_coalesce_queue.peek_many(user_id, [chat.id for chat, *_ in listed]),
             self.chat_repository.get_chat_counterparts(
                 user_id=user_id,
                 chat_ids=[

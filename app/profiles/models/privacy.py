@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db.base_model import BaseModel, DateMixin
 from app.core.events.event import BaseEvent
-from app.core.privacy import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility
+from app.privacy.utils import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility
 from app.profiles.config import profile_config
 from app.profiles.exceptions import PrivacyExceptionsLimitError
 
@@ -19,7 +19,7 @@ class PrivacyUpdated(BaseEvent):
 
     __event_name__: str = "profiles.privacy.updated"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.user_id)
 
 

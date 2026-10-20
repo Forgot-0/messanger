@@ -41,7 +41,7 @@ class TestChatJoinRequest:
         assert event.get_name() == "chats.join_request.created"
         assert event.user_id == 42
         assert event.invite_link_id == str(link_id)
-        assert event.get_partition_key() == str(chat_id)
+        assert event.get_aggregate_id() == str(chat_id)
 
     def test_approve_resolves_row_and_leaves_the_event_to_the_chat(self) -> None:
         request = ChatJoinRequest.create(chat_id=uuid7(), user_id=42)
@@ -148,7 +148,7 @@ class TestChatJoinRequestBatchEvents:
         assert event.get_name() == "chats.join_request.approved"
         assert event.user_ids == [42, 43]
         assert event.role_id == int(ChatRoleId.MEMBER)
-        assert event.get_partition_key() == str(chat.id)
+        assert event.get_aggregate_id() == str(chat.id)
 
     def test_declined_batch_is_one_event(self) -> None:
         chat = self._chat()

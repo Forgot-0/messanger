@@ -37,7 +37,7 @@ class CreatedChatJoinRequestEvent(BaseEvent):
 
     __event_name__ = "chats.join_request.created"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -50,7 +50,7 @@ class ApprovedChatJoinRequestsEvent(BaseEvent):
 
     __event_name__ = "chats.join_request.approved"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -64,7 +64,7 @@ class DeclinedChatJoinRequestsEvent(BaseEvent):
 
     __event_name__ = "chats.join_request.declined"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -75,7 +75,7 @@ class CancelledChatJoinRequestEvent(BaseEvent):
 
     __event_name__ = "chats.join_request.cancelled"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 

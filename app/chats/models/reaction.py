@@ -35,7 +35,7 @@ class ReactionUpdatedEvent(BaseEvent):
 
     __event_name__ = "chats.message.reaction_updated"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 

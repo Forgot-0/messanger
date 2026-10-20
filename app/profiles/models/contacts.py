@@ -44,7 +44,7 @@ class ContactAdded(BaseEvent):
 
     __event_name__: str = "profiles.contact.added"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.owner_id)
 
 
@@ -55,7 +55,7 @@ class ContactRemoved(BaseEvent):
 
     __event_name__: str = "profiles.contact.removed"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.owner_id)
 
 
@@ -66,7 +66,7 @@ class UserBlocked(BaseEvent):
 
     __event_name__: str = "profiles.user.blocked"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.owner_id)
 
 
@@ -77,7 +77,7 @@ class UserUnblocked(BaseEvent):
 
     __event_name__: str = "profiles.user.unblocked"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.owner_id)
 
 

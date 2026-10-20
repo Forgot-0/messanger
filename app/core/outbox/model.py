@@ -1,6 +1,5 @@
-from enum import StrEnum
 from typing import Any, Self
-from uuid import UUID, uuid7
+from uuid import UUID
 
 from sqlalchemy import (
     UUID as SAUUID,
@@ -13,16 +12,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db.base_model import BaseModel, DateMixin
 
 
-class OutboxStatus(StrEnum):
-    PENDING = "pending"
-    PUBLISHED = "published"
-    FAILED = "failed"
-
-
 class OutboxMessage(BaseModel, DateMixin):
     __tablename__ = "outbox_messages"
 
-    id: Mapped[UUID] = mapped_column(SAUUID(as_uuid=True), primary_key=True, default=uuid7)
+    id: Mapped[UUID] = mapped_column(SAUUID(as_uuid=True), primary_key=True)
 
     aggregate_type: Mapped[str] = mapped_column(String(128), nullable=False)
     aggregate_id: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -42,13 +35,14 @@ class OutboxMessage(BaseModel, DateMixin):
         cls,
         *,
         aggregate_id: str,
+        event_id: UUID,
         event_name: str,
         payload: dict[str, Any],
         headers: dict[str, Any] | None = None,
     ) -> Self:
         return cls(
-            id=uuid7(),
-            aggregate_type=event_name.split(".")[1],
+            id=event_id,
+            aggregate_type=event_name.split(".", maxsplit=1)[0],
             aggregate_id=aggregate_id,
             event_name=event_name,
             topic=event_name.split(".", maxsplit=1)[0],

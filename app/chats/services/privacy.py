@@ -11,7 +11,7 @@ from app.chats.exceptions import (
 from app.chats.models.chat import Chat, ChatType
 from app.chats.repositories.blocks import ChatUserBlockRepository
 from app.chats.repositories.privacy import ChatPrivacyProjectionRepository, DirectPeerState
-from app.core.privacy import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility, is_allowed
+from app.privacy.utils import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility, is_allowed
 
 
 @dataclass

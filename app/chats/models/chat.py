@@ -77,7 +77,7 @@ class CreatedChatEvent(BaseEvent):
 
     __event_name__ = "chats.chat.created"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -100,7 +100,7 @@ class UpdatedChatEvent(BaseEvent):
 
     __event_name__ = "chats.chat.updated"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -113,7 +113,7 @@ class TransferredChatOwnershipEvent(BaseEvent):
 
     __event_name__ = "chats.chat.ownership_transferred"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -124,7 +124,7 @@ class DeletedChatEvent(BaseEvent):
 
     __event_name__ = "chats.chat.deleted"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -136,7 +136,7 @@ class AddedChatMemberEvent(BaseEvent):
 
     __event_name__ = "chats.member.added"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -148,7 +148,7 @@ class KickedChatMemberEvent(BaseEvent):
 
     __event_name__ = "chats.member.kicked"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -161,7 +161,7 @@ class BannedChatMemberEvent(BaseEvent):
 
     __event_name__ = "chats.member.banned"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -175,7 +175,7 @@ class MutedChatMemberEvent(BaseEvent):
 
     __event_name__ = "chats.member.muted"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 
@@ -186,7 +186,7 @@ class LeftChatMemberEvent(BaseEvent):
 
     __event_name__ = "chats.member.left"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.chat_id)
 
 

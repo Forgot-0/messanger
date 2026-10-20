@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.outbox.model import OutboxMessage
-from app.core.privacy import PrivacyRule, PrivacyVisibility
+from app.privacy.utils import PrivacyRule, PrivacyVisibility
 from app.core.services.auth.dto import UserJWTData
 from app.profiles.config import profile_config
 from app.profiles.models.privacy import PrivacyUpdated

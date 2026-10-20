@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, model_validator
 
-from app.core.privacy import PrivacyRule, PrivacyVisibility
+from app.privacy.utils import PrivacyRule, PrivacyVisibility
 from app.profiles.config import profile_config
 
 

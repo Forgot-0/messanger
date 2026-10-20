@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.commands import BaseCommand, BaseCommandHandler
 from app.core.events.service import BaseEventBus
-from app.core.privacy import PrivacyRule, PrivacyVisibility
+from app.privacy.utils import PrivacyRule, PrivacyVisibility
 from app.profiles.dtos.privacy import PrivacySettingsDTO
 from app.profiles.repositories.privacy import ProfilePrivacyRepository
 

@@ -53,19 +53,12 @@ class ChatRepository(IRepository[Chat], CacheRepository):
     async def get_by_id(
         self,
         chat_id: UUID,
-        with_members: bool = False,
         with_for_update: bool = False,
     ) -> Chat | None:
         stmt = Chat.select_not_deleted().where(Chat.id == chat_id)
 
         if with_for_update:
             stmt = stmt.with_for_update()
-
-        if with_members:
-            stmt = stmt.options(
-                selectinload(Chat.members).selectinload(ChatMember.role),
-                selectinload(Chat.members).selectinload(ChatMember.profile),
-            )
 
         result = await self.session.execute(stmt)
         return result.scalar()

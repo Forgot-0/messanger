@@ -29,7 +29,7 @@ class CreatedUserEvent(BaseEvent):
 
     __event_name__: str = "auth.user.created"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.username)
 
 
@@ -41,7 +41,7 @@ class VerifiedUserEvent(BaseEvent):
 
     __event_name__: str = "auth.user.verified"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.user_id)
 
 
@@ -53,7 +53,7 @@ class DeletedUserEvent(BaseEvent):
 
     __event_name__: str = "auth.user.deleted"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.user_id)
 
 
@@ -65,7 +65,7 @@ class ChangedUsernameEvent(BaseEvent):
 
     __event_name__: str = "auth.user.username_changed"
 
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         return str(self.user_id)
 
 

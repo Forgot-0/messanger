@@ -64,6 +64,23 @@ class ValidationError(ApplicationError):
 
 
 @dataclass(kw_only=True)
+class RateLimitError(ApplicationError):
+    expire: str
+    code: str = "TOO_MANY_REQEST"
+    status: int = 429
+
+    @property
+    def message(self) -> str:
+        return "Too Many Requests"
+
+    @property
+    def detail(self) :
+        return {
+            "RetryAfter": self.expire
+        }
+
+
+@dataclass(kw_only=True)
 class IdempotencyConflictError(ApplicationError):
     key: str
     code: str = "IDEMPOTENCY_CONFLICT"

@@ -81,7 +81,7 @@ class TestChangeUsername:
         event = events[0]
         assert isinstance(event, ChangedUsernameEvent)
         assert event.get_name() == "auth.user.username_changed"
-        assert event.get_partition_key() == "7"
+        assert event.get_aggregate_id() == "7"
         assert (event.user_id, event.old_username, event.username) == (7, "old_name", "New_Name")
 
     def test_same_name_changes_nothing(self) -> None:

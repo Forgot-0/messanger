@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db.repository import IRepository
-from app.core.privacy import PrivacyRule, PrivacyVisibility
+from app.privacy.utils import PrivacyRule, PrivacyVisibility
 from app.profiles.models.privacy import ProfilePrivacy, ProfilePrivacyException
 
 

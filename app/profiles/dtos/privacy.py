@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from app.core.privacy import PrivacyRule, PrivacyVisibility
+from app.privacy.utils import PrivacyRule, PrivacyVisibility
 
 
 class PrivacyExceptionsDTO(BaseModel):

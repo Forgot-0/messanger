@@ -2,7 +2,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.core.privacy import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility, is_allowed
+from app.privacy.utils import DEFAULT_VISIBILITY, PrivacyRule, PrivacyVisibility, is_allowed
 from app.profiles.repositories.contacts import ContactRepository
 from app.profiles.repositories.privacy import ProfilePrivacyRepository
 

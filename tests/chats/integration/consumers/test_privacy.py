@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chats.config import chat_config
 from app.chats.models.privacy import ChatUserPrivacyException
 from app.chats.models.profile import ChatUserProfile
-from app.core.privacy import PrivacyRule, PrivacyVisibility
+from app.privacy.utils import PrivacyRule, PrivacyVisibility
 from app.core.utils import now_utc
 
 USER_ID = 77

@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID, uuid7
 
 from app.core.exceptions import FieldRequiredError
 from app.core.utils import now_utc
@@ -12,7 +12,7 @@ from app.core.utils import now_utc
 
 @dataclass(frozen=True)
 class BaseEvent(ABC):
-    event_id: UUID = field(default_factory=uuid4, kw_only=True)
+    event_id: UUID = field(default_factory=uuid7, kw_only=True)
     created_at: datetime = field(default_factory=now_utc, kw_only=True)
 
     @classmethod
@@ -23,7 +23,7 @@ class BaseEvent(ABC):
         return name
 
     @abstractmethod
-    def get_partition_key(self) -> str:
+    def get_aggregate_id(self) -> str:
         ...
 
 @dataclass(frozen=True)
